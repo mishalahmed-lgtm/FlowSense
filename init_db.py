@@ -107,6 +107,24 @@ try:
                 "}}"
             ),
         ),
+        DeviceType(
+            name="HTTP",
+            description="Generic HTTP device (accepts any JSON payload)",
+            protocol="HTTP",
+            schema_definition='{"type": "object", "additionalProperties": true}'
+        ),
+        DeviceType(
+            name="MQTT",
+            description="Generic MQTT device (accepts any JSON payload)",
+            protocol="MQTT",
+            schema_definition='{"type": "object", "additionalProperties": true}'
+        ),
+        DeviceType(
+            name="TCP",
+            description="Generic TCP device (JSON over TCP, accepts any JSON payload)",
+            protocol="TCP",
+            schema_definition='{"type": "object", "additionalProperties": true}'
+        ),
     ]
     
     for dt in device_types:
