@@ -240,8 +240,9 @@ def list_devices(
     devices = query.all()
 
     # Determine live status from latest telemetry timestamps
+    # Increased to 10 minutes to accommodate devices with longer reporting intervals
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=90)
+    cutoff = now - timedelta(seconds=600)
     live_map: Dict[int, bool] = {}
     dashboard_map: Dict[int, bool] = {}
 

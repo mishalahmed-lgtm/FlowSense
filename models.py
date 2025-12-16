@@ -90,6 +90,7 @@ class Device(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    alerts = relationship("Alert", back_populates="device", cascade="all, delete-orphan")
 
 
 class ProvisioningKey(Base):
@@ -260,4 +261,161 @@ class UtilityInvoice(Base):
     status = Column(String(20), nullable=False, default="draft")  # draft, issued, paid
     tariff_snapshot = Column(JSON, nullable=True)  # tariff details at calculation time
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AlertPriority(str, enum.Enum):
+    """Alert priority levels."""
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+
+class AlertStatus(str, enum.Enum):
+    """Alert status."""
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+    CLOSED = "closed"
+
+
+class AlertRule(Base):
+    """Alert rules that define when alerts should be triggered."""
+    __tablename__ = "alert_rules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text, nullable=True)
+    
+    # Scope: device-specific, tenant-specific, or global
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=True, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True)
+    
+    # Condition: JSON condition similar to DeviceRule
+    condition = Column(JSON, nullable=False)
+    
+    # Alert properties
+    priority = Column(Enum(AlertPriority), nullable=False, default=AlertPriority.MEDIUM, index=True)
+    title_template = Column(String(500), nullable=False)  # Template for alert title
+    message_template = Column(Text, nullable=True)  # Template for alert message
+    
+    # Notification channels
+    notify_email = Column(Boolean, default=True)
+    notify_sms = Column(Boolean, default=False)
+    notify_webhook = Column(Boolean, default=False)
+    webhook_url = Column(Text, nullable=True)
+    
+    # Escalation rules
+    escalation_enabled = Column(Boolean, default=False)
+    escalation_delay_minutes = Column(Integer, default=30)  # Escalate after X minutes if not acknowledged
+    escalation_priority = Column(Enum(AlertPriority), nullable=True)  # New priority after escalation
+    
+    # Aggregation (prevent flooding)
+    aggregation_enabled = Column(Boolean, default=True)
+    aggregation_window_minutes = Column(Integer, default=5)  # Group alerts within X minutes
+    max_alerts_per_window = Column(Integer, default=10)  # Max alerts before throttling
+    
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    device = relationship("Device")
+    tenant = relationship("Tenant")
+    alerts = relationship("Alert", back_populates="rule")
+
+
+class Alert(Base):
+    """Alert instances triggered by alert rules."""
+    __tablename__ = "alerts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    rule_id = Column(Integer, ForeignKey("alert_rules.id", ondelete="SET NULL"), nullable=True, index=True)
+    device_id = Column(Integer, ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Alert details
+    title = Column(String(500), nullable=False)
+    message = Column(Text, nullable=True)
+    priority = Column(Enum(AlertPriority), nullable=False, index=True)
+    status = Column(Enum(AlertStatus), nullable=False, default=AlertStatus.OPEN, index=True)
+    
+    # Context data
+    trigger_data = Column(JSON, nullable=True)  # The telemetry/event that triggered this alert
+    alert_metadata = Column(JSON, nullable=True)  # Additional context (renamed from metadata to avoid SQLAlchemy conflict)
+    
+    # Timestamps
+    triggered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+    acknowledged_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    resolved_at = Column(DateTime(timezone=True), nullable=True)
+    resolved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)
+    closed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
+    # Escalation
+    escalated = Column(Boolean, default=False)
+    escalated_at = Column(DateTime(timezone=True), nullable=True)
+    escalated_priority = Column(Enum(AlertPriority), nullable=True)
+    
+    # Aggregation
+    aggregated_count = Column(Integer, default=1)  # Number of similar alerts grouped together
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    rule = relationship("AlertRule", back_populates="alerts")
+    device = relationship("Device")
+    tenant = relationship("Tenant")
+    acknowledger = relationship("User", foreign_keys=[acknowledged_by])
+    resolver = relationship("User", foreign_keys=[resolved_by])
+    closer = relationship("User", foreign_keys=[closed_by])
+    notifications = relationship("Notification", back_populates="alert", cascade="all, delete-orphan")
+    audit_logs = relationship("AlertAuditLog", back_populates="alert", cascade="all, delete-orphan")
+
+
+class Notification(Base):
+    """Notification attempts for alerts."""
+    __tablename__ = "notifications"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    alert_id = Column(Integer, ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Channel
+    channel = Column(String(50), nullable=False, index=True)  # email, sms, webhook, push
+    
+    # Recipient
+    recipient = Column(String(255), nullable=False)  # email address, phone number, webhook URL, etc.
+    
+    # Status
+    status = Column(String(50), nullable=False, default="pending", index=True)  # pending, sent, failed, retrying
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
+    
+    # Content
+    subject = Column(String(500), nullable=True)
+    body = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    alert = relationship("Alert", back_populates="notifications")
+
+
+class AlertAuditLog(Base):
+    """Audit trail for alert actions."""
+    __tablename__ = "alert_audit_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    alert_id = Column(Integer, ForeignKey("alerts.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    
+    action = Column(String(100), nullable=False, index=True)  # created, acknowledged, resolved, closed, escalated, updated
+    details = Column(JSON, nullable=True)  # Additional action details
+    ip_address = Column(String(50), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    
+    alert = relationship("Alert", back_populates="audit_logs")
+    user = relationship("User")
 

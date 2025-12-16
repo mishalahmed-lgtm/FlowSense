@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     # Path to the tenant billing report inside Jasper, e.g. "/reports/iot/tenant_utility_billing"
     jasper_tenant_billing_path: Optional[str] = None
     
+    # Email notifications (SMTP)
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_from: str = "alerts@flowsense.com"
+    
+    # SMS notifications (optional - integrate with Twilio, AWS SNS, etc.)
+    sms_provider: Optional[str] = None
+    sms_api_key: Optional[str] = None
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

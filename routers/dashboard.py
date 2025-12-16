@@ -324,3 +324,146 @@ def get_device_readings(
     return readings
 
 
+class FieldMetadata(BaseModel):
+    """Metadata about a telemetry field for dynamic widget generation."""
+    key: str
+    display_name: str
+    field_type: str  # "number", "boolean", "string", "object"
+    unit: Optional[str] = None
+    min_value: Optional[float] = None
+    max_value: Optional[float] = None
+    sample_value: Any = None
+
+
+@router.get(
+    "/devices/{device_id}/fields",
+    response_model=List[FieldMetadata],
+)
+def get_device_fields(
+    device_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Discover available telemetry fields for dynamic widget generation.
+    
+    Analyzes the latest telemetry payload and recent timeseries data to return
+    metadata about each field, including suggested display names, data types,
+    and value ranges. This enables dynamic widget creation without hardcoding
+    field mappings for each device type.
+    """
+    device = db.query(Device).filter(Device.device_id == device_id).one_or_none()
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found",
+        )
+    
+    # Tenant admins can only access their own tenant's devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access devices from your own tenant"
+        )
+    
+    # Get latest telemetry to discover fields
+    latest = (
+        db.query(TelemetryLatest)
+        .filter(TelemetryLatest.device_id == device.id)
+        .one_or_none()
+    )
+    
+    if not latest or not latest.data:
+        return []
+    
+    # Recursively extract all fields from nested payload
+    def extract_fields(obj: Any, prefix: str = "") -> List[Dict[str, Any]]:
+        """Extract all fields from a nested dictionary."""
+        fields = []
+        
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                field_path = f"{prefix}.{key}" if prefix else key
+                
+                if isinstance(value, dict):
+                    # Recurse into nested objects
+                    fields.extend(extract_fields(value, field_path))
+                elif isinstance(value, (int, float)):
+                    fields.append({
+                        "key": field_path,
+                        "type": "number",
+                        "sample_value": value
+                    })
+                elif isinstance(value, bool):
+                    fields.append({
+                        "key": field_path,
+                        "type": "boolean",
+                        "sample_value": value
+                    })
+                elif isinstance(value, str):
+                    fields.append({
+                        "key": field_path,
+                        "type": "string",
+                        "sample_value": value
+                    })
+        
+        return fields
+    
+    discovered_fields = extract_fields(latest.data)
+    
+    # Get min/max values from timeseries for numeric fields
+    field_metadata_list = []
+    for field in discovered_fields:
+        field_key = field["key"]
+        field_type = field["type"]
+        
+        # Generate human-readable display name
+        # Convert "battery.soc" -> "Battery SOC", "environment.temperature" -> "Environment Temperature"
+        display_name = field_key.replace("_", " ").replace(".", " - ").title()
+        
+        # Try to detect common units from field names
+        unit = None
+        if "temp" in field_key.lower():
+            unit = "°C"
+        elif "humid" in field_key.lower():
+            unit = "%"
+        elif "voltage" in field_key.lower():
+            unit = "V"
+        elif "power" in field_key.lower() and "w" in field_key.lower():
+            unit = "W"
+        elif "soc" in field_key.lower() or "battery" in field_key.lower() and "level" not in field_key.lower():
+            unit = "%"
+        elif "pm25" in field_key.lower() or "pm10" in field_key.lower():
+            unit = "μg/m³"
+        elif "co2" in field_key.lower():
+            unit = "ppm"
+        
+        # Get min/max from recent timeseries data (numeric fields only)
+        min_val = None
+        max_val = None
+        if field_type == "number":
+            stats = db.query(
+                TelemetryTimeseries.value
+            ).filter(
+                TelemetryTimeseries.device_id == device.id,
+                TelemetryTimeseries.key == field_key
+            ).order_by(TelemetryTimeseries.ts.desc()).limit(100).all()
+            
+            if stats:
+                values = [s[0] for s in stats if s[0] is not None]
+                if values:
+                    min_val = min(values)
+                    max_val = max(values)
+        
+        field_metadata_list.append(FieldMetadata(
+            key=field_key,
+            display_name=display_name,
+            field_type=field_type,
+            unit=unit,
+            min_value=min_val,
+            max_value=max_val,
+            sample_value=field["sample_value"]
+        ))
+    
+    return field_metadata_list
+
+

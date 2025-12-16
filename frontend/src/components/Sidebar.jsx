@@ -50,6 +50,18 @@ export default function Sidebar() {
         ],
       });
     }
+
+    if (hasModule("alerts")) {
+      navItems.push({
+        label: "Alerts",
+        path: "/alerts",
+        module: "alerts",
+        subLinks: [
+          { label: "Alert List", target: "" },
+          { label: "Alert Rules", target: "/rules" },
+        ],
+      });
+    }
   }
 
   const renderSubLinks = (item) => {

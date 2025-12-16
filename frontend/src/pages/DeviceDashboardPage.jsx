@@ -91,7 +91,89 @@ const WIDGET_LIBRARY = [
     unit: "°C",
     icon: "📉",
   },
+  // Smart Bench – common widgets
+  {
+    id: "bench-env-temperature",
+    type: "thermometer",
+    title: "Outdoor Temperature",
+    field: "environment.temperature",
+    unit: "°C",
+    min: -20,
+    max: 60,
+    icon: "🌤️",
+  },
+  {
+    id: "bench-env-co2",
+    type: "number",
+    title: "Carbon Dioxide Level (Air Quality)",
+    field: "environment.co2",
+    unit: "",
+    icon: "🫧",
+  },
+  {
+    id: "bench-env-pm25",
+    type: "number",
+    title: "Fine Dust Level (Air Quality)",
+    field: "environment.pm25",
+    unit: "",
+    icon: "🌫️",
+  },
+  {
+    id: "bench-battery-soc",
+    type: "battery",
+    title: "Battery Charge Level",
+    field: "battery.soc",
+    min: 0,
+    max: 100,
+    icon: "🔋",
+  },
+  {
+    id: "bench-occupancy-total",
+    type: "number",
+    title: "Number of Seats Used",
+    field: "occupancy.total",
+    unit: "",
+    icon: "🪑",
+  },
+  {
+    id: "bench-charging-power",
+    type: "number",
+    title: "Charging Power (USB/Wireless)",
+    field: "charging.powerW",
+    unit: "W",
+    icon: "⚡",
+  },
+  {
+    id: "bench-chart-temperature",
+    type: "chart",
+    title: "Outdoor Temperature History",
+    field: "environment.temperature",
+    unit: "°C",
+    icon: "📈",
+  },
+  {
+    id: "bench-chart-battery-soc",
+    type: "chart",
+    title: "Battery Charge History",
+    field: "battery.soc",
+    unit: "%",
+    icon: "📉",
+  },
 ];
+
+// Helper to support nested field paths like "battery.soc"
+function getValueByField(data, field) {
+  if (!data || !field) return undefined;
+  if (!field.includes(".")) {
+    return data[field];
+  }
+  return field.split(".").reduce((acc, part) => {
+    if (acc && typeof acc === "object" && part in acc) {
+      return acc[part];
+    }
+    return undefined;
+  }, data);
+}
 
 export default function DeviceDashboardPage() {
   const { deviceId } = useParams();
@@ -133,6 +215,7 @@ export default function DeviceDashboardPage() {
     detectAnomalies: true,
   });
   const [availableKeys, setAvailableKeys] = useState([]);
+  const [discoveredFields, setDiscoveredFields] = useState([]);
 
   // Load device and dashboard config
   useEffect(() => {
@@ -253,6 +336,20 @@ export default function DeviceDashboardPage() {
     loadKeys();
   }, [api, deviceId, device]);
 
+  // Load discovered fields from telemetry for dynamic widgets
+  useEffect(() => {
+    if (!deviceId || !device) return;
+    const loadFields = async () => {
+      try {
+        const resp = await api.get(`/dashboard/devices/${deviceId}/fields`);
+        setDiscoveredFields(resp.data || []);
+      } catch (err) {
+        console.error("Failed to load discovered fields:", err);
+      }
+    };
+    loadFields();
+  }, [api, deviceId, device]);
+
   // Load readings when component mounts (will be shown/hidden by Collapsible)
   useEffect(() => {
     if (!deviceId) return;
@@ -347,8 +444,87 @@ export default function DeviceDashboardPage() {
     }
   };
 
+  // Generate dynamic widgets from discovered fields
+  const dynamicWidgets = useMemo(() => {
+    if (!discoveredFields || discoveredFields.length === 0) return [];
+    
+    const widgets = [];
+    
+    discoveredFields.forEach((field) => {
+      // Only create widgets for numeric fields
+      if (field.field_type !== 'number') return;
+      
+      const baseId = `dynamic-${field.key.replace(/\./g, '-')}`;
+      
+      // Determine sensible min/max for gauges based on field name or use discovered values
+      let min = field.min_value ?? 0;
+      let max = field.max_value ?? 100;
+      
+      // Adjust ranges based on field semantics
+      if (field.unit === '%') {
+        min = 0;
+        max = 100;
+      } else if (field.unit === '°C') {
+        min = field.min_value ?? -20;
+        max = field.max_value ?? 50;
+      } else if (field.min_value !== null && field.max_value !== null) {
+        // Add 10% padding to discovered range
+        const range = field.max_value - field.min_value;
+        min = Math.floor(field.min_value - range * 0.1);
+        max = Math.ceil(field.max_value + range * 0.1);
+      }
+      
+      // Create gauge widget for this field
+      widgets.push({
+        id: `${baseId}-gauge`,
+        type: 'gauge',
+        title: field.display_name,
+        field: field.key,
+        unit: field.unit || '',
+        min,
+        max,
+        icon: '📊',
+        isDynamic: true,
+      });
+      
+      // Create number widget
+      widgets.push({
+        id: `${baseId}-number`,
+        type: 'number',
+        title: `${field.display_name} (Number)`,
+        field: field.key,
+        unit: field.unit || '',
+        icon: '🔢',
+        isDynamic: true,
+      });
+      
+      // Create chart widget for historical view
+      widgets.push({
+        id: `${baseId}-chart`,
+        type: 'chart',
+        title: `${field.display_name} History`,
+        field: field.key,
+        unit: field.unit || '',
+        icon: '📈',
+        isDynamic: true,
+      });
+    });
+    
+    return widgets;
+  }, [discoveredFields]);
+
+  // Only show widgets that match the device's actual telemetry fields
+  const allWidgetLibrary = useMemo(() => {
+    // If we have discovered fields, only show dynamic widgets generated from device's actual fields
+    if (discoveredFields && discoveredFields.length > 0) {
+      return dynamicWidgets;
+    }
+    // Fallback: if no telemetry yet, show empty (user will see widgets once device sends data)
+    return [];
+  }, [dynamicWidgets, discoveredFields]);
+
   const renderWidget = (widget) => {
-    const value = telemetryData[widget.field];
+    const value = getValueByField(telemetryData, widget.field);
     const history = historyData[widget.field];
 
     switch (widget.type) {
@@ -646,19 +822,30 @@ export default function DeviceDashboardPage() {
             {editMode && (
               <div className="widget-library">
                 <h3>Widget Library</h3>
-                <p className="muted">Click to add widgets to your dashboard</p>
-                <div className="widget-library__grid">
-                  {WIDGET_LIBRARY.map((widget) => (
-                    <div
-                      key={widget.id}
-                      className="widget-library__item"
-                      onClick={() => handleAddWidget(widget)}
-                    >
-                      <span className="widget-library__icon">{widget.icon}</span>
-                      <span className="widget-library__title">{widget.title}</span>
-                    </div>
-                  ))}
-                </div>
+                <p className="muted">Click to add widgets to your dashboard. Widgets are auto-generated from your device's telemetry fields.</p>
+                {allWidgetLibrary.length === 0 ? (
+                  <div style={{ padding: 'var(--space-6)', textAlign: 'center', backgroundColor: 'var(--color-gray-50)', borderRadius: 'var(--radius-md)' }}>
+                    <p className="text-muted">No widgets available yet.</p>
+                    <p className="text-muted" style={{ fontSize: 'var(--font-size-sm)' }}>
+                      Widgets will appear automatically once the device sends telemetry data. Make sure the device is active and sending data.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="widget-library__grid">
+                    {allWidgetLibrary.map((widget) => (
+                      <div
+                        key={widget.id}
+                        className="widget-library__item"
+                        onClick={() => handleAddWidget(widget)}
+                        style={widget.isDynamic ? { borderColor: 'var(--color-primary-300)' } : {}}
+                      >
+                        <span className="widget-library__icon">{widget.icon}</span>
+                        <span className="widget-library__title">{widget.title}</span>
+                        {widget.isDynamic && <span style={{ fontSize: '0.7em', color: 'var(--color-primary-600)' }}>●</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -666,7 +853,15 @@ export default function DeviceDashboardPage() {
             {!widgets || widgets.length === 0 ? (
               <div className="empty-dashboard">
                 <p>No widgets yet.</p>
-                {editMode && <p>Click on a widget from the library to add it.</p>}
+                {editMode && (
+                  <>
+                    {allWidgetLibrary.length === 0 ? (
+                      <p>Waiting for device telemetry... Widgets will appear automatically once the device sends data.</p>
+                    ) : (
+                      <p>Click on a widget from the library to add it.</p>
+                    )}
+                  </>
+                )}
               </div>
             ) : (
               <ResponsiveGridLayout

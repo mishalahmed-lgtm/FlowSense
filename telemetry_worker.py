@@ -20,6 +20,7 @@ from kafka.errors import NoBrokersAvailable
 
 from database import SessionLocal
 from models import Device, TelemetryLatest, TelemetryTimeseries
+from alert_engine import alert_engine
 
 logger = logging.getLogger("telemetry_worker")
 logging.basicConfig(
@@ -48,15 +49,20 @@ def db_session_scope():
         session.close()
 
 
-def _flatten_payload(payload: Dict[str, Any]) -> Iterable[Dict[str, Any]]:
+def _flatten_payload(payload: Dict[str, Any], prefix: str = "") -> Iterable[Dict[str, Any]]:
     """Flatten a telemetry payload into (key, value) pairs for time-series storage.
 
-    For now we only handle top-level numeric fields (ints/floats). This can be
-    extended to support nested objects or tags in the future.
+    Recursively walks the payload and emits numeric fields (ints/floats) using
+    dotted-notation keys for nested structures, e.g.:
+      {"battery": {"soc": 83}} -> key="battery.soc"
     """
     for key, value in payload.items():
+        full_key = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
         if isinstance(value, (int, float)):
-            yield {"key": key, "value": float(value)}
+            yield {"key": full_key, "value": float(value)}
+        elif isinstance(value, dict):
+            # Recurse into nested objects
+            yield from _flatten_payload(value, full_key)
 
 
 def _parse_event_timestamp(metadata: Dict[str, Any]) -> datetime:
@@ -75,13 +81,20 @@ def _parse_event_timestamp(metadata: Dict[str, Any]) -> datetime:
 def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str, Any]) -> None:
     """Persist latest and time-series telemetry for a single message."""
     event_ts = _parse_event_timestamp(metadata or {})
-
+    
+    device_db_id = None
+    tenant_db_id = None
+    
     with db_session_scope() as db:
         device = db.query(Device).filter(Device.device_id == device_id).one_or_none()
         if not device:
             logger.warning("Received telemetry for unknown device_id=%s", device_id)
             return
-
+        
+        # Store device info for alert processing
+        device_db_id = device.id
+        tenant_db_id = device.tenant_id
+        
         # Upsert latest record
         latest = (
             db.query(TelemetryLatest)
@@ -98,7 +111,7 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
         else:
             latest.data = payload
             latest.event_timestamp = event_ts
-
+        
         # Append time-series points for numeric fields
         for item in _flatten_payload(payload):
             ts_row = TelemetryTimeseries(
@@ -108,6 +121,18 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
                 value=item["value"],
             )
             db.add(ts_row)
+    
+    # Process alert rules (after committing telemetry, outside db session)
+    if device_db_id and tenant_db_id:
+        try:
+            alert_engine.process_telemetry(
+                device_id=device_db_id,
+                tenant_id=tenant_db_id,
+                payload=payload,
+                metadata=metadata
+            )
+        except Exception as e:
+            logger.error(f"Error processing alerts for device {device_id}: {e}", exc_info=True)
 
 
 def run_worker() -> None:

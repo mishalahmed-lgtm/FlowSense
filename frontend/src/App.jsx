@@ -11,6 +11,8 @@ import UtilityBillingPage from "./pages/UtilityBillingPage.jsx";
 import AdminPortalPage from "./pages/AdminPortalPage.jsx";
 import TenantManagementPage from "./pages/TenantManagementPage.jsx";
 import UserManagementPage from "./pages/UserManagementPage.jsx";
+import AlertsPage from "./pages/AlertsPage.jsx";
+import AlertRulesPage from "./pages/AlertRulesPage.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
@@ -90,6 +92,14 @@ function App() {
             {/* Utility Routes */}
             {hasModule("utility") && (
               <Route path="/utility/billing" element={<UtilityBillingPage />} />
+            )}
+            
+            {/* Alert Routes */}
+            {hasModule("alerts") && (
+              <>
+                <Route path="/alerts" element={<AlertsPage />} />
+                <Route path="/alerts/rules" element={<AlertRulesPage />} />
+              </>
             )}
             
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
