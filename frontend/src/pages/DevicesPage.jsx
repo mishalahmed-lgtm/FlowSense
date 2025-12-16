@@ -1,232 +1,293 @@
 import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import DeviceTable from "../components/DeviceTable.jsx";
 import DeviceForm from "../components/DeviceForm.jsx";
+import Modal from "../components/Modal.jsx";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
 
 export default function DevicesPage() {
-  const { token, isBootstrapping, bootstrapError } = useAuth();
-  const location = useLocation();
+  const { token, isTenantAdmin, user } = useAuth();
   const navigate = useNavigate();
   const api = createApiClient(token);
+  
   const [devices, setDevices] = useState([]);
   const [deviceTypes, setDeviceTypes] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
-  const [messageContext, setMessageContext] = useState("list");
-  const [showForm, setShowForm] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterProtocol, setFilterProtocol] = useState("all");
 
   const loadDevices = async () => {
     try {
       const response = await api.get("/admin/devices");
       setDevices(response.data);
+      setError(null);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load devices");
-      setMessageContext("list");
     }
   };
 
   const loadReferenceData = async () => {
     try {
-      const [typesResponse, tenantsResponse] = await Promise.all([
-        api.get("/admin/device-types"),
-        api.get("/admin/tenants"),
-      ]);
+      const typesResponse = await api.get("/admin/device-types");
       setDeviceTypes(typesResponse.data);
-      setTenants(tenantsResponse.data);
+      
+      // Tenant admins don't need to load all tenants - they only work with their own tenant
+      // The backend will automatically filter devices by tenant_id
+      setTenants([]);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load reference data");
-      setMessageContext("form");
     }
   };
 
   useEffect(() => {
-    if (!token || isBootstrapping || bootstrapError) {
+    if (!token) {
       return;
     }
     loadDevices();
     loadReferenceData();
-  }, [token, isBootstrapping, bootstrapError]);
+  }, [token]);
+  
+  // Only tenant admins can access devices page
+  if (!isTenantAdmin) {
+    return (
+      <div className="page">
+        <div className="card">
+          <p className="text-error">Access denied. This page is only available to tenant users.</p>
+        </div>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    if (location.hash === "#add-device") {
-      setShowForm(true);
-      return;
-    }
-    if (!selectedDevice) {
-      setShowForm(false);
-    }
-  }, [location.hash, selectedDevice]);
-
-  const openForm = () => {
-    setShowForm(true);
-    navigate("/devices#add-device");
+  const openModal = (device = null) => {
+    setSelectedDevice(device);
+    setShowModal(true);
+    setError(null);
+    setSuccessMessage(null);
   };
 
-  const closeForm = () => {
-    setShowForm(false);
+  const closeModal = () => {
+    setShowModal(false);
     setSelectedDevice(null);
-    navigate("/devices");
+    setError(null);
+    setSuccessMessage(null);
   };
 
   const handleCreateDevice = async (formValues) => {
     try {
-      const response = await api.post("/admin/devices", {
+      // Tenant admins can only create devices for their own tenant
+      const payload = {
         ...formValues,
+        tenant_id: user.tenant_id, // Force tenant_id to user's tenant
         auto_generate_key: true,
-      });
-      const created = response.data;
-      setSuccessMessage("Device created");
-      setMessageContext("form");
-      setSelectedDevice(created);
-      // Ensure form stays open on the newly created device
-      setShowForm(true);
+      };
+      const response = await api.post("/admin/devices", payload);
+      setSuccessMessage("Device created successfully");
+      setError(null);
       loadDevices();
+      setTimeout(() => {
+        closeModal();
+      }, 1500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to create device");
-      setMessageContext("form");
     }
   };
 
   const handleUpdateDevice = async (formValues) => {
     try {
       await api.put(`/admin/devices/${formValues.device_id}`, formValues);
-      setSuccessMessage("Device updated");
-      setMessageContext("form");
-      setSelectedDevice(null);
+      setSuccessMessage("Device updated successfully");
+      setError(null);
       loadDevices();
+      setTimeout(() => {
+        closeModal();
+      }, 1500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to update device");
-      setMessageContext("form");
     }
   };
 
   const handleDeleteDevice = async (deviceId) => {
+    if (!window.confirm("Are you sure you want to delete this device? This action cannot be undone.")) {
+      return;
+    }
     try {
       await api.delete(`/admin/devices/${deviceId}`);
-      setSuccessMessage("Device deleted");
-      setMessageContext("list");
+      setSuccessMessage("Device deleted successfully");
       loadDevices();
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete device");
-      setMessageContext("list");
     }
   };
 
   const handleRotateKey = async (deviceId) => {
+    if (!window.confirm("Are you sure you want to rotate the provisioning key? The old key will no longer work.")) {
+      return;
+    }
     try {
       await api.post(`/admin/devices/${deviceId}/rotate-key`);
-      setSuccessMessage("Provisioning key rotated");
-      setMessageContext("list");
+      setSuccessMessage("Provisioning key rotated successfully");
       loadDevices();
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to rotate provisioning key");
-      setMessageContext("list");
     }
   };
 
-  const currentFormDevice = selectedDevice;
-  const currentDeviceTypeId = currentFormDevice
-    ? Number(
-        currentFormDevice.device_type_id ??
-          currentFormDevice.device_type?.id ??
-          currentFormDevice.device_type_id,
-      )
-    : null;
-  const currentDeviceType = deviceTypes.find((type) => type.id === currentDeviceTypeId);
+  const filteredDevices = devices.filter((device) => {
+    if (filterStatus !== "all" && device.is_active !== (filterStatus === "active")) {
+      return false;
+    }
+    if (filterProtocol !== "all") {
+      const deviceProtocol = device.protocol?.toLowerCase() || "";
+      const filterProtocolLower = filterProtocol.toLowerCase();
+      // Handle TCP protocol matching - TCP devices might be stored as "TCP" or "TCP_HEX"
+      if (filterProtocolLower === "tcp") {
+        if (!deviceProtocol.includes("tcp")) {
+          return false;
+        }
+      } else if (deviceProtocol !== filterProtocolLower) {
+        return false;
+      }
+    }
+    return true;
+  });
 
-  const isFormVisible = showForm || Boolean(selectedDevice);
+  const activeCount = devices.filter((d) => d.is_active).length;
+  const inactiveCount = devices.length - activeCount;
 
   return (
-    <div className={`page ${isFormVisible ? "page--form" : "page--split"}`}>
-      {!isFormVisible && (
-        <section className="page__primary" id="devices-list">
-          <div className="section-header">
-            <h2>Devices</h2>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedDevice(null);
-                openForm();
-              }}
+    <div className="page">
+      <Breadcrumbs items={[{ label: "Devices", path: "/devices" }]} />
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--space-8)" }}>
+        <div>
+          <h1 style={{ marginBottom: "var(--space-2)", fontSize: "var(--font-size-3xl)" }}>
+            Device Management
+          </h1>
+          <p className="text-muted">
+            Manage and monitor your IoT devices ({devices.length} total, {activeCount} active)
+          </p>
+        </div>
+        <button className="btn btn--primary" onClick={() => openModal()}>
+          + New Device
+        </button>
+      </div>
+
+      {error && !showModal && (
+        <div className="card" style={{ borderColor: "var(--color-error-500)", marginBottom: "var(--space-6)" }}>
+          <p className="text-error">{error}</p>
+        </div>
+      )}
+
+      {successMessage && !showModal && (
+        <div className="card" style={{ borderColor: "var(--color-success-500)", marginBottom: "var(--space-6)" }}>
+          <p className="text-success">{successMessage}</p>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+        <div style={{ display: "flex", gap: "var(--space-4)", flexWrap: "wrap", alignItems: "center" }}>
+          <div className="form-group" style={{ minWidth: "150px" }}>
+            <label className="form-label">Status</label>
+            <select
+              className="form-select"
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
             >
-              + New Device
+              <option value="all">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ minWidth: "150px" }}>
+            <label className="form-label">Protocol</label>
+            <select
+              className="form-select"
+              value={filterProtocol}
+              onChange={(e) => setFilterProtocol(e.target.value)}
+            >
+              <option value="all">All Protocols</option>
+              <option value="HTTP">HTTP</option>
+              <option value="MQTT">MQTT</option>
+              <option value="TCP">TCP</option>
+            </select>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            <span className="text-muted">Showing {filteredDevices.length} of {devices.length}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Device Table */}
+      <div className="card">
+        <DeviceTable
+          devices={filteredDevices}
+          onEdit={(device) => openModal(device)}
+          onDelete={handleDeleteDevice}
+          onRotateKey={handleRotateKey}
+        />
+      </div>
+
+      {/* Device Form Modal */}
+      <Modal
+        isOpen={showModal}
+        onClose={closeModal}
+        title={selectedDevice ? "Edit Device" : "Add New Device"}
+        footer={
+          <>
+            <button className="btn btn--secondary" onClick={closeModal}>
+              Cancel
             </button>
-          </div>
-          {messageContext === "list" && (
-            <>
-              {error && <p className="error-message">{error}</p>}
-              {successMessage && <p className="success-message">{successMessage}</p>}
-            </>
-          )}
-          <DeviceTable
-            devices={devices}
-            onEdit={(device) => {
-              setSelectedDevice(device);
-              openForm();
-            }}
-            onDelete={handleDeleteDevice}
-            onRotateKey={handleRotateKey}
-          />
-        </section>
-      )}
-      {isFormVisible && (
-        <section className="page__form" id="add-device">
-          <div className="page__form-grid">
-            <div className="card">
-              <div className="section-header">
-                <h2>{currentFormDevice ? "Edit Device" : "Add Device"}</h2>
-                <button type="button" className="secondary" onClick={closeForm}>
-                  Back to list
+            {selectedDevice?.device_id && (
+              <>
+                <button
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    closeModal();
+                    navigate(`/devices/${selectedDevice.device_id}/rules`);
+                  }}
+                >
+                  Configure Rules
                 </button>
-              </div>
-              {messageContext === "form" && (
-                <>
-                  {error && <p className="error-message">{error}</p>}
-                  {successMessage && <p className="success-message">{successMessage}</p>}
-                </>
-              )}
-              <DeviceForm
-                initialDevice={currentFormDevice}
-                deviceTypes={deviceTypes}
-                tenants={tenants}
-                onSubmit={currentFormDevice ? handleUpdateDevice : handleCreateDevice}
-                onCancel={closeForm}
-              />
-              {currentFormDevice?.device_id ? (
-                <div className="form-actions form-actions--split">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate(`/devices/${currentFormDevice.device_id}/rules`)
-                    }
-                  >
-                    Configure Rules
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      navigate(`/devices/${currentFormDevice.device_id}/dashboard`)
-                    }
-                    className="secondary"
-                  >
-                    Create Dashboard
-                  </button>
-                </div>
-              ) : (
-                <p className="muted">
-                  Save the device first, then you can configure rules and create a dashboard.
-                </p>
-              )}
-            </div>
+                <button
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    closeModal();
+                    navigate(`/devices/${selectedDevice.device_id}/dashboard`);
+                  }}
+                >
+                  View Dashboard
+                </button>
+              </>
+            )}
+          </>
+        }
+      >
+        {error && (
+          <div style={{ marginBottom: "var(--space-4)", padding: "var(--space-3)", backgroundColor: "var(--color-error-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-error-200)" }}>
+            <p className="text-error" style={{ margin: 0 }}>{error}</p>
           </div>
-        </section>
-      )}
+        )}
+        {successMessage && (
+          <div style={{ marginBottom: "var(--space-4)", padding: "var(--space-3)", backgroundColor: "var(--color-success-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-success-200)" }}>
+            <p className="text-success" style={{ margin: 0 }}>{successMessage}</p>
+          </div>
+        )}
+        <DeviceForm
+          initialDevice={selectedDevice}
+          deviceTypes={deviceTypes}
+          tenants={tenants}
+          userTenantId={user?.tenant_id}
+          onSubmit={selectedDevice ? handleUpdateDevice : handleCreateDevice}
+          onCancel={closeModal}
+        />
+      </Modal>
     </div>
   );
 }
-
-

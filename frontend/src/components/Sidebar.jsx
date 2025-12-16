@@ -1,29 +1,56 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
-const navItems = [
-  { label: "Dashboard", path: "/dashboard" },
-  {
-    label: "Devices",
-    path: "/devices",
-    subLinks: [
-      { label: "Device List", target: "#devices-list" },
-      { label: "Add Device", target: "#add-device" },
-      { label: "Rotate Key", target: "#devices-list" },
-    ],
-  },
-  {
-    label: "Utility",
-    path: "/utility/billing",
-    subLinks: [
-      { label: "Billing", target: "" },
-    ],
-  },
-];
-
 export default function Sidebar() {
   const location = useLocation();
-  const { adminEmail } = useAuth();
+  const { user, hasModule, isAdmin, isTenantAdmin } = useAuth();
+  
+  // Build navigation items based on user role
+  const navItems = [];
+
+  // Admin users only see Admin Portal
+  if (isAdmin) {
+    navItems.push({
+      label: "Admin Portal",
+      path: "/admin",
+      module: null,
+      subLinks: [
+        { label: "Tenants", target: "/tenants" },
+        { label: "Users", target: "/users" },
+      ],
+    });
+  }
+  
+  // Tenant admin users see tenant features
+  if (isTenantAdmin) {
+    navItems.push(
+      { label: "Dashboard", path: "/dashboard", module: null }
+    );
+
+    if (hasModule("devices")) {
+      navItems.push({
+        label: "Devices",
+        path: "/devices",
+        module: "devices",
+        subLinks: [
+          { label: "Device List", target: "#devices-list" },
+          { label: "Add Device", target: "#add-device" },
+          { label: "Rotate Key", target: "#devices-list" },
+        ],
+      });
+    }
+
+    if (hasModule("utility")) {
+      navItems.push({
+        label: "Utility",
+        path: "/utility/billing",
+        module: "utility",
+        subLinks: [
+          { label: "Billing", target: "" },
+        ],
+      });
+    }
+  }
 
   const renderSubLinks = (item) => {
     if (!item.subLinks) {
@@ -70,7 +97,12 @@ export default function Sidebar() {
 
       <div className="sidebar__footer">
         <p className="sidebar__footer-label">Signed in</p>
-        <p className="sidebar__footer-email">{adminEmail}</p>
+        <p className="sidebar__footer-email">{user?.email}</p>
+        {user?.role && (
+          <p className="sidebar__footer-label" style={{ marginTop: "var(--space-1)", textTransform: "capitalize" }}>
+            {user.role.replace("_", " ")}
+          </p>
+        )}
       </div>
     </aside>
   );

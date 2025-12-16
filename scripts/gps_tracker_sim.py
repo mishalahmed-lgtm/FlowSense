@@ -16,8 +16,8 @@ import requests
 
 
 API_BASE = os.environ.get("IOT_API_BASE", "http://localhost:5000/api/v1")
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@flowsense.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "AdminFlow")
 DEVICE_ID = os.environ.get("GPS_DEVICE_ID", "GPS-TRUCK-001")
 INTERVAL = int(os.environ.get("GPS_INTERVAL", "30"))  # seconds
 

@@ -10,10 +10,10 @@ from sqlalchemy import text
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from admin_auth import create_admin_token, require_admin
+from admin_auth import create_access_token, require_admin, get_current_user, hash_password, verify_password
 from config import settings
 from database import get_db
-from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest
+from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest, DeviceDashboard, User, UserRole
 from rule_engine import rule_engine
 import json
 
@@ -29,6 +29,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in_minutes: int = Field(default=settings.admin_jwt_exp_minutes)
+    user: Optional[Dict[str, Any]] = None
 
 
 class DeviceMetadata(BaseModel):
@@ -78,6 +79,7 @@ class DeviceResponse(BaseModel):
     is_active: bool
     metadata: DeviceMetadata
     provisioning_key: Optional[ProvisioningKeyResponse]
+    has_dashboard: bool = False
 
 
 class DeviceTypeResponse(BaseModel):
@@ -134,7 +136,7 @@ def _serialize_metadata(raw: Optional[str]) -> DeviceMetadata:
         return DeviceMetadata()
 
 
-def _serialize_device(device: Device, *, is_live: Optional[bool] = None) -> DeviceResponse:
+def _serialize_device(device: Device, *, is_live: Optional[bool] = None, has_dashboard: Optional[bool] = None) -> DeviceResponse:
     provisioning = None
     if device.provisioning_key:
         provisioning = ProvisioningKeyResponse(
@@ -145,6 +147,15 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None) -> Devi
     # If is_live is provided, prefer it over the raw DB flag so that the UI
     # reflects actual live telemetry rather than just a static boolean.
     effective_active = is_live if is_live is not None else device.is_active
+    
+    # Check if device has a dashboard (if not provided, check the relationship)
+    dashboard_exists = has_dashboard
+    if dashboard_exists is None:
+        dashboard_exists = (
+            device.dashboard is not None 
+            and device.dashboard.config 
+            and len(device.dashboard.config.get("widgets", [])) > 0
+        )
 
     return DeviceResponse(
         id=device.id,
@@ -158,31 +169,54 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None) -> Devi
         is_active=effective_active,
         metadata=_serialize_metadata(device.device_metadata),
         provisioning_key=provisioning,
+        has_dashboard=dashboard_exists,
     )
 
 
 @router.post("/login", response_model=TokenResponse, tags=["public"])
-def admin_login(payload: LoginRequest):
-    """Authenticate admin user and return JWT."""
-    if (
-        payload.email.lower() != settings.admin_email.lower()
-        or payload.password != settings.admin_password
-    ):
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    """Authenticate user and return JWT."""
+    # Find user by email
+    user = db.query(User).filter(User.email == payload.email.lower()).first()
+    
+    if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
-
-    token = create_admin_token(settings.admin_email)
-    return TokenResponse(access_token=token)
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive",
+        )
+    
+    # Update last login
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    
+    # Create token
+    token = create_access_token(user)
+    
+    # Return token with user info
+    user_info = {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "role": user.role.value,
+        "tenant_id": user.tenant_id,
+        "enabled_modules": user.enabled_modules or [],
+    }
+    
+    return TokenResponse(access_token=token, user=user_info)
 
 
 @router.get("/devices", response_model=List[DeviceResponse])
 def list_devices(
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return all registered devices.
+    """Return devices (filtered by tenant for tenant admins).
 
     The `is_active` flag in the response reflects *live* status based on
     recent telemetry, not just the static DB flag:
@@ -190,12 +224,26 @@ def list_devices(
       it is marked Active.
     - Otherwise it is marked Inactive.
     """
-    devices = db.query(Device).all()
+    from sqlalchemy.orm import joinedload
+    
+    query = db.query(Device).options(
+        joinedload(Device.dashboard),
+        joinedload(Device.device_type),
+        joinedload(Device.tenant),
+        joinedload(Device.provisioning_key)
+    )
+    
+    # Filter by tenant if user is tenant admin
+    if current_user.role == UserRole.TENANT_ADMIN:
+        query = query.filter(Device.tenant_id == current_user.tenant_id)
+    
+    devices = query.all()
 
     # Determine live status from latest telemetry timestamps
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=90)
     live_map: Dict[int, bool] = {}
+    dashboard_map: Dict[int, bool] = {}
 
     for device in devices:
         latest = (
@@ -205,9 +253,20 @@ def list_devices(
         )
         is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
         live_map[device.id] = is_live
+        
+        # Check if device has a dashboard with widgets
+        has_dash = False
+        if device.dashboard and device.dashboard.config:
+            widgets = device.dashboard.config.get("widgets", [])
+            has_dash = len(widgets) > 0
+        dashboard_map[device.id] = has_dash
 
     return [
-        _serialize_device(device, is_live=live_map.get(device.id, False))
+        _serialize_device(
+            device, 
+            is_live=live_map.get(device.id, False),
+            has_dashboard=dashboard_map.get(device.id, False)
+        )
         for device in devices
     ]
 
@@ -215,10 +274,16 @@ def list_devices(
 @router.post("/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
 def create_device(
     payload: DeviceCreate,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Create a new device and optionally generate a provisioning key."""
+    # Tenant admins can only create devices for their tenant
+    if current_user.role == UserRole.TENANT_ADMIN and payload.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create devices for your own tenant"
+        )
     existing = db.query(Device).filter(Device.device_id == payload.device_id).first()
     if existing:
         raise HTTPException(
@@ -249,7 +314,7 @@ def create_device(
 def update_device(
     device_id: str,
     payload: DeviceUpdate,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Update an existing device."""
@@ -259,12 +324,20 @@ def update_device(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Device not found",
         )
+    
+    # Tenant admins can only update their own devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update devices from your own tenant"
+        )
 
     if payload.name is not None:
         device.name = payload.name
     if payload.device_type_id is not None:
         device.device_type_id = payload.device_type_id
-    if payload.tenant_id is not None:
+    # Tenant admins cannot change tenant_id
+    if payload.tenant_id is not None and current_user.role == UserRole.ADMIN:
         device.tenant_id = payload.tenant_id
     if payload.is_active is not None:
         device.is_active = payload.is_active
@@ -279,7 +352,7 @@ def update_device(
 @router.delete("/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_device(
     device_id: str,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Remove a device."""
@@ -288,6 +361,13 @@ def delete_device(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Device not found",
+        )
+    
+    # Tenant admins can only delete their own devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete devices from your own tenant"
         )
     # Use raw SQL deletes to avoid ORM trying to NULL out foreign keys on related
     # rows (NOT NULL constraint on provisioning_keys.device_id).
@@ -321,7 +401,7 @@ def delete_device(
 @router.post("/devices/{device_id}/rotate-key", response_model=ProvisioningKeyResponse)
 def rotate_provisioning_key(
     device_id: str,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Generate a new provisioning key for a device."""
@@ -330,6 +410,13 @@ def rotate_provisioning_key(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Device not found",
+        )
+    
+    # Tenant admins can only rotate keys for their own devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only rotate keys for devices from your own tenant"
         )
 
     key = _rotate_provisioning_key(device, db)
@@ -363,10 +450,10 @@ def _rotate_provisioning_key(device: Device, db: Session) -> ProvisioningKey:
 
 @router.get("/device-types", response_model=List[DeviceTypeResponse])
 def list_device_types(
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return available device types."""
+    """Return available device types. Accessible to all authenticated users."""
     device_types = db.query(DeviceType).all()
     return [
         DeviceTypeResponse(
@@ -420,11 +507,19 @@ def _serialize_rule(rule: DeviceRule) -> DeviceRuleResponse:
 @router.get("/devices/{device_id}/rules", response_model=List[DeviceRuleResponse])
 def list_device_rules(
     device_id: str,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Return all rules configured for a device."""
     device = _get_device_or_404(device_id, db)
+    
+    # Tenant admins can only view rules for their own devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only view rules for devices from your own tenant"
+        )
+    
     rules = (
         db.query(DeviceRule)
         .filter(DeviceRule.device_id == device.id)
@@ -442,11 +537,18 @@ def list_device_rules(
 def create_device_rule(
     device_id: str,
     payload: DeviceRuleCreate,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Create a rule for a device."""
     device = _get_device_or_404(device_id, db)
+    
+    # Tenant admins can only create rules for their own devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only create rules for devices from your own tenant"
+        )
     rule = DeviceRule(
         device_id=device.id,
         name=payload.name,
@@ -468,11 +570,18 @@ def update_device_rule(
     device_id: str,
     rule_id: int,
     payload: DeviceRuleUpdate,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Update an existing rule."""
     device = _get_device_or_404(device_id, db)
+    
+    # Tenant admins can only update rules for their own devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only update rules for devices from your own tenant"
+        )
     rule = (
         db.query(DeviceRule)
         .filter(DeviceRule.device_id == device.id, DeviceRule.id == rule_id)
@@ -507,11 +616,19 @@ def update_device_rule(
 def delete_device_rule(
     device_id: str,
     rule_id: int,
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Delete a rule from a device."""
     device = _get_device_or_404(device_id, db)
+    
+    # Tenant admins can only delete rules for their own devices
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete rules for devices from your own tenant"
+        )
+    
     rule = (
         db.query(DeviceRule)
         .filter(DeviceRule.device_id == device.id, DeviceRule.id == rule_id)

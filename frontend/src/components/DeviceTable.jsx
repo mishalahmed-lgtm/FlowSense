@@ -1,10 +1,18 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function DeviceTable({ devices, onEdit, onDelete, onRotateKey }) {
+  const navigate = useNavigate();
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
 
   if (!devices.length) {
-    return <p className="muted">No devices registered yet.</p>;
+    return (
+      <div style={{ textAlign: "center", padding: "var(--space-12)" }}>
+        <p className="text-muted" style={{ fontSize: "var(--font-size-lg)" }}>
+          No devices found. Create your first device to get started.
+        </p>
+      </div>
+    );
   }
 
   const startDelete = (deviceId) => {
@@ -22,7 +30,7 @@ export default function DeviceTable({ devices, onEdit, onDelete, onRotateKey }) 
 
   return (
     <div className="table-wrapper">
-      <table>
+      <table className="table">
         <thead>
           <tr>
             <th>Device ID</th>
@@ -39,40 +47,71 @@ export default function DeviceTable({ devices, onEdit, onDelete, onRotateKey }) 
             const isConfirming = pendingDeleteId === device.device_id;
             return (
               <tr key={device.id}>
-                <td>{device.device_id}</td>
-                <td>{device.name || "—"}</td>
-                <td>{device.protocol}</td>
-                <td>{device.tenant}</td>
                 <td>
-                  <span
-                    className={`status ${
-                      device.is_active ? "status--ok" : "status--off"
-                    }`}
-                  >
-                    {device.is_active ? "Active" : "Inactive"}
-                  </span>
+                  <code style={{ fontSize: "var(--font-size-xs)" }}>{device.device_id}</code>
                 </td>
-                <td className="provisioning-key-cell">
-                  {device.provisioning_key?.key || "—"}
-                  {device.provisioning_key && (
+                <td>
+                  {device.has_dashboard ? (
                     <button
                       type="button"
-                      onClick={() => onRotateKey(device.device_id)}
+                      className="btn btn--ghost"
+                      onClick={() => navigate(`/devices/${device.device_id}/dashboard`)}
+                      title="View dashboard"
+                      style={{ padding: 0, fontWeight: "var(--font-weight-semibold)", color: "var(--color-primary-600)" }}
                     >
-                      Rotate
+                      {device.name || device.device_id}
                     </button>
+                  ) : (
+                    <span style={{ fontWeight: "var(--font-weight-medium)" }}>
+                      {device.name || "—"}
+                    </span>
                   )}
                 </td>
                 <td>
-                  <div className="table-actions">
+                  <span className="badge badge--neutral">{device.protocol}</span>
+                </td>
+                <td>{device.tenant}</td>
+                <td>
+                  <div className="status-indicator">
+                    <span
+                      className={`status-indicator__dot ${
+                        device.is_active ? "status-indicator__dot--active" : "status-indicator__dot--inactive"
+                      }`}
+                    />
+                    <span>{device.is_active ? "Active" : "Inactive"}</span>
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                    <code style={{ fontSize: "var(--font-size-xs)", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {device.provisioning_key?.key || "—"}
+                    </code>
+                    {device.provisioning_key && (
+                      <button
+                        className="btn btn--sm btn--ghost"
+                        type="button"
+                        onClick={() => onRotateKey(device.device_id)}
+                        title="Rotate provisioning key"
+                      >
+                        Rotate
+                      </button>
+                    )}
+                  </div>
+                </td>
+                <td>
+                  <div style={{ display: "flex", gap: "var(--space-2)" }}>
                     {!isConfirming && (
                       <>
-                        <button type="button" onClick={() => onEdit(device)}>
+                        <button
+                          className="btn btn--sm btn--secondary"
+                          type="button"
+                          onClick={() => onEdit(device)}
+                        >
                           Edit
                         </button>
                         <button
+                          className="btn btn--sm btn--danger"
                           type="button"
-                          className="danger"
                           onClick={() => startDelete(device.device_id)}
                         >
                           Delete
@@ -80,18 +119,20 @@ export default function DeviceTable({ devices, onEdit, onDelete, onRotateKey }) 
                       </>
                     )}
                     {isConfirming && (
-                      <div className="delete-confirm-inline">
-                        <span>Delete this device?</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                        <span className="text-muted" style={{ fontSize: "var(--font-size-xs)" }}>
+                          Delete?
+                        </span>
                         <button
+                          className="btn btn--sm btn--danger"
                           type="button"
-                          className="danger"
                           onClick={() => confirmDelete(device.device_id)}
                         >
                           Yes
                         </button>
                         <button
+                          className="btn btn--sm btn--secondary"
                           type="button"
-                          className="secondary"
                           onClick={cancelDelete}
                         >
                           Cancel
@@ -108,5 +149,3 @@ export default function DeviceTable({ devices, onEdit, onDelete, onRotateKey }) 
     </div>
   );
 }
-
-

@@ -10,6 +10,7 @@ from routers import telemetry
 from routers import admin as admin_router
 from routers import dashboard as dashboard_router
 from routers import utility as utility_router
+from routers import user_management as user_management_router
 from mqtt_client import mqtt_handler
 from tcp_server import tcp_ingestion_server
 from metrics import metrics
@@ -91,6 +92,10 @@ app.include_router(
 )
 app.include_router(
     utility_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    user_management_router.router,
     prefix=f"{settings.api_v1_prefix}",
 )
 

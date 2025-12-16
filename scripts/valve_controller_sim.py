@@ -16,8 +16,8 @@ import requests
 
 
 API_BASE = os.environ.get("IOT_API_BASE", "http://localhost:5000/api/v1")
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@flowsense.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "AdminFlow")
 DEVICE_ID = os.environ.get("VALVE_DEVICE_ID", "VALVE-001")
 # Use Docker service name if running in container, otherwise localhost
 # Check if we're in Docker by looking for common env vars or use service name

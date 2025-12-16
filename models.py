@@ -1,8 +1,9 @@
 """Database models for device management and provisioning."""
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, ForeignKey, JSON, Float
+from sqlalchemy import Column, String, Integer, Boolean, DateTime, Text, ForeignKey, JSON, Float, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
+import enum
 
 
 class DeviceType(Base):
@@ -20,6 +21,12 @@ class DeviceType(Base):
     devices = relationship("Device", back_populates="device_type")
 
 
+class UserRole(str, enum.Enum):
+    """User roles in the system."""
+    ADMIN = "admin"  # Super admin - manages all tenants and users
+    TENANT_ADMIN = "tenant_admin"  # Tenant admin - manages their tenant
+
+
 class Tenant(Base):
     """Tenant/organization model."""
     __tablename__ = "tenants"
@@ -32,6 +39,30 @@ class Tenant(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     devices = relationship("Device", back_populates="tenant")
+    users = relationship("User", back_populates="tenant")
+
+
+class User(Base):
+    """User model for authentication and authorization."""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(200), nullable=True)
+    role = Column(Enum(UserRole), nullable=False, default=UserRole.TENANT_ADMIN)
+    tenant_id = Column(Integer, ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True)
+    
+    # Module permissions (JSON array of module names)
+    # e.g., ["devices", "dashboards", "utility", "rules", "alerts"]
+    enabled_modules = Column(JSON, nullable=False, default=list)
+    
+    is_active = Column(Boolean, default=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    
+    tenant = relationship("Tenant", back_populates="users")
 
 
 class Device(Base):

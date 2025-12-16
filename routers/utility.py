@@ -23,13 +23,16 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
 
-from admin_auth import require_admin
+from admin_auth import require_admin, get_current_user
+from models import User, UserRole
 from config import settings
 from database import get_db
 from models import (
     Device,
     Tenant,
     TelemetryTimeseries,
+    User,
+    UserRole,
 )
 
 router = APIRouter(prefix="/admin/utility", tags=["utility"])
@@ -138,7 +141,7 @@ def preview_consumption(
     utility_kind: str = Query(..., regex="^(gas|electricity|water)$"),
     from_date: date = Query(..., description="Start date (inclusive, YYYY-MM-DD)"),
     to_date: date = Query(..., description="End date (exclusive, YYYY-MM-DD)"),
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Preview per-device consumption for a tenant and period without persisting invoices.
@@ -157,8 +160,13 @@ def preview_consumption(
     period_end = datetime(to_date.year, to_date.month, to_date.day, tzinfo=timezone.utc)
 
     device_query = db.query(Device).join(Tenant)
-    if tenant_id is not None:
+    
+    # Tenant admins can only access their own tenant's data
+    if current_user.role == UserRole.TENANT_ADMIN:
+        device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
+    elif tenant_id is not None:
         device_query = device_query.filter(Device.tenant_id == tenant_id)
+    
     if device_id is not None:
         device_query = device_query.filter(Device.id == device_id)
 
@@ -264,7 +272,7 @@ def preview_consolidated_consumption(
     utility_kind: str = Query(..., regex="^(gas|electricity|water)$"),
     from_date: date = Query(..., description="Start date (inclusive, YYYY-MM-DD)"),
     to_date: date = Query(..., description="End date (exclusive, YYYY-MM-DD)"),
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Preview consolidated billing per tenant (aggregates all devices).
@@ -272,8 +280,13 @@ def preview_consolidated_consumption(
     Returns one record per tenant with total consumption across all their devices.
     Includes device-level breakdown for transparency.
     """
+    # Tenant admins can only access their own tenant's data
+    effective_tenant_id = tenant_id
+    if current_user.role == UserRole.TENANT_ADMIN:
+        effective_tenant_id = current_user.tenant_id
+    
     # Get per-device consumption data
-    device_consumption = preview_consumption(tenant_id, device_id, utility_kind, from_date, to_date, _, db)
+    device_consumption = preview_consumption(effective_tenant_id, device_id, utility_kind, from_date, to_date, current_user, db)
     
     if not device_consumption:
         return []
@@ -335,7 +348,7 @@ def download_billing_report_pdf(
     utility_kind: str = Query(..., regex="^(gas|electricity|water)$"),
     from_date: date = Query(..., description="Start date (inclusive, YYYY-MM-DD)"),
     to_date: date = Query(..., description="End date (exclusive, YYYY-MM-DD)"),
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Generate and download utility billing PDF report using ReportLab.
@@ -353,9 +366,14 @@ def download_billing_report_pdf(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="from_date must be before to_date",
         )
+    
+    # Tenant admins can only access their own tenant's data
+    effective_tenant_id = tenant_id
+    if current_user.role == UserRole.TENANT_ADMIN:
+        effective_tenant_id = current_user.tenant_id
 
     # Fetch consumption data
-    consumption_data = preview_consumption(tenant_id, device_id, utility_kind, from_date, to_date, _, db)
+    consumption_data = preview_consumption(effective_tenant_id, device_id, utility_kind, from_date, to_date, current_user, db)
 
     if not consumption_data:
         raise HTTPException(
@@ -495,7 +513,7 @@ def download_consolidated_billing_pdf(
     from_date: date = Query(..., description="Start date (inclusive, YYYY-MM-DD)"),
     to_date: date = Query(..., description="End date (exclusive, YYYY-MM-DD)"),
     show_device_breakdown: bool = Query(True, description="Include device-level breakdown"),
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Generate consolidated billing PDF report (per-tenant aggregates).
@@ -515,9 +533,14 @@ def download_consolidated_billing_pdf(
             detail="from_date must be before to_date",
         )
 
+    # Tenant admins can only access their own tenant's data
+    effective_tenant_id = tenant_id
+    if current_user.role == UserRole.TENANT_ADMIN:
+        effective_tenant_id = current_user.tenant_id
+    
     # Fetch consolidated consumption data
     consolidated_data = preview_consolidated_consumption(
-        tenant_id, device_id, utility_kind, from_date, to_date, _, db
+        effective_tenant_id, device_id, utility_kind, from_date, to_date, current_user, db
     )
 
     if not consolidated_data:
@@ -698,7 +721,7 @@ def download_all_utilities_billing_pdf(
     from_date: date = Query(..., description="Start date (inclusive, YYYY-MM-DD)"),
     to_date: date = Query(..., description="End date (exclusive, YYYY-MM-DD)"),
     show_device_breakdown: bool = Query(True, description="Include device-level breakdown"),
-    _: str = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Generate comprehensive billing PDF report for all utilities (electricity, gas, water).
@@ -716,6 +739,11 @@ def download_all_utilities_billing_pdf(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="from_date must be before to_date",
         )
+    
+    # Tenant admins can only access their own tenant's data
+    effective_tenant_id = None
+    if current_user.role == UserRole.TENANT_ADMIN:
+        effective_tenant_id = current_user.tenant_id
 
     # Fetch consolidated consumption data for ALL utility types
     all_utilities = ["electricity", "gas", "water"]
@@ -724,12 +752,12 @@ def download_all_utilities_billing_pdf(
     for utility_kind in all_utilities:
         try:
             data = preview_consolidated_consumption(
-                tenant_id=None,
+                tenant_id=effective_tenant_id,
                 device_id=None,
                 utility_kind=utility_kind,
                 from_date=from_date,
                 to_date=to_date,
-                _=_,
+                current_user=current_user,
                 db=db,
             )
             all_consolidated_data.extend(data)

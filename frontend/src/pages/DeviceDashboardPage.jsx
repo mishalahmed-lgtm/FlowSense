@@ -9,6 +9,8 @@ import LineChartWidget from "../components/widgets/LineChartWidget.jsx";
 import ThermometerWidget from "../components/widgets/ThermometerWidget.jsx";
 import TankWidget from "../components/widgets/TankWidget.jsx";
 import BatteryWidget from "../components/widgets/BatteryWidget.jsx";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
+import Collapsible from "../components/Collapsible.jsx";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./DeviceDashboardPage.css";
@@ -93,7 +95,18 @@ const WIDGET_LIBRARY = [
 
 export default function DeviceDashboardPage() {
   const { deviceId } = useParams();
-  const { token, isBootstrapping, bootstrapError } = useAuth();
+  const { token, isTenantAdmin } = useAuth();
+  
+  // Only tenant admins can access device dashboard page
+  if (!isTenantAdmin) {
+    return (
+      <div className="page">
+        <div className="card">
+          <p className="text-error">Access denied. This page is only available to tenant users.</p>
+        </div>
+      </div>
+    );
+  }
   const navigate = useNavigate();
   const api = useMemo(() => createApiClient(token), [token]);
 
@@ -107,11 +120,24 @@ export default function DeviceDashboardPage() {
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [editMode, setEditMode] = useState(false);
+  const [showReadings, setShowReadings] = useState(false);
+  const [readingsExpanded, setReadingsExpanded] = useState(false);
+  const [readings, setReadings] = useState([]);
+  const [readingsLoading, setReadingsLoading] = useState(false);
+  const [readingsError, setReadingsError] = useState(null);
+  const [readingsFilter, setReadingsFilter] = useState({
+    key: "",
+    limit: 10,
+    fromDate: "",
+    toDate: "",
+    detectAnomalies: true,
+  });
+  const [availableKeys, setAvailableKeys] = useState([]);
 
   // Load device and dashboard config
   useEffect(() => {
-    if (!token || isBootstrapping || bootstrapError) {
-      console.log("Skipping dashboard load - no token yet", { token, isBootstrapping, bootstrapError });
+    if (!token) {
+      console.log("Skipping dashboard load - no token yet");
       return;
     }
 
@@ -137,7 +163,19 @@ export default function DeviceDashboardPage() {
         console.log("Dashboard config from backend:", existingConfig);
         // Start with empty dashboard - user adds widgets from library
         const initialWidgets = existingConfig.widgets || [];
-        const initialLayout = existingConfig.layout || [];
+        let initialLayout = existingConfig.layout || [];
+        
+        // Ensure layout items have proper structure
+        if (initialLayout.length > 0) {
+          initialLayout = initialLayout.map((item) => ({
+            ...item,
+            x: Number(item.x) || 0,
+            y: Number(item.y) || 0,
+            w: Number(item.w) || 4,
+            h: Number(item.h) || 3,
+          }));
+        }
+        
         console.log("Setting initial widgets:", initialWidgets.length, "layout:", initialLayout.length);
         setWidgets(initialWidgets);
         setLayout(initialLayout);
@@ -155,7 +193,7 @@ export default function DeviceDashboardPage() {
     };
 
     load();
-  }, [token, isBootstrapping, bootstrapError, api, deviceId]);
+  }, [token, api, deviceId]);
 
   // Auto-refresh telemetry data every 10 seconds (smooth, no layout flash)
   useEffect(() => {
@@ -197,6 +235,58 @@ export default function DeviceDashboardPage() {
     chartWidgets.forEach((w) => loadHistory(w.field));
   }, [widgets, loadHistory]);
 
+  // Load available keys for filter dropdown
+  useEffect(() => {
+    if (!deviceId || !device) return;
+    const loadKeys = async () => {
+      try {
+        // Get all unique keys from recent readings
+        const resp = await api.get(`/dashboard/devices/${deviceId}/readings`, {
+          params: { limit: 100 },
+        });
+        const keys = [...new Set(resp.data.map((r) => r.key))].sort();
+        setAvailableKeys(keys);
+      } catch (err) {
+        console.error("Failed to load available keys:", err);
+      }
+    };
+    loadKeys();
+  }, [api, deviceId, device]);
+
+  // Load readings when component mounts (will be shown/hidden by Collapsible)
+  useEffect(() => {
+    if (!deviceId) return;
+    
+    const loadReadings = async () => {
+      setReadingsLoading(true);
+      setReadingsError(null);
+      try {
+        const params = {
+          limit: readingsFilter.limit,
+          detect_anomalies: readingsFilter.detectAnomalies,
+        };
+        if (readingsFilter.key) {
+          params.key = readingsFilter.key;
+        }
+        if (readingsFilter.fromDate) {
+          params.from_date = readingsFilter.fromDate;
+        }
+        if (readingsFilter.toDate) {
+          params.to_date = readingsFilter.toDate;
+        }
+        
+        const resp = await api.get(`/dashboard/devices/${deviceId}/readings`, { params });
+        setReadings(resp.data);
+      } catch (err) {
+        setReadingsError(err.response?.data?.detail || "Failed to load readings");
+      } finally {
+        setReadingsLoading(false);
+      }
+    };
+    
+    loadReadings();
+  }, [deviceId, readingsFilter, api]);
+
   const handleAddWidget = (libraryWidget) => {
     const newId = `widget-${Date.now()}`;
     const newWidget = { ...libraryWidget, id: newId };
@@ -225,8 +315,9 @@ export default function DeviceDashboardPage() {
     });
   };
 
-  const handleLayoutChange = (newLayout) => {
-    setLayout(newLayout);
+  const handleLayoutChange = (currentLayout, allLayouts) => {
+    // Save the layout for the current breakpoint (lg)
+    setLayout(currentLayout);
   };
 
   const handleSave = async () => {
@@ -234,8 +325,18 @@ export default function DeviceDashboardPage() {
     setError(null);
     setSuccessMessage(null);
     try {
+      // Ensure layout is properly formatted before saving
+      const layoutToSave = layout.map((item) => ({
+        ...item,
+        // Ensure x, y, w, h are numbers
+        x: Number(item.x) || 0,
+        y: Number(item.y) || 0,
+        w: Number(item.w) || 4,
+        h: Number(item.h) || 3,
+      }));
+      
       await api.post(`/dashboard/devices/${deviceId}/dashboard`, {
-        config: { widgets, layout },
+        config: { widgets, layout: layoutToSave },
       });
       setSuccessMessage("Dashboard saved");
       setEditMode(false);
@@ -306,20 +407,15 @@ export default function DeviceDashboardPage() {
     }
   };
 
-  console.log("Render state:", { isBootstrapping, bootstrapError, loading, widgets: widgets?.length, device: device?.device_id });
-
-  if (isBootstrapping) {
+  console.log("Render state:", { loading, widgets: widgets?.length, device: device?.device_id });
+  
+  // Only tenant admins can access device dashboard page
+  if (!isTenantAdmin) {
     return (
-      <div className="page page--centered">
-        <p>Loading…</p>
-      </div>
-    );
-  }
-
-  if (bootstrapError) {
-    return (
-      <div className="page page--centered">
-        <p className="error-message">{bootstrapError}</p>
+      <div className="page">
+        <div className="card">
+          <p className="text-error">Access denied. This page is only available to tenant users.</p>
+        </div>
       </div>
     );
   }
@@ -334,60 +430,239 @@ export default function DeviceDashboardPage() {
 
   return (
     <div className="page dashboard-page">
-      <section className="page__primary">
-        <div className="section-header">
-          <div>
-            <h2>Dashboard: {device?.name || deviceId}</h2>
-            <p className="muted">
-              {editMode ? "Drag widgets to arrange your dashboard" : "Live telemetry dashboard"}
-            </p>
-          </div>
-          <div className="section-header__actions">
-            {!editMode && (
-              <button type="button" onClick={() => setEditMode(true)}>
-                Edit Dashboard
-              </button>
-            )}
-            {editMode && (
-              <>
-                <button type="button" className="secondary" onClick={() => setEditMode(false)}>
-                  Cancel
-                </button>
-                <button type="button" className="primary" disabled={saving} onClick={handleSave}>
-                  {saving ? "Saving..." : "Save Dashboard"}
-                </button>
-              </>
-            )}
-            <button type="button" className="secondary" onClick={() => navigate("/devices")}>
-              Back to Devices
-            </button>
-          </div>
+      <Breadcrumbs
+        items={[
+          { label: "Devices", path: "/devices" },
+          { label: device?.name || deviceId || "Dashboard", path: `/devices/${deviceId}/dashboard` },
+        ]}
+      />
+
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-6)", marginBottom: "var(--space-6)" }}>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ marginBottom: "var(--space-2)", fontSize: "var(--font-size-3xl)" }}>
+            {device?.name || deviceId}
+          </h1>
+          <p className="text-muted">
+            {editMode ? "Drag widgets to arrange your dashboard" : "Live telemetry dashboard"}
+          </p>
         </div>
-
-        {error && <p className="error-message">{error}</p>}
-        {successMessage && <p className="success-message">{successMessage}</p>}
-
-        <div className="dashboard-container">
+        <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+          {/* Device Readings Toggle Button - Top Right */}
+          <button
+            className="btn btn--secondary"
+            type="button"
+            onClick={() => setReadingsExpanded(!readingsExpanded)}
+          >
+            {readingsExpanded ? "📊 Hide Readings" : "📊 Show Readings"}
+          </button>
+          {!editMode && (
+            <button className="btn btn--secondary" type="button" onClick={() => setEditMode(true)}>
+              ✏️ Edit Dashboard
+            </button>
+          )}
           {editMode && (
-            <div className="widget-library">
-              <h3>Widget Library</h3>
-              <p className="muted">Click to add widgets to your dashboard</p>
-              <div className="widget-library__grid">
-                {WIDGET_LIBRARY.map((widget) => (
-                  <div
-                    key={widget.id}
-                    className="widget-library__item"
-                    onClick={() => handleAddWidget(widget)}
-                  >
-                    <span className="widget-library__icon">{widget.icon}</span>
-                    <span className="widget-library__title">{widget.title}</span>
+            <>
+              <button className="btn btn--secondary" type="button" onClick={() => setEditMode(false)}>
+                Cancel
+              </button>
+              <button className="btn btn--primary" type="button" disabled={saving} onClick={handleSave}>
+                {saving ? "Saving..." : "💾 Save Dashboard"}
+              </button>
+            </>
+          )}
+          <button className="btn btn--ghost" type="button" onClick={() => navigate("/devices")}>
+            ← Back to Devices
+          </button>
+        </div>
+      </div>
+
+      {/* Device Readings Section - Expanded in Middle */}
+      {readingsExpanded && (
+        <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+          <div className="card__header">
+            <h3 className="card__title">Device Readings</h3>
+          </div>
+          <div className="card__body">
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
+            <p className="text-muted" style={{ margin: 0 }}>
+              View historical telemetry data with filtering and anomaly detection
+            </p>
+
+            {/* Filters */}
+            <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-gray-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-light)" }}>
+              <div className="form" style={{ gap: "var(--space-4)" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--space-4)" }}>
+                  <div className="form-group">
+                    <label className="form-label">Field Key</label>
+                    <select
+                      className="form-select"
+                      value={readingsFilter.key}
+                      onChange={(e) => setReadingsFilter({ ...readingsFilter, key: e.target.value })}
+                    >
+                      <option value="">All Fields</option>
+                      {availableKeys.map((key) => (
+                        <option key={key} value={key}>
+                          {key}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                ))}
+                  <div className="form-group">
+                    <label className="form-label">Limit</label>
+                    <input
+                      className="form-input"
+                      type="number"
+                      min="1"
+                      max="1000"
+                      value={readingsFilter.limit}
+                      onChange={(e) => setReadingsFilter({ ...readingsFilter, limit: parseInt(e.target.value) || 10 })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">From Date</label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={readingsFilter.fromDate}
+                      onChange={(e) => setReadingsFilter({ ...readingsFilter, fromDate: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">To Date</label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={readingsFilter.toDate}
+                      onChange={(e) => setReadingsFilter({ ...readingsFilter, toDate: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-2)" }}>
+                  <input
+                    type="checkbox"
+                    id="detect-anomalies"
+                    checked={readingsFilter.detectAnomalies}
+                    onChange={(e) => setReadingsFilter({ ...readingsFilter, detectAnomalies: e.target.checked })}
+                    style={{ width: "auto" }}
+                  />
+                  <label htmlFor="detect-anomalies" className="form-label" style={{ margin: 0, cursor: "pointer" }}>
+                    Detect Anomalies
+                  </label>
+                </div>
               </div>
             </div>
-          )}
 
-          <div className="dashboard-canvas">
+            {/* Readings Table */}
+            {readingsLoading && (
+              <div style={{ textAlign: "center", padding: "var(--space-8)" }}>
+                <p className="text-muted">Loading readings...</p>
+              </div>
+            )}
+            {readingsError && (
+              <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-error-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-error-200)" }}>
+                <p className="text-error" style={{ margin: 0 }}>{readingsError}</p>
+              </div>
+            )}
+            {!readingsLoading && !readingsError && (
+              <>
+                {readings.length === 0 ? (
+                  <div style={{ textAlign: "center", padding: "var(--space-8)", backgroundColor: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
+                    <p className="text-muted" style={{ margin: 0 }}>No readings found for the selected filters.</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="table-wrapper">
+                      <table className="table">
+                        <thead>
+                          <tr>
+                            <th>Timestamp</th>
+                            <th>Field</th>
+                            <th>Value</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {readings.map((reading, idx) => (
+                            <tr
+                              key={`${reading.timestamp}-${reading.key}-${idx}`}
+                              className={reading.is_anomaly ? "anomaly-row" : ""}
+                            >
+                              <td style={{ whiteSpace: "nowrap" }}>{new Date(reading.timestamp).toLocaleString()}</td>
+                              <td>
+                                <code style={{ fontSize: "var(--font-size-xs)", backgroundColor: "var(--color-gray-100)", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-sm)" }}>
+                                  {reading.key}
+                                </code>
+                              </td>
+                              <td style={{ fontWeight: reading.is_anomaly ? "var(--font-weight-semibold)" : "var(--font-weight-normal)", fontFamily: "var(--font-family-mono)" }}>
+                                {reading.value !== null && reading.value !== undefined
+                                  ? typeof reading.value === "number"
+                                    ? reading.value.toFixed(2)
+                                    : String(reading.value)
+                                  : "—"}
+                              </td>
+                              <td>
+                                {reading.is_anomaly ? (
+                                  <span className="badge badge--warning" title={reading.anomaly_reason || "Anomaly detected"}>
+                                    ⚠️ Anomaly
+                                  </span>
+                                ) : (
+                                  <span className="badge badge--success">✓ Normal</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {readings.filter((r) => r.is_anomaly).length > 0 && (
+                      <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-warning-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-warning-200)" }}>
+                        <p style={{ margin: 0, fontSize: "var(--font-size-sm)" }}>
+                          <strong>⚠️ Found {readings.filter((r) => r.is_anomaly).length} anomaly/anomalies</strong> in the displayed readings.
+                        </p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        </div>
+      )}
+
+      {error && (
+          <div className="card" style={{ borderColor: "var(--color-error-500)", marginBottom: "var(--space-6)" }}>
+            <p className="text-error">{error}</p>
+          </div>
+        )}
+        {successMessage && (
+          <div className="card" style={{ borderColor: "var(--color-success-500)", marginBottom: "var(--space-6)" }}>
+            <p className="text-success">{successMessage}</p>
+          </div>
+        )}
+
+        <div className="card">
+          <div className="dashboard-container">
+            {editMode && (
+              <div className="widget-library">
+                <h3>Widget Library</h3>
+                <p className="muted">Click to add widgets to your dashboard</p>
+                <div className="widget-library__grid">
+                  {WIDGET_LIBRARY.map((widget) => (
+                    <div
+                      key={widget.id}
+                      className="widget-library__item"
+                      onClick={() => handleAddWidget(widget)}
+                    >
+                      <span className="widget-library__icon">{widget.icon}</span>
+                      <span className="widget-library__title">{widget.title}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="dashboard-canvas" style={{ width: "100%" }}>
             {!widgets || widgets.length === 0 ? (
               <div className="empty-dashboard">
                 <p>No widgets yet.</p>
@@ -396,14 +671,18 @@ export default function DeviceDashboardPage() {
             ) : (
               <ResponsiveGridLayout
                 className="dashboard-grid"
-                layouts={{ lg: layout }}
+                layouts={{ lg: layout, md: layout, sm: layout, xs: layout, xxs: layout }}
                 breakpoints={{ lg: 1200, md: 996, sm: 768, xs: 480, xxs: 0 }}
-                cols={{ lg: 12, md: 10, sm: 6, xs: 4, xxs: 2 }}
+                cols={{ lg: 12, md: 12, sm: 12, xs: 12, xxs: 12 }}
                 rowHeight={60}
                 onLayoutChange={handleLayoutChange}
                 isDraggable={editMode}
                 isResizable={editMode}
-                compactType="vertical"
+                compactType={null}
+                preventCollision={true}
+                margin={[16, 16]}
+                useCSSTransforms={true}
+                measureBeforeMount={false}
               >
                   {widgets.map((widget) => (
                     <div key={widget.id} className="dashboard-grid__item">
@@ -423,9 +702,9 @@ export default function DeviceDashboardPage() {
                   ))}
               </ResponsiveGridLayout>
             )}
+            </div>
           </div>
         </div>
-      </section>
     </div>
   );
 }

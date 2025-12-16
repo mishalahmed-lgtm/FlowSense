@@ -15,8 +15,8 @@ import requests
 
 
 API_BASE = os.environ.get("IOT_API_BASE", "http://localhost:5000/api/v1")
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@flowsense.com")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "AdminFlow")
 DEVICE_ID = os.environ.get("LPG_DEVICE_ID", "LPG-METER-001")
 
 

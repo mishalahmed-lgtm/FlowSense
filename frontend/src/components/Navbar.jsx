@@ -2,7 +2,13 @@ import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 
 export default function Navbar() {
-  const { adminEmail } = useAuth();
+  const { user, logout } = useAuth();
+  
+  const handleLogout = () => {
+    if (window.confirm("Are you sure you want to log out?")) {
+      logout();
+    }
+  };
 
   return (
     <header className="navbar">
@@ -15,7 +21,14 @@ export default function Navbar() {
         <NavLink to="/devices">Devices</NavLink>
       </nav>
       <div className="navbar__auth">
-        <span>{adminEmail}</span>
+        <span>{user?.email}</span>
+        <button
+          className="btn btn--ghost btn--sm"
+          onClick={handleLogout}
+          style={{ marginLeft: "var(--space-3)" }}
+        >
+          Logout
+        </button>
       </div>
     </header>
   );

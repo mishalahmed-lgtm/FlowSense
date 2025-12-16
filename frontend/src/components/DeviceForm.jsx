@@ -19,14 +19,15 @@ export default function DeviceForm({
   initialDevice,
   deviceTypes,
   tenants,
+  userTenantId,
   onSubmit,
   onCancel,
 }) {
-  const [formState, setFormState] = useState(() => buildInitialState(initialDevice));
+  const [formState, setFormState] = useState(() => buildInitialState(initialDevice, userTenantId));
 
   useEffect(() => {
-    setFormState(buildInitialState(initialDevice));
-  }, [initialDevice]);
+    setFormState(buildInitialState(initialDevice, userTenantId));
+  }, [initialDevice, userTenantId]);
 
   const currentDeviceType = deviceTypes.find((dt) => dt.id === Number(formState.device_type_id));
   const currentProtocol = currentDeviceType?.protocol;
@@ -90,21 +91,27 @@ export default function DeviceForm({
           ))}
         </select>
       </label>
-      <label>
-        Tenant
-        <select
-          value={formState.tenant_id}
-          onChange={(event) => handleChange("tenant_id", event.target.value)}
-          required
-        >
-          <option value="">Select tenant</option>
-          {tenants.map((tenant) => (
-            <option key={tenant.id} value={tenant.id}>
-              {tenant.name}
-            </option>
-          ))}
-        </select>
-      </label>
+      {userTenantId ? (
+        // Tenant admins - hide tenant selector, auto-set their tenant_id
+        <input type="hidden" value={userTenantId} />
+      ) : (
+        // Admins - show tenant selector
+        <label>
+          Tenant
+          <select
+            value={formState.tenant_id}
+            onChange={(event) => handleChange("tenant_id", event.target.value)}
+            required
+          >
+            <option value="">Select tenant</option>
+            {tenants.map((tenant) => (
+              <option key={tenant.id} value={tenant.id}>
+                {tenant.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="checkbox">
         <input
           type="checkbox"
@@ -132,13 +139,13 @@ export default function DeviceForm({
   );
 }
 
-function buildInitialState(device) {
+function buildInitialState(device, userTenantId) {
   if (!device) {
     return {
       device_id: "",
       name: "",
       device_type_id: "",
-      tenant_id: "",
+      tenant_id: userTenantId || "", // Auto-set tenant_id for tenant admins
       is_active: true,
       metadata: cloneMetadata(),
     };
@@ -148,7 +155,7 @@ function buildInitialState(device) {
     device_id: device.device_id,
     name: device.name || "",
     device_type_id: device.device_type_id || device.device_type?.id || "",
-    tenant_id: device.tenant_id || "",
+    tenant_id: device.tenant_id || userTenantId || "",
     is_active: device.is_active,
     metadata: cloneMetadata(device.metadata),
   };

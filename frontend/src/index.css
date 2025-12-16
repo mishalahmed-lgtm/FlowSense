@@ -1,14 +1,7 @@
-:root {
-  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  line-height: 1.4;
-  font-weight: 400;
-  color: #0f172a;
-  background-color: #f5f6fb;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+/* Import Design System */
+@import "./design-system.css";
+
+/* Legacy compatibility - will be removed as pages are migrated */
 
 * {
   box-sizing: border-box;
@@ -452,6 +445,14 @@ tbody tr:hover {
   background-color: #f8fafc;
 }
 
+tbody tr.anomaly-row {
+  background-color: #fef3c7;
+}
+
+tbody tr.anomaly-row:hover {
+  background-color: #fde68a;
+}
+
 tbody tr:last-child td {
   border-bottom: none;
 }
@@ -514,9 +515,30 @@ tbody tr:last-child td {
   color: #b91c1c;
 }
 
+.status--warning {
+  background-color: #fef3c7;
+  color: #92400e;
+}
+
 .table-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #3b82f6;
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+  font-family: inherit;
+}
+
+.link-button:hover {
+  color: #2563eb;
+  text-decoration: none;
 }
 
 .metrics-grid {

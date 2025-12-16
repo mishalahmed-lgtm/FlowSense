@@ -6,7 +6,7 @@ import DeviceRulesPanel from "../components/DeviceRulesPanel.jsx";
 
 export default function DeviceRulesPage() {
   const { deviceId } = useParams();
-  const { token, isBootstrapping, bootstrapError } = useAuth();
+  const { token, isTenantAdmin } = useAuth();
   const navigate = useNavigate();
   const api = createApiClient(token);
 
@@ -15,7 +15,7 @@ export default function DeviceRulesPage() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!token || isBootstrapping || bootstrapError) {
+    if (!token || !isTenantAdmin) {
       return;
     }
 
@@ -39,23 +39,7 @@ export default function DeviceRulesPage() {
     };
 
     load();
-  }, [token, isBootstrapping, bootstrapError, api, deviceId]);
-
-  if (isBootstrapping) {
-    return (
-      <div className="page page--centered">
-        <p>Loading…</p>
-      </div>
-    );
-  }
-
-  if (bootstrapError) {
-    return (
-      <div className="page page--centered">
-        <p className="error-message">{bootstrapError}</p>
-      </div>
-    );
-  }
+  }, [token, api, deviceId]);
 
   return (
     <div className="page">

@@ -4,91 +4,56 @@ import { adminLogin } from "../api/client.js";
 const AuthContext = createContext(null);
 
 const TOKEN_STORAGE_KEY = "iot_admin_token";
-const EMAIL_STORAGE_KEY = "iot_admin_email";
-const DEFAULT_ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || "admin@example.com";
-const DEFAULT_ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || "admin123";
+const USER_STORAGE_KEY = "iot_user_data";
 
 export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY));
-  const [adminEmail, setAdminEmail] = useState(() => localStorage.getItem(EMAIL_STORAGE_KEY));
-  const [isBootstrapping, setIsBootstrapping] = useState(!token);
-  const [bootstrapError, setBootstrapError] = useState(null);
-  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
+  const [user, setUser] = useState(() => {
+    const stored = localStorage.getItem(USER_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  });
 
   useEffect(() => {
     if (token) {
       localStorage.setItem(TOKEN_STORAGE_KEY, token);
-      setBootstrapError(null);
-      setIsBootstrapping(false);
     } else {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
     }
   }, [token]);
 
   useEffect(() => {
-    if (adminEmail) {
-      localStorage.setItem(EMAIL_STORAGE_KEY, adminEmail);
+    if (user) {
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user));
     } else {
-      localStorage.removeItem(EMAIL_STORAGE_KEY);
+      localStorage.removeItem(USER_STORAGE_KEY);
     }
-  }, [adminEmail]);
-
-  useEffect(() => {
-    if (token) {
-      return;
-    }
-
-    let cancelled = false;
-
-    async function autoLogin() {
-      setIsBootstrapping(true);
-      setBootstrapError(null);
-      try {
-        const response = await adminLogin(DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_PASSWORD);
-        if (cancelled) {
-          return;
-        }
-        setToken(response.access_token);
-        setAdminEmail(DEFAULT_ADMIN_EMAIL);
-      } catch (error) {
-        if (cancelled) {
-          return;
-        }
-        const message = error.response?.data?.detail || "Automatic admin login failed";
-        setBootstrapError(message);
-      } finally {
-        if (!cancelled) {
-          setIsBootstrapping(false);
-        }
-      }
-    }
-
-    autoLogin();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, bootstrapAttempt]);
+  }, [user]);
 
   const value = useMemo(
     () => ({
       token,
-      adminEmail,
-      isAuthenticated: Boolean(token),
-      isBootstrapping,
-      bootstrapError,
-      retryBootstrap: () => setBootstrapAttempt((attempt) => attempt + 1),
-      login: ({ accessToken, email }) => {
+      user,
+      isAuthenticated: Boolean(token && user),
+      isAdmin: user?.role === 'admin',
+      isTenantAdmin: user?.role === 'tenant_admin',
+      hasModule: (moduleName) => {
+        if (user?.role === 'admin') return true; // Admins have all modules
+        return user?.enabled_modules?.includes(moduleName) || false;
+      },
+      login: ({ accessToken, userData }) => {
         setToken(accessToken);
-        setAdminEmail(email);
+        setUser(userData);
       },
       logout: () => {
         setToken(null);
-        setAdminEmail(null);
-        setBootstrapError(null);
+        setUser(null);
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        localStorage.removeItem(USER_STORAGE_KEY);
       },
+      // Backwards compatibility
+      adminEmail: user?.email,
     }),
-    [token, adminEmail, isBootstrapping, bootstrapError],
+    [token, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
