@@ -96,6 +96,16 @@ class RuleAction(BaseModel):
     reason: Optional[str] = None
     set: Optional[Dict[str, Any]] = None
     stop: Optional[bool] = True
+    # New action types
+    title: Optional[str] = None  # For alert action
+    message: Optional[str] = None  # For alert action
+    priority: Optional[str] = None  # For alert action
+    command: Optional[Dict[str, Any]] = None  # For device_command action
+    qos: Optional[int] = None  # For device_command action
+    url: Optional[str] = None  # For webhook action
+    method: Optional[str] = None  # For webhook action
+    headers: Optional[Dict[str, Any]] = None  # For webhook action
+    body: Optional[Dict[str, Any]] = None  # For webhook action
 
 
 class DeviceRuleBase(BaseModel):
@@ -105,6 +115,8 @@ class DeviceRuleBase(BaseModel):
     is_active: bool = True
     condition: Dict[str, Any]
     action: RuleAction
+    rule_type: Optional[str] = "event"  # "event" or "scheduled"
+    cron_schedule: Optional[str] = None  # Cron expression for scheduled rules
 
 
 class DeviceRuleCreate(DeviceRuleBase):
@@ -558,6 +570,8 @@ def create_device_rule(
         is_active=payload.is_active,
         condition=payload.condition,
         action=payload.action.dict(exclude_none=True),
+        rule_type=payload.rule_type or "event",
+        cron_schedule=payload.cron_schedule,
     )
     db.add(rule)
     db.commit()

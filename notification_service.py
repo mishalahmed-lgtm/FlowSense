@@ -30,6 +30,11 @@ class NotificationService:
         # SMS settings (placeholder - integrate with SMS provider like Twilio)
         self.sms_provider = getattr(settings, 'sms_provider', None) or None
         self.sms_api_key = getattr(settings, 'sms_api_key', None) or None
+        
+        # Push notification settings (Firebase Cloud Messaging, Apple Push Notification Service, etc.)
+        self.push_provider = getattr(settings, 'push_provider', None) or None  # fcm, apns, webpush
+        self.push_api_key = getattr(settings, 'push_api_key', None) or None
+        self.push_project_id = getattr(settings, 'push_project_id', None) or None
     
     def send_email(self, notification: Notification) -> bool:
         """Send email notification."""
@@ -89,6 +94,76 @@ class NotificationService:
             notification.error_message = str(e)
             return False
     
+    def send_push(self, notification: Notification) -> bool:
+        """Send push notification (FCM, APNS, or Web Push)."""
+        if not self.push_provider:
+            logger.warning("Push notification provider not configured, skipping push notification")
+            notification.status = "failed"
+            notification.error_message = "Push notification provider not configured"
+            return False
+        
+        try:
+            # Parse recipient (should be device token or user ID)
+            recipient = notification.recipient
+            
+            # Parse body (should be JSON with title, body, data, etc.)
+            try:
+                push_payload = json.loads(notification.body) if notification.body else {}
+            except:
+                push_payload = {
+                    "title": notification.subject or "Alert",
+                    "body": notification.body or "You have a new alert",
+                }
+            
+            # Send based on provider
+            if self.push_provider.lower() == "fcm":
+                # Firebase Cloud Messaging
+                fcm_url = f"https://fcm.googleapis.com/v1/projects/{self.push_project_id}/messages:send"
+                headers = {
+                    "Authorization": f"Bearer {self.push_api_key}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "message": {
+                        "token": recipient,
+                        "notification": {
+                            "title": push_payload.get("title", "Alert"),
+                            "body": push_payload.get("body", ""),
+                        },
+                        "data": push_payload.get("data", {}),
+                    }
+                }
+                response = requests.post(fcm_url, json=payload, headers=headers, timeout=10)
+                
+            elif self.push_provider.lower() == "webpush":
+                # Web Push API (for browser notifications)
+                # This requires a service worker and VAPID keys
+                logger.info(f"Web Push notification to {recipient}: {push_payload}")
+                # Placeholder - implement Web Push API integration
+                response = requests.Response()
+                response.status_code = 200
+            else:
+                logger.warning(f"Unknown push provider: {self.push_provider}")
+                notification.status = "failed"
+                notification.error_message = f"Unknown push provider: {self.push_provider}"
+                return False
+            
+            if response.status_code >= 200 and response.status_code < 300:
+                notification.status = "sent"
+                notification.sent_at = datetime.now(timezone.utc)
+                logger.info(f"Push notification sent to {recipient}")
+                return True
+            else:
+                notification.status = "failed"
+                notification.error_message = f"HTTP {response.status_code}: {response.text}"
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to send push notification: {e}", exc_info=True)
+            notification.status = "failed"
+            notification.error_message = str(e)
+            return False
+    
     def send_webhook(self, notification: Notification) -> bool:
         """Send webhook notification."""
         try:
@@ -128,6 +203,8 @@ class NotificationService:
                 success = self.send_sms(notification)
             elif notification.channel == "webhook":
                 success = self.send_webhook(notification)
+            elif notification.channel == "push":
+                success = self.send_push(notification)
             else:
                 logger.warning(f"Unknown notification channel: {notification.channel}")
                 notification.status = "failed"

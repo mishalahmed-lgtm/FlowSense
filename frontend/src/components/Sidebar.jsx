@@ -62,6 +62,33 @@ export default function Sidebar() {
         ],
       });
     }
+
+    if (hasModule("fota")) {
+      navItems.push({
+        label: "Firmware Updates",
+        path: "/fota/jobs",
+        module: "fota",
+        subLinks: [
+          { label: "Update Jobs", target: "" },
+        ],
+      });
+    }
+
+    if (hasModule("health")) {
+      navItems.push({
+        label: "Device Health",
+        path: "/health",
+        module: "health",
+      });
+    }
+
+    if (hasModule("analytics")) {
+      navItems.push({
+        label: "Analytics",
+        path: "/analytics",
+        module: "analytics",
+      });
+    }
   }
 
   const renderSubLinks = (item) => {

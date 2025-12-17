@@ -16,6 +16,7 @@ from metrics import metrics
 from validators import telemetry_validator
 from error_handler import dead_letter_queue
 from rule_engine import rule_engine
+from lorawan_handler import lorawan_handler
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,51 @@ async def ingest_telemetry_http(
         raise
     except Exception as e:
         metrics.record_error(device.device_id, "internal_error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Internal server error: {str(e)}"
+        )
+
+
+@router.post("/lorawan/{device_id}", status_code=status.HTTP_202_ACCEPTED)
+async def ingest_telemetry_lorawan(
+    device_id: str,
+    webhook_payload: Dict[str, Any],
+    request: Request
+):
+    """
+    LoRaWAN webhook endpoint for ingesting telemetry from LoRaWAN network servers.
+    
+    Supports webhooks from:
+    - The Things Network (TTN)
+    - ChirpStack
+    - Other LoRaWAN network servers
+    
+    The webhook payload format varies by network server, but this handler
+    supports common formats.
+    """
+    try:
+        result = lorawan_handler.process_webhook(webhook_payload, device_id)
+        
+        if result["status"] == "accepted":
+            return {
+                "status": "accepted",
+                "device_id": device_id,
+                "message": "LoRaWAN telemetry processed"
+            }
+        elif result["status"] == "dropped":
+            return {
+                "status": "dropped",
+                "device_id": device_id,
+                "message": result.get("message", "Telemetry dropped")
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("message", "Failed to process LoRaWAN webhook")
+            )
+    except Exception as e:
+        logger.error(f"Error processing LoRaWAN webhook: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Internal server error: {str(e)}"

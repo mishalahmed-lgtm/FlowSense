@@ -13,6 +13,9 @@ import TenantManagementPage from "./pages/TenantManagementPage.jsx";
 import UserManagementPage from "./pages/UserManagementPage.jsx";
 import AlertsPage from "./pages/AlertsPage.jsx";
 import AlertRulesPage from "./pages/AlertRulesPage.jsx";
+import FOTAJobsPage from "./pages/FOTAJobsPage.jsx";
+import DeviceHealthPage from "./pages/DeviceHealthPage.jsx";
+import AnalyticsPage from "./pages/AnalyticsPage.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
@@ -99,6 +102,27 @@ function App() {
               <>
                 <Route path="/alerts" element={<AlertsPage />} />
                 <Route path="/alerts/rules" element={<AlertRulesPage />} />
+              </>
+            )}
+            
+            {/* FOTA Routes */}
+            {hasModule("fota") && (
+              <>
+                <Route path="/fota/jobs" element={<FOTAJobsPage />} />
+              </>
+            )}
+            
+            {/* Health Monitoring Routes */}
+            {hasModule("health") && (
+              <>
+                <Route path="/health" element={<DeviceHealthPage />} />
+              </>
+            )}
+            
+            {/* Analytics Routes */}
+            {hasModule("analytics") && (
+              <>
+                <Route path="/analytics" element={<AnalyticsPage />} />
               </>
             )}
             

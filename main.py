@@ -12,8 +12,24 @@ from routers import dashboard as dashboard_router
 from routers import utility as utility_router
 from routers import user_management as user_management_router
 from routers import alerts as alerts_router
+from routers import fota as fota_router
+from routers import health as health_router
+from routers import analytics as analytics_router
+from routers import websocket as websocket_router
+from routers import export as export_router
+from routers import maps as maps_router
+from routers.graphql import create_graphql_router
+from routers import oauth as oauth_router
 from mqtt_client import mqtt_handler
 from tcp_server import tcp_ingestion_server
+from fota_service import fota_service
+from health_monitoring_service import health_monitoring_service
+from analytics_engine import analytics_engine
+from rule_scheduler import rule_scheduler
+from cep_engine import cep_engine
+from mqtt_command_service import mqtt_command_service
+from modbus_handler import modbus_handler
+from dali_handler import dali_handler
 from metrics import metrics
 
 # Configure logging
@@ -51,10 +67,75 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to start TCP ingestion server: {e}. Continuing without TCP...")
     
+    # Start FOTA service
+    try:
+        fota_service.start()
+        logger.info("FOTA service started")
+    except Exception as e:
+        logger.warning(f"Failed to start FOTA service: {e}. Continuing without FOTA...")
+    
+    # Start health monitoring service
+    try:
+        health_monitoring_service.start()
+        logger.info("Health monitoring service started")
+    except Exception as e:
+        logger.warning(f"Failed to start health monitoring service: {e}. Continuing without health monitoring...")
+    
+    # Start analytics engine
+    try:
+        analytics_engine.start()
+        logger.info("Analytics engine started")
+    except Exception as e:
+        logger.warning(f"Failed to start analytics engine: {e}. Continuing without analytics...")
+    
+    # Start rule scheduler (for cron-based rules)
+    try:
+        rule_scheduler.start()
+        logger.info("Rule scheduler started")
+    except Exception as e:
+        logger.warning(f"Failed to start rule scheduler: {e}. Continuing without scheduled rules...")
+    
+    # Start CEP engine (for complex event processing)
+    try:
+        cep_engine.start()
+        logger.info("CEP engine started")
+    except Exception as e:
+        logger.warning(f"Failed to start CEP engine: {e}. Continuing without CEP...")
+    
+    # Start Modbus TCP server
+    try:
+        await modbus_handler.start(host="0.0.0.0", port=5020)
+        logger.info("Modbus TCP server started on port 5020")
+    except Exception as e:
+        logger.warning(f"Failed to start Modbus TCP server: {e}. Continuing without Modbus...")
+    
+    # Start DALI server
+    try:
+        await dali_handler.start(host="0.0.0.0", port=6001)
+        logger.info("DALI server started on port 6001")
+    except Exception as e:
+        logger.warning(f"Failed to start DALI server: {e}. Continuing without DALI...")
+    
     yield
     
     # Shutdown
     logger.info("Shutting down IoT Platform Ingestion Gateway...")
+    cep_engine.stop()
+    logger.info("CEP engine stopped")
+    rule_scheduler.stop()
+    logger.info("Rule scheduler stopped")
+    analytics_engine.stop()
+    logger.info("Analytics engine stopped")
+    health_monitoring_service.stop()
+    logger.info("Health monitoring service stopped")
+    fota_service.stop()
+    logger.info("FOTA service stopped")
+    mqtt_command_service.disconnect()
+    logger.info("MQTT command service stopped")
+    await modbus_handler.stop()
+    logger.info("Modbus TCP server stopped")
+    await dali_handler.stop()
+    logger.info("DALI server stopped")
     mqtt_handler.disconnect()
     logger.info("MQTT handler stopped")
     await tcp_ingestion_server.stop()
@@ -62,10 +143,37 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI application
 app = FastAPI(
-    title="IoT Platform - Ingestion Gateway",
-    description="Data ingestion pipeline for IoT devices (LPG Meter, Valve Controller, GPS)",
-    version="1.0.0",
-    lifespan=lifespan
+    title="FlowSense IoT Platform API",
+    description="""
+    Comprehensive IoT Platform API with:
+    - Device Management & Telemetry Ingestion
+    - Real-time Data Streaming (WebSocket)
+    - Analytics & Machine Learning
+    - Alert & Notification Management
+    - FOTA (Firmware Over-The-Air) Updates
+    - Device Health Monitoring
+    - Rule Engine with CEP
+    - Multi-protocol Support (MQTT, HTTP, TCP, LoRaWAN, Modbus, DALI)
+    - Export Capabilities (CSV, Excel, PDF)
+    - Maps & Geographic Visualization
+    
+    ## Authentication
+    - JWT tokens for API access
+    - OAuth 2.0 support (coming soon)
+    
+    ## Rate Limiting
+    - Per-device rate limits for telemetry ingestion
+    - API rate limiting for REST endpoints
+    
+    ## Documentation
+    - OpenAPI/Swagger: `/docs`
+    - ReDoc: `/redoc`
+    """,
+    version="2.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
 )
 
 # CORS middleware
@@ -101,6 +209,46 @@ app.include_router(
 )
 app.include_router(
     alerts_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    fota_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    health_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    analytics_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    websocket_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    export_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    maps_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+
+# Include GraphQL router
+try:
+    graphql_router = create_graphql_router()
+    # GraphQLRouter is a FastAPI router, include it with prefix
+    # The path "/" in GraphQLRouter + prefix "/api/v1" + internal "/graphql" = "/api/v1/graphql"
+    app.include_router(graphql_router, prefix=f"{settings.api_v1_prefix}/graphql")
+    logger.info(f"GraphQL router registered at {settings.api_v1_prefix}/graphql")
+except Exception as e:
+    logger.error(f"Failed to register GraphQL router: {e}", exc_info=True)
+
+# Include OAuth 2.0 router
+app.include_router(
+    oauth_router.router,
     prefix=f"{settings.api_v1_prefix}",
 )
 

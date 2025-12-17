@@ -131,3 +131,13 @@ def require_module(module_name: str):
     return check_module
 
 
+def get_current_user_from_token(token: str, db: Session) -> Optional[User]:
+    """Get user from token string (for WebSocket authentication)."""
+    try:
+        payload = decode_token(token)
+        user = db.query(User).filter(User.id == payload.user_id, User.is_active == True).first()
+        return user
+    except Exception:
+        return None
+
+

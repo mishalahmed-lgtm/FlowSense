@@ -11,17 +11,29 @@ const initialFormState = {
   conditionOperator: ">",
   conditionValue: "50",
   actionPreset: "alert",
-  alertTopic: "alerts.high_temperature",
-  alertMessage: "Notify operators",
+  alertTitle: "",
+  alertMessage: "",
+  alertPriority: "medium",
+  deviceCommand: "",
+  deviceCommandTopic: "",
+  deviceCommandQos: 1,
+  webhookUrl: "",
+  webhookMethod: "POST",
+  webhookHeaders: "",
+  webhookBody: "",
   flagStatus: "ALERT",
   customRouteTopic: "",
   customMutateField: "payload.status",
   customMutateValue: "ALERT",
   stopAfter: true,
+  ruleType: "event", // "event" or "scheduled"
+  cronSchedule: "",
 };
 
 const actionPresets = [
-  { value: "alert", label: "Send alert notification" },
+  { value: "alert", label: "Create Alert" },
+  { value: "device_command", label: "Send Device Command" },
+  { value: "webhook", label: "Call Webhook" },
   { value: "ignore", label: "Ignore this reading" },
   { value: "flag_warning", label: "Mark device as warning" },
   { value: "close_valve", label: "Close the valve" },
@@ -108,8 +120,44 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
     switch (formState.actionPreset) {
       case "alert":
         return {
-          type: "route",
-          topic: (formState.alertTopic || `alerts.${deviceId}`).trim(),
+          type: "alert",
+          title: formState.alertTitle || "Rule-triggered alert",
+          message: formState.alertMessage || "A rule condition was met",
+          priority: formState.alertPriority || "medium",
+          stop,
+        };
+      case "device_command":
+        if (!formState.deviceCommand) {
+          throw new Error("Enter a device command.");
+        }
+        // Parse JSON if it's a JSON string, otherwise create simple command object
+        let command;
+        if (typeof formState.deviceCommand === 'string' && formState.deviceCommand.trim().startsWith('{')) {
+          try {
+            command = JSON.parse(formState.deviceCommand);
+          } catch (e) {
+            command = { "action": formState.deviceCommand };
+          }
+        } else {
+          command = { "action": formState.deviceCommand };
+        }
+        return {
+          type: "device_command",
+          command: command,
+          topic: formState.deviceCommandTopic || undefined,
+          qos: formState.deviceCommandQos || 1,
+          stop,
+        };
+      case "webhook":
+        if (!formState.webhookUrl) {
+          throw new Error("Enter a webhook URL.");
+        }
+        return {
+          type: "webhook",
+          url: formState.webhookUrl,
+          method: formState.webhookMethod || "POST",
+          headers: formState.webhookHeaders ? JSON.parse(formState.webhookHeaders) : {},
+          body: formState.webhookBody ? JSON.parse(formState.webhookBody) : {},
           stop,
         };
       case "ignore":
@@ -167,14 +215,28 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
     setSuccess(null);
     try {
       const condition = buildCondition();
+      
+      // Validate scheduled rule
+      if (formState.ruleType === "scheduled" && !formState.cronSchedule.trim()) {
+        throw new Error("Cron schedule is required for scheduled rules");
+      }
       const action = buildAction();
-      await api.post(`/admin/devices/${deviceId}/rules`, {
+      
+      const ruleData = {
         name: formState.name || "Untitled rule",
         priority: Number(formState.priority) || 100,
         is_active: Boolean(formState.is_active),
         condition,
         action,
-      });
+      };
+      
+      // Add scheduled rule fields if applicable
+      if (formState.ruleType === "scheduled") {
+        ruleData.rule_type = "scheduled";
+        ruleData.cron_schedule = formState.cronSchedule.trim();
+      }
+      
+      await api.post(`/admin/devices/${deviceId}/rules`, ruleData);
       setSuccess("Rule created");
       setFormState((prev) => ({
         ...initialFormState,
@@ -375,21 +437,111 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
           {formState.actionPreset === "alert" && (
             <>
               <label>
-                Alert feed
+                Alert Title
                 <input
                   type="text"
-                  value={formState.alertTopic}
-                  placeholder="alerts.high_temperature"
-                  onChange={(event) => handleInputChange("alertTopic", event.target.value)}
+                  value={formState.alertTitle || ""}
+                  placeholder="High Temperature Alert"
+                  onChange={(event) => handleInputChange("alertTitle", event.target.value)}
+                  required
                 />
               </label>
               <label>
-                Alert note
+                Alert Message
                 <input
                   type="text"
-                  value={formState.alertMessage}
-                  placeholder="Example: Notify on-call engineer"
+                  value={formState.alertMessage || ""}
+                  placeholder="Temperature exceeded threshold"
                   onChange={(event) => handleInputChange("alertMessage", event.target.value)}
+                />
+              </label>
+              <label>
+                Priority
+                <select
+                  value={formState.alertPriority || "medium"}
+                  onChange={(event) => handleInputChange("alertPriority", event.target.value)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </select>
+              </label>
+            </>
+          )}
+          {formState.actionPreset === "device_command" && (
+            <>
+              <label>
+                Command (JSON or simple string)
+                <input
+                  type="text"
+                  value={formState.deviceCommand || ""}
+                  placeholder='{"action": "reboot"} or "reboot"'
+                  onChange={(event) => handleInputChange("deviceCommand", event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                MQTT Topic (optional, defaults to devices/{deviceId}/commands)
+                <input
+                  type="text"
+                  value={formState.deviceCommandTopic || ""}
+                  placeholder={`devices/${deviceId}/commands`}
+                  onChange={(event) => handleInputChange("deviceCommandTopic", event.target.value)}
+                />
+              </label>
+              <label>
+                QoS
+                <select
+                  value={formState.deviceCommandQos || 1}
+                  onChange={(event) => handleInputChange("deviceCommandQos", parseInt(event.target.value))}
+                >
+                  <option value={0}>0 - At most once</option>
+                  <option value={1}>1 - At least once</option>
+                  <option value={2}>2 - Exactly once</option>
+                </select>
+              </label>
+            </>
+          )}
+          {formState.actionPreset === "webhook" && (
+            <>
+              <label>
+                Webhook URL
+                <input
+                  type="url"
+                  value={formState.webhookUrl || ""}
+                  placeholder="https://example.com/webhook"
+                  onChange={(event) => handleInputChange("webhookUrl", event.target.value)}
+                  required
+                />
+              </label>
+              <label>
+                HTTP Method
+                <select
+                  value={formState.webhookMethod || "POST"}
+                  onChange={(event) => handleInputChange("webhookMethod", event.target.value)}
+                >
+                  <option value="POST">POST</option>
+                  <option value="PUT">PUT</option>
+                  <option value="GET">GET</option>
+                </select>
+              </label>
+              <label>
+                Headers (JSON, optional)
+                <textarea
+                  value={formState.webhookHeaders || ""}
+                  placeholder='{"Authorization": "Bearer token"}'
+                  onChange={(event) => handleInputChange("webhookHeaders", event.target.value)}
+                  rows={2}
+                />
+              </label>
+              <label>
+                Body (JSON, optional - use {'{{'}field.path{'}}'} for variables)
+                <textarea
+                  value={formState.webhookBody || ""}
+                  placeholder='{"device": "{{device.device_id}}", "value": "{{payload.temperature}}"}'
+                  onChange={(event) => handleInputChange("webhookBody", event.target.value)}
+                  rows={3}
                 />
               </label>
             </>
@@ -438,6 +590,31 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
                 />
               </label>
             </>
+          )}
+          <label>
+            Rule Type
+            <select
+              value={formState.ruleType}
+              onChange={(event) => handleInputChange("ruleType", event.target.value)}
+            >
+              <option value="event">Event-based (real-time)</option>
+              <option value="scheduled">Scheduled (cron-based)</option>
+            </select>
+          </label>
+          {formState.ruleType === "scheduled" && (
+            <label>
+              Cron Schedule
+              <input
+                type="text"
+                value={formState.cronSchedule}
+                placeholder="0 */5 * * * (every 5 minutes)"
+                onChange={(event) => handleInputChange("cronSchedule", event.target.value)}
+                required
+              />
+              <small className="text-muted">
+                Format: minute hour day month weekday (e.g., "0 */5 * * *" = every 5 minutes)
+              </small>
+            </label>
           )}
           <label className="checkbox">
             <input

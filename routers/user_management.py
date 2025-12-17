@@ -452,5 +452,5 @@ def get_available_modules(
     _: User = Depends(require_admin),
 ):
     """Get list of available modules."""
-    return ["devices", "dashboards", "utility", "rules", "alerts"]
+    return ["devices", "dashboards", "utility", "rules", "alerts", "fota", "health", "analytics"]
 

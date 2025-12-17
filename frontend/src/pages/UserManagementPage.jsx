@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
 
-const AVAILABLE_MODULES = ["devices", "dashboards", "utility", "rules", "alerts"];
+const AVAILABLE_MODULES = ["devices", "dashboards", "utility", "rules", "alerts", "fota", "health", "analytics"];
 
 export default function UserManagementPage() {
   const { token, isAdmin } = useAuth();

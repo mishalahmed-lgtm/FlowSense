@@ -21,6 +21,15 @@ from kafka.errors import NoBrokersAvailable
 from database import SessionLocal
 from models import Device, TelemetryLatest, TelemetryTimeseries
 from alert_engine import alert_engine
+from cep_engine import cep_engine
+
+# Import WebSocket broadcaster (with try/except to avoid circular imports)
+try:
+    from routers.websocket import broadcast_telemetry_update
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    WEBSOCKET_AVAILABLE = False
+    logger.warning("WebSocket broadcasting not available")
 
 logger = logging.getLogger("telemetry_worker")
 logging.basicConfig(
@@ -133,6 +142,29 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
             )
         except Exception as e:
             logger.error(f"Error processing alerts for device {device_id}: {e}", exc_info=True)
+    
+    # Feed event to CEP engine for complex event processing
+    try:
+        cep_engine.process_event(device_id, payload, metadata)
+    except Exception as e:
+        logger.error(f"Error processing CEP event for device {device_id}: {e}", exc_info=True)
+    
+    # Broadcast to WebSocket clients (if available)
+    if WEBSOCKET_AVAILABLE:
+        try:
+            from database import SessionLocal as WS_DB
+            ws_db = WS_DB()
+            try:
+                broadcast_telemetry_update(
+                    device_id=device_id,
+                    data=payload,
+                    timestamp=event_ts.isoformat() if event_ts else None,
+                    db=ws_db
+                )
+            finally:
+                ws_db.close()
+        except Exception as e:
+            logger.debug(f"WebSocket broadcast error (non-critical): {e}")
 
 
 def run_worker() -> None:

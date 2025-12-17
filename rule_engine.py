@@ -441,6 +441,22 @@ class RuleEngine:
                 action_type="mutate",
             )
         
+        # New action types: Alert, Device Command, Webhook
+        if action_type == "alert":
+            # Trigger alert via alert engine
+            self._trigger_alert(action, context)
+            return RuleEvaluationResult(payload=payload, metadata=metadata, action_type="alert")
+        
+        if action_type == "device_command":
+            # Send command to device via MQTT
+            self._send_device_command(action, context)
+            return RuleEvaluationResult(payload=payload, metadata=metadata, action_type="device_command")
+        
+        if action_type == "webhook":
+            # Call external webhook
+            self._call_webhook(action, context)
+            return RuleEvaluationResult(payload=payload, metadata=metadata, action_type="webhook")
+        
         # Stateful actions
         state = context.get("state")
         if action_type == "increment_counter" and state:
@@ -464,6 +480,135 @@ class RuleEngine:
 
         logger.debug("Unknown action type '%s'; skipping.", action_type)
         return RuleEvaluationResult(payload=payload, metadata=metadata)
+    
+    def _trigger_alert(self, action: Dict[str, Any], context: Dict[str, Any]):
+        """Trigger an alert directly (creates Alert without AlertRule)."""
+        try:
+            from database import SessionLocal
+            from models import Alert, AlertPriority, AlertStatus, Device
+            
+            device = context.get("device", {})
+            device_id_str = device.get("device_id")
+            tenant_id = device.get("tenant_id")
+            
+            if not device_id_str or not tenant_id:
+                logger.warning("Cannot trigger alert: missing device_id or tenant_id")
+                return
+            
+            db = SessionLocal()
+            try:
+                # Get device from database
+                device_obj = db.query(Device).filter(Device.device_id == device_id_str).first()
+                if not device_obj:
+                    logger.warning(f"Cannot trigger alert: device {device_id_str} not found")
+                    return
+                
+                # Create alert directly
+                alert_title = action.get("title", "Rule-triggered alert")
+                alert_message = action.get("message", "A rule condition was met")
+                priority_str = action.get("priority", "medium").upper()
+                
+                try:
+                    priority = AlertPriority[priority_str]
+                except KeyError:
+                    priority = AlertPriority.MEDIUM
+                
+                alert = Alert(
+                    rule_id=None,  # No alert rule - direct from device rule
+                    device_id=device_obj.id,
+                    tenant_id=tenant_id,
+                    title=alert_title,
+                    message=alert_message,
+                    priority=priority,
+                    status=AlertStatus.OPEN,
+                    trigger_data=context.get("payload", {}),
+                    alert_metadata=context
+                )
+                
+                db.add(alert)
+                db.commit()
+                logger.info(f"Rule triggered alert: {alert_title} for device {device_id_str}")
+                
+            except Exception as e:
+                logger.error(f"Error creating alert: {e}", exc_info=True)
+                db.rollback()
+            finally:
+                db.close()
+            
+        except Exception as e:
+            logger.error(f"Error triggering alert: {e}", exc_info=True)
+    
+    def _send_device_command(self, action: Dict[str, Any], context: Dict[str, Any]):
+        """Send command to device via MQTT."""
+        try:
+            from mqtt_command_service import mqtt_command_service
+            
+            device = context.get("device", {})
+            device_id = device.get("device_id")
+            
+            if not device_id:
+                logger.warning("Cannot send device command: missing device_id")
+                return
+            
+            command = action.get("command", {})
+            topic = action.get("topic", f"devices/{device_id}/commands")
+            qos = action.get("qos", 1)
+            
+            mqtt_command_service.publish_command(device_id, command, topic, qos)
+            logger.info(f"Sent command to device {device_id} via MQTT")
+            
+        except Exception as e:
+            logger.error(f"Error sending device command: {e}", exc_info=True)
+    
+    def _call_webhook(self, action: Dict[str, Any], context: Dict[str, Any]):
+        """Call external webhook."""
+        try:
+            import requests
+            
+            url = action.get("url")
+            method = action.get("method", "POST").upper()
+            headers = action.get("headers", {})
+            body = action.get("body", {})
+            
+            if not url:
+                logger.warning("Cannot call webhook: missing URL")
+                return
+            
+            # Replace template variables in body
+            if isinstance(body, dict):
+                # Replace {{field.path}} with actual values
+                body = self._resolve_template(body, context)
+            
+            if method == "POST":
+                response = requests.post(url, json=body, headers=headers, timeout=10)
+            elif method == "PUT":
+                response = requests.put(url, json=body, headers=headers, timeout=10)
+            elif method == "GET":
+                response = requests.get(url, params=body, headers=headers, timeout=10)
+            else:
+                logger.warning(f"Unsupported HTTP method: {method}")
+                return
+            
+            logger.info(f"Webhook called: {url} - Status: {response.status_code}")
+            
+        except Exception as e:
+            logger.error(f"Error calling webhook: {e}", exc_info=True)
+    
+    def _resolve_template(self, template: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve template variables in action body."""
+        import json
+        import re
+        
+        template_str = json.dumps(template)
+        
+        # Replace {{field.path}} with actual values
+        def replace_var(match):
+            path = match.group(1)
+            value = self._extract_field(context, path)
+            return json.dumps(value) if value is not None else "null"
+        
+        resolved = re.sub(r'\{\{([^}]+)\}\}', replace_var, template_str)
+        return json.loads(resolved)
 
     @staticmethod
     def _assign_path(target: Dict[str, Any], path: str, value: Any):

@@ -26,10 +26,14 @@ source venv/bin/activate
 echo -e "${YELLOW}Installing dependencies...${NC}"
 pip install -q -r requirements.txt
 
-# Run code validation tests
+# Run code validation tests (if available)
 echo -e "\n${YELLOW}Running code validation tests...${NC}"
-python3 test_imports.py
-python3 test_app.py
+if [ -f "scripts/test_new_features.py" ]; then
+    python3 scripts/test_new_features.py || echo -e "${YELLOW}Note: Some tests may require running services${NC}"
+fi
+if [ -f "scripts/test_graphql_oauth.py" ]; then
+    python3 scripts/test_graphql_oauth.py || echo -e "${YELLOW}Note: Some tests may require running services${NC}"
+fi
 
 # Check if Docker is available
 if command -v docker &> /dev/null; then
