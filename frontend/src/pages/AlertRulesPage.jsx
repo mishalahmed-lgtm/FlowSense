@@ -4,6 +4,7 @@ import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 export default function AlertRulesPage() {
   const { token, isTenantAdmin, hasModule, user } = useAuth();
@@ -196,17 +197,24 @@ export default function AlertRulesPage() {
         ]}
       />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-6)" }}>
-        <div>
-          <h1 style={{ marginBottom: "var(--space-2)" }}>Alert Rules</h1>
-          <p className="text-muted">Configure rules that trigger alerts based on device telemetry</p>
+      <div className="page-header">
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
+          <h1 className="page-header__title">Alert Rules</h1>
+          <p className="page-header__subtitle">
+            Configure rules that trigger alerts based on device telemetry
+          </p>
         </div>
-        <button
-          className="btn btn--primary"
-          onClick={() => openModal()}
-        >
-          + Create Alert Rule
-        </button>
+        <div className="page-header__actions">
+          <button
+            className="btn btn--primary"
+            onClick={() => openModal()}
+          >
+            + Create Alert Rule
+          </button>
+        </div>
       </div>
 
       {error && (

@@ -3,6 +3,7 @@ import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 const AVAILABLE_MODULES = ["devices", "dashboards", "utility", "rules", "alerts", "fota", "health", "analytics"];
 
@@ -152,11 +153,21 @@ export default function UserManagementPage() {
         ]}
       />
 
-      <div className="section-header">
-        <h1>User Management</h1>
-        <button className="btn btn--primary" onClick={handleCreate}>
-          + Add User
-        </button>
+      <div className="page-header">
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
+          <h1 className="page-header__title">User Management</h1>
+          <p className="page-header__subtitle">
+            Manage user accounts, roles, and module access
+          </p>
+        </div>
+        <div className="page-header__actions">
+          <button className="btn btn--primary" onClick={handleCreate}>
+            + Add User
+          </button>
+        </div>
       </div>
 
       {error && (

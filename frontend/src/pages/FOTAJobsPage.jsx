@@ -4,6 +4,7 @@ import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 export default function FOTAJobsPage() {
   const { token, isTenantAdmin, hasModule } = useAuth();
@@ -145,6 +146,9 @@ export default function FOTAJobsPage() {
       {/* Page Header */}
       <div className="page-header">
         <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
           <h1 className="page-header__title">Firmware Updates</h1>
           <p className="page-header__subtitle">
             Manage over-the-air firmware update jobs

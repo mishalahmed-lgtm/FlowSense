@@ -5,6 +5,7 @@ import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Tabs from "../components/Tabs.jsx";
 import Collapsible from "../components/Collapsible.jsx";
 import Icon from "../components/Icon.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 const UTILITY_KINDS = [
   { value: "electricity", label: "Electricity", icon: "zap", color: "#facc15" },
@@ -722,14 +723,19 @@ export default function UtilityBillingPage() {
 
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "Utility Billing", path: "/utility/billing" }]} />
-      
       <div className="page-header">
-        <div>
-          <h1>Utility Billing & Consumption</h1>
-          <p className="text-muted">Generate reports and invoices for utility consumption across all devices</p>
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
+          <h1 className="page-header__title">Utility Billing & Consumption</h1>
+          <p className="page-header__subtitle">
+            Generate reports and invoices for utility consumption across all devices
+          </p>
         </div>
       </div>
+
+      <Breadcrumbs items={[{ label: "Utility Billing", path: "/utility/billing" }]} />
 
       <Tabs tabs={tabs} defaultTab={viewMode} onChange={handleTabChange} />
     </div>

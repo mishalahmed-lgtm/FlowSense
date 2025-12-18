@@ -3,6 +3,7 @@ import axios from "axios";
 import { API_BASE_URL, createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Icon from "../components/Icon.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 function EventActivityChart({ activity }) {
   const height = 300;
@@ -162,6 +163,9 @@ export default function DashboardPage() {
       {/* Page Header */}
       <div className="page-header">
         <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
           <h1 className="page-header__title">Dashboard</h1>
           <p className="page-header__subtitle">
             IoT platform overview and system status

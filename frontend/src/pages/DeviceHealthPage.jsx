@@ -4,6 +4,7 @@ import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 export default function DeviceHealthPage() {
   const { token, isTenantAdmin, hasModule } = useAuth();
@@ -125,10 +126,18 @@ export default function DeviceHealthPage() {
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Device Health Monitoring", path: "/health" }]} />
-      
+
       <div className="page-header">
-        <h1>Device Health Monitoring</h1>
-        <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
+          <h1 className="page-header__title">Device Health Monitoring</h1>
+          <p className="page-header__subtitle">
+            Uptime, connectivity, and battery trends across your devices
+          </p>
+        </div>
+        <div className="page-header__actions" style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
           <select
             className="form-select"
             value={statusFilter}

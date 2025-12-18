@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 export default function AdminPortalPage() {
   const { user, isAdmin } = useAuth();
@@ -36,8 +37,16 @@ export default function AdminPortalPage() {
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin Portal" }]} />
 
-      <div className="section-header">
-        <h1>Admin Portal</h1>
+      <div className="page-header">
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
+          <h1 className="page-header__title">Admin Portal</h1>
+          <p className="page-header__subtitle">
+            Manage tenants, users, and platform-wide configuration
+          </p>
+        </div>
       </div>
 
       <div className="card" style={{ marginBottom: "var(--space-6)", background: "var(--color-primary-50)", borderColor: "var(--color-primary-200)" }}>

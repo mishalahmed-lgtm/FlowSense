@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import DeviceForm from "../components/DeviceForm.jsx";
 import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 export default function DevicesPage() {
   const { token, isTenantAdmin, user } = useAuth();
@@ -152,6 +153,9 @@ export default function DevicesPage() {
       {/* Page Header */}
       <div className="page-header">
         <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
           <h1 className="page-header__title">Devices</h1>
           <p className="page-header__subtitle">
             Manage and monitor your IoT devices
@@ -292,7 +296,7 @@ export default function DevicesPage() {
             <div
               key={device.id}
               className="card card--interactive"
-              onClick={() => navigate(`/devices/dashboard/${device.device_id}`)}
+              onClick={() => navigate(`/devices/${device.device_id}/dashboard`)}
               style={{ cursor: "pointer" }}
             >
               <div style={{ position: "absolute", top: "var(--space-4)", right: "var(--space-4)" }}>
@@ -359,7 +363,7 @@ export default function DevicesPage() {
               {filteredDevices.map((device) => (
                 <tr
                   key={device.id}
-                  onClick={() => navigate(`/devices/dashboard/${device.device_id}`)}
+                  onClick={() => navigate(`/devices/${device.device_id}/dashboard`)}
                   style={{ cursor: "pointer" }}
                 >
                   <td>

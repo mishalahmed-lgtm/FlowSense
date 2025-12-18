@@ -1,18 +1,18 @@
-/* Widget base styles */
+/* Widget base styles - aligned with dark theme design system */
 .widget-content {
-  padding: 1rem;
+  padding: var(--space-4);
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: white;
-  border-radius: 8px;
+  background: transparent;
+  border-radius: var(--radius-md);
 }
 
 .widget-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: #374151;
-  margin-bottom: 0.75rem;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-3);
   text-align: center;
 }
 
@@ -36,22 +36,22 @@
 }
 
 .gauge-value {
-  font-size: 28px;
-  font-weight: 700;
-  fill: #111827;
+  font-size: 1.75rem;
+  font-weight: var(--font-weight-bold);
+  fill: var(--color-text-primary);
 }
 
 .gauge-unit {
-  font-size: 14px;
-  fill: #6b7280;
+  font-size: var(--font-size-sm);
+  fill: var(--color-text-tertiary);
 }
 
 .gauge-range {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
-  color: #6b7280;
-  margin-top: 0.5rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-2);
 }
 
 /* Number Widget */
@@ -63,18 +63,18 @@
 .number-display {
   display: flex;
   align-items: baseline;
-  gap: 0.5rem;
+  gap: var(--space-2);
 }
 
 .number-value {
-  font-size: 2.5rem;
-  font-weight: 700;
-  color: #111827;
+  font-size: 2.25rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
 }
 
 .number-unit {
-  font-size: 1.25rem;
-  color: #6b7280;
+  font-size: var(--font-size-lg);
+  color: var(--color-text-tertiary);
 }
 
 /* Line Chart Widget */
@@ -87,7 +87,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #9ca3af;
+  color: var(--color-text-tertiary);
 }
 
 /* Thermometer Widget */
@@ -111,22 +111,22 @@
 
 .thermometer-value {
   font-size: 2rem;
-  font-weight: 700;
-  color: #111827;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
 }
 
 .thermometer-unit {
   font-size: 1.25rem;
-  color: #6b7280;
+  color: var(--color-text-tertiary);
   margin-left: 0.25rem;
 }
 
 .thermometer-range {
   display: flex;
   justify-content: space-between;
-  font-size: 0.75rem;
-  color: #6b7280;
-  margin-top: 0.5rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-2);
 }
 
 /* Tank Widget */
@@ -151,13 +151,13 @@
 
 .tank-value {
   font-size: 2rem;
-  font-weight: 700;
-  color: #111827;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
 }
 
 .tank-unit {
   font-size: 1.25rem;
-  color: #6b7280;
+  color: var(--color-text-tertiary);
   margin-left: 0.25rem;
 }
 
@@ -184,13 +184,13 @@
 
 .battery-value {
   font-size: 2rem;
-  font-weight: 700;
-  color: #111827;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
 }
 
 .battery-unit {
   font-size: 1.25rem;
-  color: #6b7280;
+  color: var(--color-text-tertiary);
   margin-left: 0.25rem;
 }
 

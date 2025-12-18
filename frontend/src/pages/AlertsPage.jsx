@@ -4,6 +4,7 @@ import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Tabs from "../components/Tabs.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 export default function AlertsPage() {
   const { token, isTenantAdmin, hasModule } = useAuth();
@@ -147,17 +148,24 @@ export default function AlertsPage() {
         ]}
       />
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-6)" }}>
-        <div>
-          <h1 style={{ marginBottom: "var(--space-2)" }}>Alerts</h1>
-          <p className="text-muted">Monitor and manage system alerts</p>
+      <div className="page-header">
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
+          <h1 className="page-header__title">Alerts</h1>
+          <p className="page-header__subtitle">
+            Monitor, triage, and resolve alerts across your devices
+          </p>
         </div>
-        <button
-          className="btn btn--primary"
-          onClick={() => navigate("/alerts/rules")}
-        >
-          Manage Alert Rules
-        </button>
+        <div className="page-header__actions">
+          <button
+            className="btn btn--primary"
+            onClick={() => navigate("/alerts/rules")}
+          >
+            Manage Alert Rules
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}

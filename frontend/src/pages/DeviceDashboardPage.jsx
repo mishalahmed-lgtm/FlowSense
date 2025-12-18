@@ -11,6 +11,8 @@ import TankWidget from "../components/widgets/TankWidget.jsx";
 import BatteryWidget from "../components/widgets/BatteryWidget.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Collapsible from "../components/Collapsible.jsx";
+import Icon from "../components/Icon.jsx";
+import BackButton from "../components/BackButton.jsx";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./DeviceDashboardPage.css";
@@ -26,7 +28,7 @@ const WIDGET_LIBRARY = [
     unit: "%",
     min: 0,
     max: 100,
-    icon: "🪣",
+    icon: "droplet",
   },
   {
     id: "thermometer-temperature",
@@ -36,7 +38,7 @@ const WIDGET_LIBRARY = [
     unit: "°C",
     min: -20,
     max: 50,
-    icon: "🌡️",
+    icon: "activity",
   },
   {
     id: "battery-widget",
@@ -45,7 +47,7 @@ const WIDGET_LIBRARY = [
     field: "battery",
     min: 0,
     max: 100,
-    icon: "🔋",
+    icon: "zap",
   },
   {
     id: "gauge-level",
@@ -55,7 +57,7 @@ const WIDGET_LIBRARY = [
     unit: "%",
     min: 0,
     max: 100,
-    icon: "📊",
+    icon: "trending",
   },
   {
     id: "gauge-pressure",
@@ -65,7 +67,7 @@ const WIDGET_LIBRARY = [
     unit: "bar",
     min: 0,
     max: 3,
-    icon: "⚡",
+    icon: "alert",
   },
   {
     id: "number-pressure",
@@ -81,7 +83,7 @@ const WIDGET_LIBRARY = [
     title: "Level History",
     field: "level",
     unit: "%",
-    icon: "📈",
+    icon: "trending",
   },
   {
     id: "chart-temperature",
@@ -100,7 +102,7 @@ const WIDGET_LIBRARY = [
     unit: "°C",
     min: -20,
     max: 60,
-    icon: "🌤️",
+    icon: "activity",
   },
   {
     id: "bench-env-co2",
@@ -108,7 +110,7 @@ const WIDGET_LIBRARY = [
     title: "Carbon Dioxide Level (Air Quality)",
     field: "environment.co2",
     unit: "",
-    icon: "🫧",
+    icon: "analytics",
   },
   {
     id: "bench-env-pm25",
@@ -116,7 +118,7 @@ const WIDGET_LIBRARY = [
     title: "Fine Dust Level (Air Quality)",
     field: "environment.pm25",
     unit: "",
-    icon: "🌫️",
+    icon: "activity",
   },
   {
     id: "bench-battery-soc",
@@ -125,7 +127,7 @@ const WIDGET_LIBRARY = [
     field: "battery.soc",
     min: 0,
     max: 100,
-    icon: "🔋",
+    icon: "zap",
   },
   {
     id: "bench-occupancy-total",
@@ -133,7 +135,7 @@ const WIDGET_LIBRARY = [
     title: "Number of Seats Used",
     field: "occupancy.total",
     unit: "",
-    icon: "🪑",
+    icon: "users",
   },
   {
     id: "bench-charging-power",
@@ -141,7 +143,7 @@ const WIDGET_LIBRARY = [
     title: "Charging Power (USB/Wireless)",
     field: "charging.powerW",
     unit: "W",
-    icon: "⚡",
+    icon: "zap",
   },
   {
     id: "bench-chart-temperature",
@@ -149,7 +151,7 @@ const WIDGET_LIBRARY = [
     title: "Outdoor Temperature History",
     field: "environment.temperature",
     unit: "°C",
-    icon: "📈",
+    icon: "trending",
   },
   {
     id: "bench-chart-battery-soc",
@@ -157,7 +159,7 @@ const WIDGET_LIBRARY = [
     title: "Battery Charge History",
     field: "battery.soc",
     unit: "%",
-    icon: "📉",
+    icon: "activity",
   },
 ];
 
@@ -456,15 +458,17 @@ export default function DeviceDashboardPage() {
       
       const baseId = `dynamic-${field.key.replace(/\./g, '-')}`;
       
-      // Determine sensible min/max for gauges based on field name or use discovered values
+      // Determine sensible min/max for widgets based on semantics or discovered values
       let min = field.min_value ?? 0;
       let max = field.max_value ?? 100;
       
-      // Adjust ranges based on field semantics
-      if (field.unit === '%') {
+      const keyLower = (field.key || "").toLowerCase();
+      const nameLower = (field.display_name || "").toLowerCase();
+
+      if (field.unit === "%") {
         min = 0;
         max = 100;
-      } else if (field.unit === '°C') {
+      } else if (field.unit === "°C") {
         min = field.min_value ?? -20;
         max = field.max_value ?? 50;
       } else if (field.min_value !== null && field.max_value !== null) {
@@ -473,39 +477,37 @@ export default function DeviceDashboardPage() {
         min = Math.floor(field.min_value - range * 0.1);
         max = Math.ceil(field.max_value + range * 0.1);
       }
-      
-      // Create gauge widget for this field
+
+      // Choose a single "most relevant" widget type per field
+      let type = "number";
+      let icon = "analytics";
+
+      if (
+        field.unit === "%" ||
+        keyLower.includes("level") ||
+        keyLower.includes("soc") ||
+        nameLower.includes("level")
+      ) {
+        type = "gauge";
+        icon = "trending";
+      } else if (
+        field.unit === "°C" ||
+        keyLower.includes("temp") ||
+        nameLower.includes("temp")
+      ) {
+        type = "thermometer";
+        icon = "activity";
+      }
+
       widgets.push({
-        id: `${baseId}-gauge`,
-        type: 'gauge',
+        id: `${baseId}-primary`,
+        type,
         title: field.display_name,
         field: field.key,
-        unit: field.unit || '',
+        unit: field.unit || "",
         min,
         max,
-        icon: '📊',
-        isDynamic: true,
-      });
-      
-      // Create number widget
-      widgets.push({
-        id: `${baseId}-number`,
-        type: 'number',
-        title: `${field.display_name} (Number)`,
-        field: field.key,
-        unit: field.unit || '',
-        icon: '🔢',
-        isDynamic: true,
-      });
-      
-      // Create chart widget for historical view
-      widgets.push({
-        id: `${baseId}-chart`,
-        type: 'chart',
-        title: `${field.display_name} History`,
-        field: field.key,
-        unit: field.unit || '',
-        icon: '📈',
+        icon,
         isDynamic: true,
       });
     });
@@ -599,7 +601,12 @@ export default function DeviceDashboardPage() {
   if (loading) {
     return (
       <div className="page page--centered">
-        <p>Loading dashboard…</p>
+        <div className="card" style={{ padding: "var(--space-8)", textAlign: "center" }}>
+          <div style={{ marginBottom: "var(--space-4)", opacity: 0.4 }}>
+            <Icon name="activity" size={40} />
+          </div>
+          <p style={{ color: "var(--color-text-secondary)" }}>Loading device dashboard…</p>
+        </div>
       </div>
     );
   }
@@ -613,42 +620,42 @@ export default function DeviceDashboardPage() {
         ]}
       />
 
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-6)", marginBottom: "var(--space-6)" }}>
-        <div style={{ flex: 1 }}>
-          <h1 style={{ marginBottom: "var(--space-2)", fontSize: "var(--font-size-3xl)" }}>
-            {device?.name || deviceId}
-          </h1>
-          <p className="text-muted">
-            {editMode ? "Drag widgets to arrange your dashboard" : "Live telemetry dashboard"}
+      <div className="page-header">
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton label="Back to Devices" to="/devices" />
+          </div>
+          <h1 className="page-header__title">{device?.name || deviceId}</h1>
+          <p className="page-header__subtitle">
+            Per-device telemetry dashboard with live widgets and recent readings
           </p>
         </div>
-        <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
-          {/* Device Readings Toggle Button - Top Right */}
+        <div className="page-header__actions" style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
           <button
             className="btn btn--secondary"
             type="button"
             onClick={() => setReadingsExpanded(!readingsExpanded)}
           >
-            {readingsExpanded ? "📊 Hide Readings" : "📊 Show Readings"}
+            <Icon name="inbox" size={16} />
+            <span>{readingsExpanded ? "Hide readings" : "Show readings"}</span>
           </button>
           {!editMode && (
             <button className="btn btn--secondary" type="button" onClick={() => setEditMode(true)}>
-              ✏️ Edit Dashboard
+              <Icon name="settings" size={16} />
+              <span>Edit dashboard</span>
             </button>
           )}
           {editMode && (
             <>
-              <button className="btn btn--secondary" type="button" onClick={() => setEditMode(false)}>
+              <button className="btn btn--ghost" type="button" onClick={() => setEditMode(false)}>
                 Cancel
               </button>
               <button className="btn btn--primary" type="button" disabled={saving} onClick={handleSave}>
-                {saving ? "Saving..." : "💾 Save Dashboard"}
+                <Icon name="download" size={16} />
+                <span>{saving ? "Saving..." : "Save dashboard"}</span>
               </button>
             </>
           )}
-          <button className="btn btn--ghost" type="button" onClick={() => navigate("/devices")}>
-            ← Back to Devices
-          </button>
         </div>
       </div>
 
@@ -665,7 +672,7 @@ export default function DeviceDashboardPage() {
             </p>
 
             {/* Filters */}
-            <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-gray-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-light)" }}>
+            <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-light)" }}>
               <div className="form" style={{ gap: "var(--space-4)" }}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "var(--space-4)" }}>
                   <div className="form-group">
@@ -735,14 +742,14 @@ export default function DeviceDashboardPage() {
               </div>
             )}
             {readingsError && (
-              <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-error-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-error-200)" }}>
+              <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-error-bg)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-error-bright)" }}>
                 <p className="text-error" style={{ margin: 0 }}>{readingsError}</p>
               </div>
             )}
             {!readingsLoading && !readingsError && (
               <>
                 {readings.length === 0 ? (
-                  <div style={{ textAlign: "center", padding: "var(--space-8)", backgroundColor: "var(--color-gray-50)", borderRadius: "var(--radius-md)" }}>
+                  <div style={{ textAlign: "center", padding: "var(--space-8)", backgroundColor: "var(--color-bg-secondary)", borderRadius: "var(--radius-md)" }}>
                     <p className="text-muted" style={{ margin: 0 }}>No readings found for the selected filters.</p>
                   </div>
                 ) : (
@@ -779,10 +786,14 @@ export default function DeviceDashboardPage() {
                               <td>
                                 {reading.is_anomaly ? (
                                   <span className="badge badge--warning" title={reading.anomaly_reason || "Anomaly detected"}>
-                                    ⚠️ Anomaly
+                                    <Icon name="warning" size={12} />
+                                    <span style={{ marginLeft: "var(--space-1)" }}>Anomaly</span>
                                   </span>
                                 ) : (
-                                  <span className="badge badge--success">✓ Normal</span>
+                                  <span className="badge badge--success">
+                                    <Icon name="check" size={12} />
+                                    <span style={{ marginLeft: "var(--space-1)" }}>Normal</span>
+                                  </span>
                                 )}
                               </td>
                             </tr>
@@ -791,9 +802,12 @@ export default function DeviceDashboardPage() {
                       </table>
                     </div>
                     {readings.filter((r) => r.is_anomaly).length > 0 && (
-                      <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-warning-50)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-warning-200)" }}>
-                        <p style={{ margin: 0, fontSize: "var(--font-size-sm)" }}>
-                          <strong>⚠️ Found {readings.filter((r) => r.is_anomaly).length} anomaly/anomalies</strong> in the displayed readings.
+                      <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-warning-bg)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-warning-bright)" }}>
+                        <p style={{ margin: 0, fontSize: "var(--font-size-sm)", display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                          <Icon name="warning" size={14} />
+                          <span>
+                            <strong>Found {readings.filter((r) => r.is_anomaly).length} anomaly/anomalies</strong> in the displayed readings.
+                          </span>
                         </p>
                       </div>
                     )}
@@ -821,13 +835,17 @@ export default function DeviceDashboardPage() {
           <div className="dashboard-container">
             {editMode && (
               <div className="widget-library">
-                <h3>Widget Library</h3>
-                <p className="muted">Click to add widgets to your dashboard. Widgets are auto-generated from your device's telemetry fields.</p>
+                <div className="widget-library__header">
+                  <h3 className="card__title">Widget library</h3>
+                  <p className="text-muted" style={{ fontSize: "var(--font-size-xs)" }}>
+                    Click to add modern cards to this device dashboard. Widgets are generated from your device telemetry fields.
+                  </p>
+                </div>
                 {allWidgetLibrary.length === 0 ? (
-                  <div style={{ padding: 'var(--space-6)', textAlign: 'center', backgroundColor: 'var(--color-gray-50)', borderRadius: 'var(--radius-md)' }}>
+                  <div className="widget-library__empty">
                     <p className="text-muted">No widgets available yet.</p>
-                    <p className="text-muted" style={{ fontSize: 'var(--font-size-sm)' }}>
-                      Widgets will appear automatically once the device sends telemetry data. Make sure the device is active and sending data.
+                    <p className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>
+                      Widgets will appear automatically once the device sends data. Make sure the device is active and sending telemetry.
                     </p>
                   </div>
                 ) : (
@@ -837,11 +855,12 @@ export default function DeviceDashboardPage() {
                         key={widget.id}
                         className="widget-library__item"
                         onClick={() => handleAddWidget(widget)}
-                        style={widget.isDynamic ? { borderColor: 'var(--color-primary-300)' } : {}}
                       >
-                        <span className="widget-library__icon">{widget.icon}</span>
+                        <span className="widget-library__icon">
+                          <Icon name={widget.icon || "activity"} size={16} />
+                        </span>
                         <span className="widget-library__title">{widget.title}</span>
-                        {widget.isDynamic && <span style={{ fontSize: '0.7em', color: 'var(--color-primary-600)' }}>●</span>}
+                        {widget.isDynamic && <span className="widget-library__pill">Live</span>}
                       </div>
                     ))}
                   </div>
@@ -873,6 +892,7 @@ export default function DeviceDashboardPage() {
                 onLayoutChange={handleLayoutChange}
                 isDraggable={editMode}
                 isResizable={editMode}
+                draggableCancel=".widget-remove-btn"
                 compactType={null}
                 preventCollision={true}
                 margin={[16, 16]}
@@ -884,6 +904,7 @@ export default function DeviceDashboardPage() {
                       {editMode && (
                         <button
                           className="widget-remove-btn"
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleRemoveWidget(widget.id);
