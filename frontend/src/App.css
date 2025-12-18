@@ -20,11 +20,12 @@
 }
 
 .protocol-fields {
-  border-top: 1px solid #e2e8f0;
+  border-top: 1px solid rgba(148, 163, 184, 0.35);
   padding-top: 1rem;
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
 }
 
-.protocol-fields h4 {
+.protocol-fields h4,
+.protocol-fields__title {
   margin: 0 0 0.75rem;
 }

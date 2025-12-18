@@ -1,7 +1,7 @@
 """Main FastAPI application for IoT Platform Ingestion Gateway."""
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
@@ -18,7 +18,6 @@ from routers import analytics as analytics_router
 from routers import websocket as websocket_router
 from routers import export as export_router
 from routers import maps as maps_router
-from routers.graphql import create_graphql_router
 from routers import oauth as oauth_router
 from mqtt_client import mqtt_handler
 from tcp_server import tcp_ingestion_server
@@ -31,6 +30,10 @@ from mqtt_command_service import mqtt_command_service
 from modbus_handler import modbus_handler
 from dali_handler import dali_handler
 from metrics import metrics
+from admin_auth import get_current_user
+from database import get_db
+from sqlalchemy.orm import Session
+from models import Device, User, UserRole
 
 # Configure logging
 logging.basicConfig(
@@ -236,11 +239,11 @@ app.include_router(
     prefix=f"{settings.api_v1_prefix}",
 )
 
-# Include GraphQL router
+# Include GraphQL router (best-effort, do not crash if unavailable)
 try:
+    from routers.graphql import create_graphql_router  # type: ignore
+
     graphql_router = create_graphql_router()
-    # GraphQLRouter is a FastAPI router, include it with prefix
-    # The path "/" in GraphQLRouter + prefix "/api/v1" + internal "/graphql" = "/api/v1/graphql"
     app.include_router(graphql_router, prefix=f"{settings.api_v1_prefix}/graphql")
     logger.info(f"GraphQL router registered at {settings.api_v1_prefix}/graphql")
 except Exception as e:
@@ -277,6 +280,92 @@ async def get_metrics():
     """Get ingestion pipeline metrics."""
     return metrics.get_stats()
 
+
+@app.get("/metrics/tenant")
+async def get_tenant_metrics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Get tenant-scoped ingestion metrics.
+    
+    - Tenant admins: metrics for their own tenant's devices only.
+    - Admins / other roles: fall back to global metrics.
+    """
+    # Platform admins get global view
+    if current_user.role != UserRole.TENANT_ADMIN or not current_user.tenant_id:
+        return metrics.get_stats()
+
+    # Fetch devices for this tenant
+    devices = (
+        db.query(Device)
+        .filter(Device.tenant_id == current_user.tenant_id)
+        .all()
+    )
+    device_ids = [d.device_id for d in devices]
+
+    base_stats = metrics.get_stats()
+    all_device_stats = base_stats.get("devices", {})
+
+    # Filter per-device stats for this tenant
+    tenant_device_stats = {
+        device_id: all_device_stats.get(device_id, {
+            "received": 0,
+            "published": 0,
+            "rejected": 0,
+            "last_seen": None,
+        })
+        for device_id in device_ids
+    }
+
+    total_received = sum(d.get("received", 0) for d in tenant_device_stats.values())
+    total_published = sum(d.get("published", 0) for d in tenant_device_stats.values())
+    total_rejected = sum(d.get("rejected", 0) for d in tenant_device_stats.values())
+
+    # Count devices that have ever been seen
+    active_devices = sum(
+        1 for d in tenant_device_stats.values()
+        if d.get("last_seen") is not None
+    )
+
+    sources = metrics.get_sources_for_devices(device_ids)
+
+    success_rate = (
+        total_published / total_received * 100
+        if total_received > 0 else 0
+    )
+
+    return {
+        "uptime_seconds": base_stats.get("uptime_seconds", 0),
+        "messages": {
+            "total_received": total_received,
+            "total_published": total_published,
+            "total_rejected": total_rejected,
+            "success_rate": success_rate,
+        },
+        # Keep error/rate/rules sections simple for now – not used on tenant dashboard
+        "errors": {
+            "total": 0,
+            "by_type": {},
+            "by_device": {},
+        },
+        "rate_limiting": {
+            "total_hits": 0,
+            "by_device": {},
+        },
+        "authentication": {
+            "total_failures": 0,
+            "by_device": {},
+        },
+        "processing": {
+            "avg_time_ms": base_stats.get("processing", {}).get("avg_time_ms", 0),
+            "samples": base_stats.get("processing", {}).get("samples", 0),
+        },
+        "rules": base_stats.get("rules", {}),
+        "sources": sources,
+        "active_devices": active_devices,
+        "devices": tenant_device_stats,
+    }
 
 @app.get("/metrics/device/{device_id}")
 async def get_device_metrics(device_id: str):

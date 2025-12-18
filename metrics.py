@@ -39,6 +39,8 @@ class MetricsCollector:
         
         # Source tracking
         self.messages_by_source = defaultdict(int)  # {source: count}
+        # Per-device source tracking for tenant-scoped metrics
+        self.messages_by_source_per_device = defaultdict(lambda: defaultdict(int))  # {device_id: {source: count}}
         
         # Rule engine tracking
         self.rule_hits = defaultdict(int)
@@ -52,6 +54,7 @@ class MetricsCollector:
         """Record that a message was received."""
         self.messages_received[device_id] += 1
         self.messages_by_source[source] += 1
+        self.messages_by_source_per_device[device_id][source] += 1
         self.device_last_seen[device_id] = time.time()
     
     def record_message_published(self, device_id: str):
@@ -177,6 +180,17 @@ class MetricsCollector:
                 self.device_last_seen[device_id]
             ).isoformat()
         }
+
+    def get_sources_for_devices(self, device_ids) -> Dict[str, int]:
+        """Aggregate message sources for a specific set of devices."""
+        from collections import defaultdict as _dd
+
+        sources = _dd(int)
+        for device_id in device_ids:
+            per_device = self.messages_by_source_per_device.get(device_id, {})
+            for source, count in per_device.items():
+                sources[source] += count
+        return dict(sources)
 
 
 # Global metrics collector instance

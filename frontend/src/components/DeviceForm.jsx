@@ -51,75 +51,138 @@ export default function DeviceForm({
     onSubmit({
       ...formState,
       device_type_id: Number(formState.device_type_id),
-      tenant_id: Number(formState.tenant_id),
+      tenant_id: Number(userTenantId || formState.tenant_id),
+      // For tenant users, always keep devices active
+      is_active: userTenantId ? true : formState.is_active,
     });
   };
 
   return (
-    <form className="card form" onSubmit={submitForm}>
-      <h3>{initialDevice ? "Edit Device" : "Create Device"}</h3>
-      <label>
-        Device ID
+    <form className="form" onSubmit={submitForm}>
+      <div className="form-group">
+        <label className="form-label form-label--required">Device ID</label>
         <input
           type="text"
+          className="form-input"
           value={formState.device_id}
           disabled={Boolean(initialDevice)}
           onChange={(event) => handleChange("device_id", event.target.value)}
+          placeholder="Enter unique device identifier"
           required
         />
-      </label>
-      <label>
-        Name
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Name</label>
         <input
           type="text"
+          className="form-input"
           value={formState.name}
           onChange={(event) => handleChange("name", event.target.value)}
+          placeholder="Enter device name (optional)"
         />
-      </label>
-      <label>
-        Device Type
+      </div>
+
+      <div className="form-group">
+        <label className="form-label form-label--required">Device Type</label>
         <select
+          className="form-select"
           value={formState.device_type_id}
           onChange={(event) => handleChange("device_type_id", event.target.value)}
           required
         >
-          <option value="">Select type</option>
+          <option value="">Select device type...</option>
           {deviceTypes.map((type) => (
             <option key={type.id} value={type.id}>
               {type.name} ({type.protocol})
             </option>
           ))}
         </select>
-      </label>
+      </div>
+
       {userTenantId ? (
-        // Tenant admins - hide tenant selector, auto-set their tenant_id
-        <input type="hidden" value={userTenantId} />
-      ) : (
-        // Admins - show tenant selector
-        <label>
-          Tenant
-          <select
-            value={formState.tenant_id}
-            onChange={(event) => handleChange("tenant_id", event.target.value)}
-            required
+        <>
+          {/* Hide tenant selector for tenant users and lock to their tenant */}
+          <input type="hidden" value={userTenantId} />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              padding: "var(--space-4)",
+              backgroundColor: "var(--color-bg-secondary)",
+              borderRadius: "var(--radius-lg)",
+              marginTop: "var(--space-2)",
+            }}
           >
-            <option value="">Select tenant</option>
-            {tenants.map((tenant) => (
-              <option key={tenant.id} value={tenant.id}>
-                {tenant.name}
-              </option>
-            ))}
-          </select>
-        </label>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: "999px",
+                backgroundColor: "var(--color-success-text)",
+              }}
+            ></span>
+            <span
+              style={{
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-primary)",
+              }}
+            >
+              Device will be active for your tenant
+            </span>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="form-group">
+            <label className="form-label form-label--required">Tenant</label>
+            <select
+              className="form-select"
+              value={formState.tenant_id}
+              onChange={(event) => handleChange("tenant_id", event.target.value)}
+              required
+            >
+              <option value="">Select tenant...</option>
+              {tenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              padding: "var(--space-4)",
+              backgroundColor: "var(--color-bg-secondary)",
+              borderRadius: "var(--radius-lg)",
+            }}
+          >
+            <input
+              type="checkbox"
+              id="device-active"
+              checked={formState.is_active}
+              onChange={(event) => handleChange("is_active", event.target.checked)}
+              style={{ cursor: "pointer" }}
+            />
+            <label
+              htmlFor="device-active"
+              style={{
+                cursor: "pointer",
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-primary)",
+                margin: 0,
+              }}
+            >
+              Device is active
+            </label>
+          </div>
+        </>
       )}
-      <label className="checkbox">
-        <input
-          type="checkbox"
-          checked={formState.is_active}
-          onChange={(event) => handleChange("is_active", event.target.checked)}
-        />
-        Active
-      </label>
 
       {currentProtocol && (
         <ProtocolFields
@@ -129,11 +192,13 @@ export default function DeviceForm({
         />
       )}
 
-      <div className="form-actions">
-        <button type="button" className="secondary" onClick={onCancel}>
+      <div className="modal__footer">
+        <button type="button" className="btn btn--secondary" onClick={onCancel}>
           Cancel
         </button>
-        <button type="submit">{initialDevice ? "Save Changes" : "Create Device"}</button>
+        <button type="submit" className="btn btn--primary">
+          {initialDevice ? "Save Changes" : "Create Device"}
+        </button>
       </div>
     </form>
   );

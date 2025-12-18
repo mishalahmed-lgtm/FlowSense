@@ -9,7 +9,8 @@ Python backend service for ingesting telemetry data from IoT devices (LPG Meter,
 - **TCP Telemetry Listener**: JSON-over-TCP + Dingtek DC41X hex ingestion on port `6000`
 - **Device Authentication**: Provisioning key-based authentication
 - **Kafka Integration**: Publishes raw telemetry to Kafka `raw_telemetry` topic
-- **PostgreSQL**: Stores device metadata and provisioning keys
+- **PostgreSQL**: Stores device metadata, provisioning keys, and warm/cold analytical tables
+- **InfluxDB Time-series Storage**: Hot/warm/cold telemetry buckets with retention (30 days / 1 year / 5+ years)
 - **Inline Rule Engine**: Per-device rules for routing, mutation, or dropping telemetry before it hits Kafka (configurable from the admin UI)
 
 ## Architecture
@@ -50,6 +51,7 @@ Devices (HTTP/MQTT) → Ingestion Gateway → Kafka (raw_telemetry) → [Downstr
 - **PostgreSQL**: `localhost:5433`
 - **Kafka**: `localhost:29092`
 - **MQTT Broker**: `localhost:1884`
+- **InfluxDB (time-series)**: `http://localhost:8086`
 
 ## API Usage
 
@@ -136,20 +138,23 @@ JOIN provisioning_keys pk ON d.id = pk.device_id;
 ```
 .
 ├── main.py                 # FastAPI application entry point
-├── config.py              # Configuration settings
-├── database.py             # Database connection and session
-├── models.py              # SQLAlchemy models
-├── auth.py                # Device authentication
-├── kafka_producer.py      # Kafka producer for telemetry
-├── mqtt_client.py         # MQTT client for valve controllers
-├── tcp_server.py          # TCP ingestion server for JSON-over-TCP devices
-├── routers/admin.py       # Admin APIs for the React console
+├── config.py               # Configuration settings (including InfluxDB)
+├── database.py             # Database connection and session (PostgreSQL)
+├── models.py               # SQLAlchemy models (metadata + warm/cold analytics tables)
+├── influx_client.py        # InfluxDB client wrapper for hot/warm/cold telemetry
+├── telemetry_worker.py     # Kafka → DB worker (writes to Postgres + InfluxDB)
+├── auth.py                 # Device authentication
+├── kafka_producer.py       # Kafka producer for telemetry
+├── mqtt_client.py          # MQTT client for valve controllers
+├── tcp_server.py           # TCP ingestion server for JSON-over-TCP devices
+├── routers/admin.py        # Admin APIs for the React console
+├── routers/dashboard.py    # Dashboard & history APIs (prefer InfluxDB when available)
 ├── routers/
-│   └── telemetry.py       # Telemetry ingestion endpoints
-├── frontend/              # React admin console (login + device management)
-├── init_db.py             # Database initialization script
-├── requirements.txt       # Python dependencies
-└── docker-compose.yml     # Docker services configuration
+│   └── telemetry.py        # Telemetry ingestion endpoints
+├── frontend/               # React admin console (login + device management)
+├── init_db.py              # Database initialization script
+├── requirements.txt        # Python dependencies
+└── docker-compose.yml      # Docker services configuration (Postgres, Kafka, MQTT, InfluxDB)
 ```
 
 ## Device Types
@@ -184,8 +189,7 @@ Matched rules are logged via `/metrics` (`rules.matches`, `rules.actions`) so yo
 
 - Parser & Normalizer service (subscribes to `raw_telemetry` topic)
 - Command Execution service
-- Telemetry Storage service (writes to InfluxDB/IoTDB)
-- Extend admin UI for downlink command management / richer analytics
+- Extend admin UI for richer analytics on top of the InfluxDB time-series store
 
 ## Admin Console (React)
 

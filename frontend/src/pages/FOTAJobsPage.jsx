@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
+import Icon from "../components/Icon.jsx";
 
 export default function FOTAJobsPage() {
   const { token, isTenantAdmin, hasModule } = useAuth();
@@ -30,7 +30,7 @@ export default function FOTAJobsPage() {
   // Only tenant admins with fota module can access
   if (!isTenantAdmin || !hasModule("fota")) {
     return (
-      <div className="page">
+      <div className="page page--centered">
         <div className="card">
           <p className="text-error">Access denied. This page requires FOTA module access.</p>
         </div>
@@ -116,21 +116,25 @@ export default function FOTAJobsPage() {
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "completed": return "text-success";
-      case "running": return "text-info";
-      case "failed": return "text-error";
-      case "cancelled": return "text-muted";
-      default: return "";
-    }
+  const getStatusBadge = (status) => {
+    const badges = {
+      completed: "badge--success",
+      running: "badge--info",
+      failed: "badge--error",
+      cancelled: "badge--neutral",
+      pending: "badge--warning",
+    };
+    return badges[status] || "badge--neutral";
   };
 
   if (loading) {
     return (
-      <div className="page">
+      <div className="page page--centered">
         <div className="card">
-          <p>Loading...</p>
+          <div style={{ marginBottom: "var(--space-4)", opacity: 0.3 }}>
+            <Icon name="firmware" size={48} />
+          </div>
+          <p style={{ color: "var(--color-text-secondary)" }}>Loading firmware update jobs...</p>
         </div>
       </div>
     );
@@ -138,203 +142,350 @@ export default function FOTAJobsPage() {
 
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "Firmware Updates", path: "/fota/jobs" }]} />
-      
+      {/* Page Header */}
       <div className="page-header">
-        <h1>Firmware Update Jobs</h1>
-        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-          Create Update Job
-        </button>
+        <div className="page-header__title-section">
+          <h1 className="page-header__title">Firmware Updates</h1>
+          <p className="page-header__subtitle">
+            Manage over-the-air firmware update jobs
+          </p>
+        </div>
+        <div className="page-header__actions">
+          <button className="btn-icon" onClick={loadJobs} title="Refresh">
+            <Icon name="refresh" size={18} />
+          </button>
+          <button className="btn btn--primary" onClick={() => setShowCreateModal(true)}>
+            <Icon name="plus" size={18} />
+            <span>Create Update Job</span>
+          </button>
+        </div>
       </div>
 
+      {/* Error Message */}
       {error && (
-        <div className="card card--error">
-          <p className="text-error">{error}</p>
+        <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+          {error}
         </div>
       )}
 
-      <div className="card">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Job Name</th>
-              <th>Firmware Version</th>
-              <th>Devices</th>
-              <th>Status</th>
-              <th>Created</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.length === 0 ? (
+      {/* Summary Cards */}
+      <div className="metrics-grid" style={{ marginBottom: "var(--space-8)" }}>
+        <div className="metric-card">
+          <div className="metric-card__header">
+            <div className="metric-card__icon metric-card__icon--primary">
+              <Icon name="firmware" size={24} />
+            </div>
+          </div>
+          <div className="metric-card__label">TOTAL JOBS</div>
+          <div className="metric-card__value">{jobs.length}</div>
+          <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-2)" }}>
+            All time
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-card__header">
+            <div className="metric-card__icon metric-card__icon--success">
+              <Icon name="check" size={24} />
+            </div>
+          </div>
+          <div className="metric-card__label">COMPLETED</div>
+          <div className="metric-card__value">{jobs.filter(j => j.status === "completed").length}</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-card__header">
+            <div className="metric-card__icon metric-card__icon--info">
+              <Icon name="activity" size={24} />
+            </div>
+          </div>
+          <div className="metric-card__label">RUNNING</div>
+          <div className="metric-card__value">{jobs.filter(j => j.status === "running").length}</div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-card__header">
+            <div className="metric-card__icon metric-card__icon--error">
+              <Icon name="warning" size={24} />
+            </div>
+          </div>
+          <div className="metric-card__label">FAILED</div>
+          <div className="metric-card__value">{jobs.filter(j => j.status === "failed").length}</div>
+        </div>
+      </div>
+
+      {/* Jobs Table */}
+      {jobs.length === 0 ? (
+        <div className="card" style={{ textAlign: "center", padding: "var(--space-12)" }}>
+          <div style={{ marginBottom: "var(--space-4)", opacity: 0.3 }}>
+            <Icon name="firmware" size={64} />
+          </div>
+          <h3 style={{ marginBottom: "var(--space-2)", color: "var(--color-text-secondary)" }}>
+            No firmware update jobs yet
+          </h3>
+          <p style={{ color: "var(--color-text-tertiary)", marginBottom: "var(--space-6)" }}>
+            Create your first update job to manage device firmware
+          </p>
+          <button className="btn btn--primary" onClick={() => setShowCreateModal(true)}>
+            <Icon name="plus" size={18} />
+            <span>Create First Job</span>
+          </button>
+        </div>
+      ) : (
+        <div className="table-wrapper">
+          <table className="table">
+            <thead>
               <tr>
-                <td colSpan="6" className="text-center text-muted">
-                  No FOTA jobs found. Create one to get started.
-                </td>
+                <th>Job Name</th>
+                <th>Firmware Version</th>
+                <th>Devices</th>
+                <th>Status</th>
+                <th>Created</th>
+                <th>Actions</th>
               </tr>
-            ) : (
-              jobs.map((job) => (
+            </thead>
+            <tbody>
+              {jobs.map((job) => (
                 <tr key={job.id}>
-                  <td>{job.name}</td>
-                  <td>{job.firmware_version?.version || "N/A"}</td>
-                  <td>{job.device_count || 0}</td>
+                  <td style={{ fontWeight: "var(--font-weight-semibold)" }}>{job.name}</td>
                   <td>
-                    <span className={getStatusColor(job.status)}>
+                    <code style={{ 
+                      padding: "0.25rem 0.5rem", 
+                      backgroundColor: "var(--color-bg-secondary)", 
+                      borderRadius: "var(--radius-sm)",
+                      fontSize: "var(--font-size-xs)"
+                    }}>
+                      {job.firmware_version?.version || "N/A"}
+                    </code>
+                  </td>
+                  <td>{job.device_count || 0} devices</td>
+                  <td>
+                    <span className={`badge ${getStatusBadge(job.status)}`}>
                       {job.status}
                     </span>
                   </td>
-                  <td>{new Date(job.created_at).toLocaleString()}</td>
+                  <td style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)" }}>
+                    {new Date(job.created_at).toLocaleString()}
+                  </td>
                   <td>
                     <button
-                      className="btn btn-sm btn-secondary"
+                      className="btn btn--sm btn--ghost"
                       onClick={() => handleViewJobDetails(job.id)}
                     >
                       View Details
                     </button>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Create Job Modal */}
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        title="Create Firmware Update Job"
-      >
-        <form onSubmit={handleCreateJob}>
-          <div className="form-group">
-            <label>Job Name</label>
-            <input
-              type="text"
-              className="form-control"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Firmware Version</label>
-            <select
-              className="form-control"
-              value={formData.firmware_version_id}
-              onChange={(e) => setFormData({ ...formData, firmware_version_id: e.target.value })}
-              required
-            >
-              <option value="">Select firmware version...</option>
-              {firmwareVersions.map((fv) => (
-                <option key={fv.id} value={fv.id}>
-                  {fv.firmware_name} - v{fv.version} {fv.is_recommended ? "(Recommended)" : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Select Devices</label>
-            <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid #ddd", padding: "8px" }}>
-              {devices.map((device) => (
-                <label key={device.id} style={{ display: "block", marginBottom: "8px" }}>
-                  <input
-                    type="checkbox"
-                    checked={formData.device_ids.includes(device.id.toString())}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setFormData({
-                          ...formData,
-                          device_ids: [...formData.device_ids, device.id.toString()],
-                        });
-                      } else {
-                        setFormData({
-                          ...formData,
-                          device_ids: formData.device_ids.filter(id => id !== device.id.toString()),
-                        });
-                      }
-                    }}
-                  />
-                  {device.name} ({device.device_id})
-                </label>
-              ))}
+      {showCreateModal && (
+        <Modal
+          onClose={() => setShowCreateModal(false)}
+          title="Create Firmware Update Job"
+        >
+          <form onSubmit={handleCreateJob} className="form">
+            <div className="form-group">
+              <label className="form-label form-label--required">Job Name</label>
+              <input
+                type="text"
+                className="form-input"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g., Smart Bench v2.1 Update"
+                required
+              />
             </div>
-          </div>
 
-          <div className="form-group">
-            <label>Schedule (Optional)</label>
-            <input
-              type="datetime-local"
-              className="form-control"
-              value={formData.scheduled_at}
-              onChange={(e) => setFormData({ ...formData, scheduled_at: e.target.value })}
-            />
-            <small className="text-muted">Leave empty to start immediately</small>
-          </div>
+            <div className="form-group">
+              <label className="form-label form-label--required">Firmware Version</label>
+              <select
+                className="form-select"
+                value={formData.firmware_version_id}
+                onChange={(e) => setFormData({ ...formData, firmware_version_id: e.target.value })}
+                required
+              >
+                <option value="">Select firmware version...</option>
+                {firmwareVersions.map((fv) => (
+                  <option key={fv.id} value={fv.id}>
+                    {fv.firmware_name} - v{fv.version} {fv.is_recommended ? "(Recommended)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div className="form-actions">
-            <button type="button" className="btn btn-secondary" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </button>
-            <button type="submit" className="btn btn-primary">
-              Create Job
-            </button>
-          </div>
-        </form>
-      </Modal>
+            <div className="form-group">
+              <label className="form-label form-label--required">Select Devices</label>
+              <div style={{ 
+                maxHeight: "200px", 
+                overflowY: "auto", 
+                border: "1px solid var(--color-border-medium)", 
+                borderRadius: "var(--radius-lg)", 
+                padding: "var(--space-4)", 
+                backgroundColor: "var(--color-bg-secondary)" 
+              }}>
+                {devices.map((device) => (
+                  <label key={device.id} style={{ 
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: "var(--space-2)", 
+                    marginBottom: "var(--space-3)", 
+                    cursor: "pointer" 
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={formData.device_ids.includes(device.id.toString())}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({
+                            ...formData,
+                            device_ids: [...formData.device_ids, device.id.toString()],
+                          });
+                        } else {
+                          setFormData({
+                            ...formData,
+                            device_ids: formData.device_ids.filter(id => id !== device.id.toString()),
+                          });
+                        }
+                      }}
+                      style={{ cursor: "pointer" }}
+                    />
+                    <span>{device.name || device.device_id}</span>
+                    <span className="badge badge--neutral" style={{ marginLeft: "auto" }}>
+                      {device.protocol}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Schedule (Optional)</label>
+              <input
+                type="datetime-local"
+                className="form-input"
+                value={formData.scheduled_at}
+                onChange={(e) => setFormData({ ...formData, scheduled_at: e.target.value })}
+              />
+              <small style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-1)", display: "block" }}>
+                Leave empty to start immediately
+              </small>
+            </div>
+
+            <div className="modal__footer">
+              <button type="button" className="btn btn--secondary" onClick={() => setShowCreateModal(false)}>
+                Cancel
+              </button>
+              <button type="submit" className="btn btn--primary">
+                Create Job
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
 
       {/* Job Details Modal */}
-      <Modal
-        isOpen={showJobDetails}
-        onClose={() => setShowJobDetails(false)}
-        title={`Job Details: ${selectedJob?.name}`}
-      >
-        {selectedJob && (
-          <div>
-            <div className="form-group">
-              <strong>Status:</strong> <span className={getStatusColor(selectedJob.status)}>{selectedJob.status}</span>
-            </div>
-            <div className="form-group">
-              <strong>Firmware Version:</strong> {selectedJob.firmware_version?.version || "N/A"}
-            </div>
-            <div className="form-group">
-              <strong>Created:</strong> {new Date(selectedJob.created_at).toLocaleString()}
+      {showJobDetails && selectedJob && (
+        <Modal
+          onClose={() => setShowJobDetails(false)}
+          title={`Job Details: ${selectedJob.name}`}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+            <div style={{ 
+              display: "grid", 
+              gridTemplateColumns: "1fr 1fr", 
+              gap: "var(--space-4)",
+              padding: "var(--space-4)",
+              backgroundColor: "var(--color-bg-secondary)",
+              borderRadius: "var(--radius-lg)"
+            }}>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginBottom: "var(--space-1)" }}>
+                  Status
+                </div>
+                <span className={`badge ${getStatusBadge(selectedJob.status)}`}>
+                  {selectedJob.status}
+                </span>
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginBottom: "var(--space-1)" }}>
+                  Firmware Version
+                </div>
+                <code style={{ 
+                  padding: "0.25rem 0.5rem", 
+                  backgroundColor: "var(--color-bg-tertiary)", 
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: "var(--font-size-xs)"
+                }}>
+                  {selectedJob.firmware_version?.version || "N/A"}
+                </code>
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginBottom: "var(--space-1)" }}>
+                  Created
+                </div>
+                <div style={{ fontSize: "var(--font-size-sm)" }}>
+                  {new Date(selectedJob.created_at).toLocaleString()}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginBottom: "var(--space-1)" }}>
+                  Devices
+                </div>
+                <div style={{ fontSize: "var(--font-size-sm)" }}>
+                  {selectedJob.devices?.length || 0} devices
+                </div>
+              </div>
             </div>
             
             {selectedJob.devices && selectedJob.devices.length > 0 && (
-              <div className="form-group">
-                <strong>Device Status:</strong>
-                <table className="table" style={{ marginTop: "8px" }}>
-                  <thead>
-                    <tr>
-                      <th>Device</th>
-                      <th>Current Version</th>
-                      <th>Target Version</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedJob.devices.map((device) => (
-                      <tr key={device.device_id}>
-                        <td>{device.device_name || device.device_id}</td>
-                        <td>{device.current_version || "Unknown"}</td>
-                        <td>{device.target_version || "N/A"}</td>
-                        <td>
-                          <span className={getStatusColor(device.status)}>
-                            {device.status}
-                          </span>
-                        </td>
+              <div>
+                <h3 style={{ fontSize: "var(--font-size-base)", marginBottom: "var(--space-4)" }}>
+                  Device Status
+                </h3>
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Device</th>
+                        <th>Current Version</th>
+                        <th>Target Version</th>
+                        <th>Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {selectedJob.devices.map((device) => (
+                        <tr key={device.device_id}>
+                          <td>{device.device_name || device.device_id}</td>
+                          <td>
+                            <code style={{ fontSize: "var(--font-size-xs)" }}>
+                              {device.current_version || "Unknown"}
+                            </code>
+                          </td>
+                          <td>
+                            <code style={{ fontSize: "var(--font-size-xs)" }}>
+                              {device.target_version || "N/A"}
+                            </code>
+                          </td>
+                          <td>
+                            <span className={`badge ${getStatusBadge(device.status)}`}>
+                              {device.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>
-        )}
-      </Modal>
+        </Modal>
+      )}
     </div>
   );
 }
-

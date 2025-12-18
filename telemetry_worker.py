@@ -15,22 +15,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable
 
-from kafka import KafkaConsumer
-from kafka.errors import NoBrokersAvailable
-
-from database import SessionLocal
-from models import Device, TelemetryLatest, TelemetryTimeseries
-from alert_engine import alert_engine
-from cep_engine import cep_engine
-
-# Import WebSocket broadcaster (with try/except to avoid circular imports)
-try:
-    from routers.websocket import broadcast_telemetry_update
-    WEBSOCKET_AVAILABLE = True
-except ImportError:
-    WEBSOCKET_AVAILABLE = False
-    logger.warning("WebSocket broadcasting not available")
-
 logger = logging.getLogger("telemetry_worker")
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO"),
@@ -42,6 +26,24 @@ KAFKA_BOOTSTRAP_SERVERS = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"
 RAW_TELEMETRY_TOPIC = os.environ.get("KAFKA_RAW_TELEMETRY_TOPIC", "raw_telemetry")
 
 SHUTDOWN = threading.Event()
+
+
+from kafka import KafkaConsumer
+from kafka.errors import NoBrokersAvailable
+
+from database import SessionLocal
+from models import Device, TelemetryLatest, TelemetryTimeseries
+from alert_engine import alert_engine
+from cep_engine import cep_engine
+from influx_client import influx_service
+
+# Import WebSocket broadcaster (with try/except to avoid circular imports)
+try:
+    from routers.websocket import broadcast_telemetry_update
+    WEBSOCKET_AVAILABLE = True
+except ImportError:
+    WEBSOCKET_AVAILABLE = False
+    logger.warning("WebSocket broadcasting not available")
 
 
 @contextmanager
@@ -130,7 +132,23 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
                 value=item["value"],
             )
             db.add(ts_row)
-    
+
+    # Write numeric telemetry to InfluxDB time-series store (if enabled)
+    try:
+        if influx_service.enabled and device_db_id and tenant_db_id:
+            influx_service.write_telemetry(
+                device_id=device_id,
+                tenant_id=tenant_db_id,
+                payload=payload,
+                event_ts=event_ts,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Failed to write telemetry to InfluxDB for device_id=%s: %s",
+            device_id,
+            exc,
+        )
+
     # Process alert rules (after committing telemetry, outside db session)
     if device_db_id and tenant_db_id:
         try:

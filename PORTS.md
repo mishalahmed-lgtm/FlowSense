@@ -13,6 +13,7 @@ This document lists all port mappings for the IoT Platform services.
 | **Zookeeper** | 2181 | 2181 | Kafka coordination |
 | **MQTT Broker** | 1884 | 1883 | MQTT protocol (changed from 1883 to avoid conflict) |
 | **MQTT WebSockets** | 9002 | 9001 | MQTT WebSocket support |
+| **InfluxDB** | 8086 | 8086 | Time-series database for telemetry (hot/warm/cold tiers) |
 
 ## Notes
 

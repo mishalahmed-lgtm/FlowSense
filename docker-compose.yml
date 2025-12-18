@@ -80,6 +80,24 @@ services:
       timeout: 5s
       retries: 5
 
+  # InfluxDB - Time-series database
+  influxdb:
+    image: influxdb:2.7
+    container_name: iot-influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: iot_admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: iot_password
+      DOCKER_INFLUXDB_INIT_ORG: iot_org
+      # Initial bucket is the hot tier (30 days); warm/cold buckets are created by the app
+      DOCKER_INFLUXDB_INIT_BUCKET: iot_hot
+      DOCKER_INFLUXDB_INIT_RETENTION: 30d
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: iot_dev_token
+    volumes:
+      - influx_data:/var/lib/influxdb2
+
   # Python Backend (Ingestion Gateway)
   backend:
     build: .
@@ -102,6 +120,13 @@ services:
       TCP_READ_TIMEOUT_SECONDS: 30
       API_V1_PREFIX: /api/v1
       LOG_LEVEL: INFO
+      # InfluxDB configuration for time-series telemetry
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_ORG: iot_org
+      INFLUX_TOKEN: iot_dev_token
+      INFLUX_BUCKET_HOT: iot_hot
+      INFLUX_BUCKET_WARM: iot_warm
+      INFLUX_BUCKET_COLD: iot_cold
     depends_on:
       postgres:
         condition: service_healthy
@@ -109,6 +134,8 @@ services:
         condition: service_healthy
       mqtt-broker:
         condition: service_healthy
+      influxdb:
+        condition: service_started
     command: uvicorn main:app --host 0.0.0.0 --port 5000
 
   # Telemetry worker microservice (Kafka -> Postgres for dashboards)
@@ -123,11 +150,19 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       KAFKA_RAW_TELEMETRY_TOPIC: raw_telemetry
       LOG_LEVEL: INFO
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_ORG: iot_org
+      INFLUX_TOKEN: iot_dev_token
+      INFLUX_BUCKET_HOT: iot_hot
+      INFLUX_BUCKET_WARM: iot_warm
+      INFLUX_BUCKET_COLD: iot_cold
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
+      influxdb:
+        condition: service_started
     command: python telemetry_worker.py
 
   # JasperReports Server for utility metering reports
@@ -162,3 +197,4 @@ services:
 
 volumes:
   postgres_data:
+  influx_data:

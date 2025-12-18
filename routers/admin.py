@@ -5,7 +5,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import text
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -16,6 +16,7 @@ from database import get_db
 from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest, DeviceDashboard, User, UserRole
 from rule_engine import rule_engine
 import json
+from influx_client import influx_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -493,6 +494,63 @@ def list_tenants(
     """Return tenant names."""
     tenants = db.query(Tenant).all()
     return [TenantResponse(id=tenant.id, name=tenant.name) for tenant in tenants]
+
+
+class InfluxStatusResponse(BaseModel):
+    """High-level status of the InfluxDB time-series backend."""
+
+    enabled: bool
+    url: str
+    org: str
+    buckets: List[Dict[str, Any]] = []
+    error: Optional[str] = None
+
+
+class InfluxSampleItem(BaseModel):
+    """Sample point from an InfluxDB bucket for admin/debugging."""
+
+    bucket: str
+    time: str
+    measurement: str
+    field: str
+    device_id: Optional[str] = None
+    value: Any
+
+
+@router.get("/influx/status", response_model=InfluxStatusResponse)
+def get_influx_status(
+    _: str = Depends(require_admin),
+):
+    """Return InfluxDB status and bucket retention configuration.
+
+    This lets admins verify that hot/warm/cold buckets are present and
+    properly configured (30 days / 1 year / 5+ years).
+    """
+    status_data = influx_service.get_status()
+    # Ensure all required keys exist for the response model
+    if "error" not in status_data:
+        status_data["error"] = None
+    return InfluxStatusResponse(**status_data)
+
+
+@router.get("/influx/sample", response_model=List[InfluxSampleItem])
+def get_influx_sample(
+    bucket: str = Query(..., description="Bucket name (e.g. 'iot_hot', 'iot_warm', 'iot_cold')"),
+    limit: int = Query(5, ge=1, le=100, description="Number of points to return"),
+    _: str = Depends(require_admin),
+):
+    """Return a small sample of recent telemetry points from a given bucket.
+
+    Useful to confirm that data is flowing into hot/warm/cold tiers.
+    """
+    if not influx_service.enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="InfluxDB integration is disabled or not configured",
+        )
+
+    points = influx_service.get_bucket_sample(bucket=bucket, limit=limit)
+    return [InfluxSampleItem(**p) for p in points]
 
 
 def _get_device_or_404(device_id: str, db: Session) -> Device:

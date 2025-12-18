@@ -6,18 +6,23 @@ telemetry-worker microservice that persists data from Kafka.
 
 from datetime import datetime, timedelta, date, timezone
 from typing import Any, Dict, List, Optional
+import logging
 import statistics
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 
 from admin_auth import require_admin, get_current_user
 from database import get_db
 from models import Device, DeviceDashboard, TelemetryLatest, TelemetryTimeseries, User, UserRole
+from influx_client import influx_service
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+logger = logging.getLogger(__name__)
 
 
 @router.get(
@@ -64,6 +69,64 @@ def get_device_latest_telemetry(
 
 
 @router.get(
+    "/activity",
+)
+def get_event_activity(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Return event activity (message count) over the last 24 hours.
+
+    - For tenant admins: counts are scoped to their tenant's devices only.
+    - For admins: counts cover all devices.
+    - Buckets are 1-hour intervals over the last 24h.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=24)
+
+    # Base query on TelemetryTimeseries joined to Device for tenant scoping
+    bucket_expr = func.date_trunc("hour", TelemetryTimeseries.ts)
+
+    query = (
+        db.query(bucket_expr.label("bucket"), func.count().label("count"))
+        .join(Device, Device.id == TelemetryTimeseries.device_id)
+        .filter(TelemetryTimeseries.ts >= cutoff)
+    )
+
+    # Tenant admins only see their own tenant's activity
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
+        query = query.filter(Device.tenant_id == current_user.tenant_id)
+
+    query = query.group_by(bucket_expr).order_by(bucket_expr)
+
+    rows = query.all()
+    bucket_map: Dict[datetime, int] = {row.bucket.replace(tzinfo=timezone.utc): row.count for row in rows}
+
+    # Normalize to 24 hourly buckets, filling gaps with zeroes
+    buckets: List[Dict[str, Any]] = []
+    total_events = 0
+
+    # Build from oldest -> newest
+    for i in range(24):
+        bucket_time = (now - timedelta(hours=23 - i)).replace(minute=0, second=0, microsecond=0)
+        bucket_time = bucket_time.astimezone(timezone.utc)
+        count = int(bucket_map.get(bucket_time, 0))
+        total_events += count
+        buckets.append(
+            {
+                "timestamp": bucket_time.isoformat(),
+                "count": count,
+            }
+        )
+
+    return {
+        "total_events": total_events,
+        "buckets": buckets,
+    }
+
+
+@router.get(
     "/devices/{device_id}/history",
 )
 def get_device_history(
@@ -88,26 +151,45 @@ def get_device_history(
             detail="You can only access devices from your own tenant"
         )
 
-    # Compute time window
-    now = datetime.utcnow()
-    cutoff = now - timedelta(minutes=minutes)
+    # Prefer InfluxDB time-series database when available for history queries
+    points: List[Dict[str, Any]] = []
+    if influx_service.enabled:
+        try:
+            points = influx_service.query_device_history(
+                device_id=device.device_id,
+                key=key,
+                minutes=minutes,
+                limit=500,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to query InfluxDB history for device_id=%s, key=%s: %s",
+                device.device_id,
+                key,
+                exc,
+            )
 
-    rows = (
-        db.query(TelemetryTimeseries)
-        .filter(
-            TelemetryTimeseries.device_id == device.id,
-            TelemetryTimeseries.key == key,
-            TelemetryTimeseries.ts >= cutoff,
+    # Fallback to PostgreSQL timeseries table if InfluxDB is disabled or returned no data
+    if not points:
+        now = datetime.utcnow()
+        cutoff = now - timedelta(minutes=minutes)
+
+        rows = (
+            db.query(TelemetryTimeseries)
+            .filter(
+                TelemetryTimeseries.device_id == device.id,
+                TelemetryTimeseries.key == key,
+                TelemetryTimeseries.ts >= cutoff,
+            )
+            .order_by(TelemetryTimeseries.ts.asc())
+            .limit(500)
+            .all()
         )
-        .order_by(TelemetryTimeseries.ts.asc())
-        .limit(500)
-        .all()
-    )
 
-    points = [
-        {"ts": row.ts.isoformat(), "value": row.value}
-        for row in rows
-    ]
+        points = [
+            {"ts": row.ts.isoformat(), "value": row.value}
+            for row in rows
+        ]
 
     return {
         "device_id": device.device_id,

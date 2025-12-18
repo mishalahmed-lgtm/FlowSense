@@ -1,27 +1,36 @@
 import { useEffect } from "react";
 import PropTypes from "prop-types";
-import "./Modal.css";
 
-export default function Modal({ isOpen, onClose, title, children, footer }) {
+export default function Modal({ isOpen = true, onClose, title, children, footer }) {
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
+    document.body.style.overflow = "hidden";
+    
+    const handleEscape = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    
+    document.addEventListener("keydown", handleEscape);
+    
     return () => {
       document.body.style.overflow = "";
+      document.removeEventListener("keydown", handleEscape);
     };
-  }, [isOpen]);
+  }, [onClose]);
 
-  if (!isOpen) return null;
+  // Support both isOpen prop and conditional rendering
+  if (isOpen === false) return null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal__header">
           <h2 className="modal__title">{title}</h2>
-          <button className="modal__close" onClick={onClose} aria-label="Close">
+          <button 
+            className="btn-icon" 
+            onClick={onClose} 
+            aria-label="Close"
+            style={{ fontSize: "var(--font-size-xl)" }}
+          >
             ×
           </button>
         </div>
@@ -33,7 +42,7 @@ export default function Modal({ isOpen, onClose, title, children, footer }) {
 }
 
 Modal.propTypes = {
-  isOpen: PropTypes.bool.isRequired,
+  isOpen: PropTypes.bool,
   onClose: PropTypes.func.isRequired,
   title: PropTypes.string.isRequired,
   children: PropTypes.node.isRequired,

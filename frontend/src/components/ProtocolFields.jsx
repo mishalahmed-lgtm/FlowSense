@@ -56,6 +56,8 @@ export default function ProtocolFields({ protocol, metadata, onChange }) {
     }
 
     const currentValue = groupData[field.name] ?? "";
+    const inputId = `${field.group}-${field.name}`;
+
     const commonProps = {
       value: currentValue,
       placeholder: field.placeholder,
@@ -64,40 +66,54 @@ export default function ProtocolFields({ protocol, metadata, onChange }) {
 
     if (field.type === "textarea") {
       return (
-        <label key={`${field.group}.${field.name}`}>
-          {field.label}
-          <textarea {...commonProps} />
-        </label>
+        <div className="form-group" key={`${field.group}.${field.name}`}>
+          <label className="form-label" htmlFor={inputId}>
+            {field.label}
+          </label>
+          <textarea id={inputId} className="form-textarea" {...commonProps} />
+        </div>
       );
     }
 
     if (field.type === "select") {
       return (
-        <label key={`${field.group}.${field.name}`}>
-          {field.label}
-          <select {...commonProps}>
+        <div className="form-group" key={`${field.group}.${field.name}`}>
+          <label className="form-label" htmlFor={inputId}>
+            {field.label}
+          </label>
+          <select id={inputId} className="form-select" {...commonProps}>
             {field.options.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
             ))}
           </select>
-        </label>
+        </div>
       );
     }
 
     return (
-      <label key={`${field.group}.${field.name}`}>
-        {field.label}
-        <input type={field.type || "text"} min={field.min} {...commonProps} />
-      </label>
+      <div className="form-group" key={`${field.group}.${field.name}`}>
+        <label className="form-label" htmlFor={inputId}>
+          {field.label}
+        </label>
+        <input
+          id={inputId}
+          className="form-input"
+          type={field.type || "text"}
+          min={field.min}
+          {...commonProps}
+        />
+      </div>
     );
   };
 
   return (
     <div className="protocol-fields">
-      <h4>{protocol} Settings</h4>
-      {fields.map(renderField)}
+      <h4 className="protocol-fields__title">{protocol} Settings</h4>
+      <div className={protocol === "MQTT" ? "form-grid" : "form"}>
+        {fields.map(renderField)}
+      </div>
     </div>
   );
 }

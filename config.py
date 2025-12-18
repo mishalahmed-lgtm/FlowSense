@@ -8,6 +8,20 @@ class Settings(BaseSettings):
     
     # Database
     database_url: str = "postgresql://iot_user:iot_password@postgres:5432/iot_platform"
+
+    # InfluxDB - time-series database (optional but recommended)
+    # When influx_token is not set, InfluxDB integration is disabled gracefully.
+    influx_url: str = "http://influxdb:8086"
+    influx_org: str = "iot_org"
+    influx_token: Optional[str] = None
+    influx_bucket_hot: str = "iot_hot"
+    influx_bucket_warm: str = "iot_warm"
+    influx_bucket_cold: str = "iot_cold"
+    # Retention policies (in days) for each tier
+    influx_hot_retention_days: int = 30          # Hot storage (~30 days)
+    influx_warm_retention_days: int = 365        # Warm storage (~1 year)
+    influx_cold_retention_days: int = 0          # 0 = infinite (5+ years cold storage)
+    influx_measurement_name: str = "telemetry"   # Measurement name used for all points
     
     # Kafka
     kafka_bootstrap_servers: str = "kafka:9092"
