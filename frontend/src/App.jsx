@@ -16,6 +16,8 @@ import AlertRulesPage from "./pages/AlertRulesPage.jsx";
 import FOTAJobsPage from "./pages/FOTAJobsPage.jsx";
 import DeviceHealthPage from "./pages/DeviceHealthPage.jsx";
 import AnalyticsPage from "./pages/AnalyticsPage.jsx";
+import EnergyManagementDashboard from "./pages/EnergyManagementDashboard.jsx";
+import EnvironmentalMonitoringDashboard from "./pages/EnvironmentalMonitoringDashboard.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
@@ -123,6 +125,18 @@ function App() {
             {hasModule("analytics") && (
               <>
                 <Route path="/analytics" element={<AnalyticsPage />} />
+              </>
+            )}
+            
+            {/* Specialized Dashboards */}
+            {hasModule("utility") && (
+              <>
+                <Route path="/dashboard/energy" element={<EnergyManagementDashboard />} />
+              </>
+            )}
+            {hasModule("dashboards") && (
+              <>
+                <Route path="/dashboard/environmental" element={<EnvironmentalMonitoringDashboard />} />
               </>
             )}
             

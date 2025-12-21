@@ -21,12 +21,14 @@ router = APIRouter(prefix="/admin", tags=["user-management"])
 class TenantCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     code: str = Field(..., min_length=1, max_length=50)
+    country: Optional[str] = Field(None, max_length=100)
     is_active: bool = True
 
 
 class TenantUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     code: Optional[str] = Field(None, min_length=1, max_length=50)
+    country: Optional[str] = Field(None, max_length=100)
     is_active: Optional[bool] = None
 
 
@@ -34,6 +36,7 @@ class TenantResponse(BaseModel):
     id: int
     name: str
     code: str
+    country: Optional[str] = None
     is_active: bool
     created_at: datetime
     device_count: int = 0
@@ -98,6 +101,7 @@ def list_tenants(
             id=tenant.id,
             name=tenant.name,
             code=tenant.code,
+            country=tenant.country,
             is_active=tenant.is_active,
             created_at=tenant.created_at,
             device_count=len(tenant.devices),
@@ -125,6 +129,7 @@ def create_tenant(
     tenant = Tenant(
         name=payload.name,
         code=payload.code,
+        country=payload.country,
         is_active=payload.is_active,
     )
     db.add(tenant)
@@ -135,6 +140,7 @@ def create_tenant(
         id=tenant.id,
         name=tenant.name,
         code=tenant.code,
+        country=tenant.country,
         is_active=tenant.is_active,
         created_at=tenant.created_at,
         device_count=0,
@@ -170,6 +176,8 @@ def update_tenant(
         tenant.name = payload.name
     if payload.code is not None:
         tenant.code = payload.code
+    if payload.country is not None:
+        tenant.country = payload.country
     if payload.is_active is not None:
         tenant.is_active = payload.is_active
     
@@ -182,6 +190,7 @@ def update_tenant(
         id=tenant.id,
         name=tenant.name,
         code=tenant.code,
+        country=tenant.country,
         is_active=tenant.is_active,
         created_at=tenant.created_at,
         device_count=len(tenant.devices),

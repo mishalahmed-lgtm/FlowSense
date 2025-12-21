@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 try:
     from reportlab.lib.pagesizes import letter, A4
@@ -82,6 +83,22 @@ class ConsolidatedTenantBilling(BaseModel):
     devices: List[DeviceConsumptionSummary]  # Breakdown by device
 
 
+class AllDevicesEnergyConsumption(BaseModel):
+    """Energy consumption aggregated from all devices (not just utility meters)."""
+    device_id: int
+    device_external_id: str
+    device_name: Optional[str]
+    device_type: Optional[str]
+    power_field: str  # e.g., "energy_consumption_w", "battery.loadPowerW"
+    total_energy_kwh: float  # Integrated power over time (kWh)
+    avg_power_w: float  # Average power during period (W)
+    sample_count: int
+    period_start: datetime
+    period_end: datetime
+    cost: float
+    currency: str
+
+
 def _resolve_index_key(utility_kind: str, device: Device) -> tuple[str, str]:
     """Decide which telemetry key and unit to use as index for a given device.
     
@@ -116,16 +133,78 @@ def _resolve_index_key(utility_kind: str, device: Device) -> tuple[str, str]:
     )
 
 
-def _resolve_rate(utility_kind: str) -> tuple[float, str]:
-    """Resolve a simple flat rate and currency per utility kind.
+def _resolve_rate(utility_kind: str, country: Optional[str] = None) -> tuple[float, str]:
+    """Resolve utility rate and currency based on utility kind and country.
 
-    In a real system this would query UtilityTariff / contracts. For now we
-    hard-code reasonable demo defaults so the UI can show billing amounts.
+    Country-specific rates for accurate billing calculations.
+    Falls back to USD defaults if country not specified.
+    
+    Supports both country codes (SA, AE, US, GB) and country names (Saudi Arabia, etc.)
     """
+    # Country-specific rate tables (in local currency)
+    # Rates are approximate and should be configured per deployment
+    
+    country_rates = {
+        # Saudi Arabia (SAR) - supports both code and name
+        "SA": {
+            "electricity": (0.18, "SAR"),  # ~$0.048 per kWh
+            "gas": (0.30, "SAR"),  # ~$0.08 per unit
+            "water": (0.08, "SAR"),  # ~$0.02 per m3
+        },
+        "SAUDI ARABIA": {
+            "electricity": (0.18, "SAR"),  # ~$0.048 per kWh
+            "gas": (0.30, "SAR"),  # ~$0.08 per unit
+            "water": (0.08, "SAR"),  # ~$0.02 per m3
+        },
+        # United Arab Emirates (AED)
+        "AE": {
+            "electricity": (0.30, "AED"),  # ~$0.082 per kWh
+            "gas": (0.25, "AED"),  # ~$0.068 per unit
+            "water": (0.10, "AED"),  # ~$0.027 per m3
+        },
+        "UNITED ARAB EMIRATES": {
+            "electricity": (0.30, "AED"),  # ~$0.082 per kWh
+            "gas": (0.25, "AED"),  # ~$0.068 per unit
+            "water": (0.10, "AED"),  # ~$0.027 per m3
+        },
+        # United States (USD)
+        "US": {
+            "electricity": (0.20, "USD"),  # $0.20 per kWh
+            "gas": (0.08, "USD"),  # $0.08 per unit
+            "water": (0.02, "USD"),  # $0.02 per m3
+        },
+        "UNITED STATES": {
+            "electricity": (0.20, "USD"),  # $0.20 per kWh
+            "gas": (0.08, "USD"),  # $0.08 per unit
+            "water": (0.02, "USD"),  # $0.02 per m3
+        },
+        # United Kingdom (GBP)
+        "GB": {
+            "electricity": (0.15, "GBP"),  # ~$0.19 per kWh
+            "gas": (0.06, "GBP"),  # ~$0.076 per unit
+            "water": (0.015, "GBP"),  # ~$0.019 per m3
+        },
+        "UNITED KINGDOM": {
+            "electricity": (0.15, "GBP"),  # ~$0.19 per kWh
+            "gas": (0.06, "GBP"),  # ~$0.076 per unit
+            "water": (0.015, "GBP"),  # ~$0.019 per m3
+        },
+    }
+    
+    # If country is specified and has rates, use them
+    # Try exact match first, then uppercase match
+    if country:
+        country_upper = country.upper()
+        if country_upper in country_rates:
+            rates = country_rates[country_upper]
+            if utility_kind in rates:
+                return rates[utility_kind]
+    
+    # Default fallback (USD)
     if utility_kind == "electricity":
         return 0.20, "USD"  # $0.20 per kWh
     if utility_kind == "gas":
-        return 0.08, "USD"  # $0.08 per arbitrary gas unit
+        return 0.08, "USD"  # $0.08 per unit
     if utility_kind == "water":
         return 0.02, "USD"  # $0.02 per m3
     return 0.0, "USD"
@@ -174,7 +253,14 @@ def preview_consumption(
 
     results: List[UtilityConsumptionPreview] = []
 
-    rate_per_unit, currency = _resolve_rate(utility_kind)
+    # Get tenant country for rate calculation (use first device's tenant if available)
+    tenant_country = None
+    if devices:
+        tenant = devices[0].tenant
+        if tenant:
+            tenant_country = tenant.country
+    
+    rate_per_unit, currency = _resolve_rate(utility_kind, tenant_country)
 
     for device in devices:
         # Not every device type participates in every utility kind
@@ -335,6 +421,186 @@ def preview_consolidated_consumption(
         ConsolidatedTenantBilling(**tenant_data)
         for tenant_data in tenant_map.values()
     ]
+    
+    return results
+
+
+@router.get(
+    "/energy/all-devices",
+    response_model=List[AllDevicesEnergyConsumption],
+)
+def get_all_devices_energy_consumption(
+    tenant_id: Optional[int] = Query(None),
+    from_date: date = Query(..., description="Start date (inclusive, YYYY-MM-DD)"),
+    to_date: date = Query(..., description="End date (exclusive, YYYY-MM-DD)"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Aggregate energy consumption from ALL devices, not just utility meters.
+    
+    This endpoint looks for common power/energy fields across all device types:
+    - energy_consumption_w (light poles)
+    - battery.loadPowerW (smart benches)
+    - charging.powerW (smart benches)
+    - active_power_total (energy meters, in kW - converted to W)
+    - active_power_l1, active_power_l2, active_power_l3 (energy meters, in kW - converted to W)
+    
+    Converts power (W) to energy (kWh) by integrating over time intervals.
+    """
+    if from_date >= to_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="from_date must be before to_date",
+        )
+
+    period_start = datetime(from_date.year, from_date.month, from_date.day, tzinfo=timezone.utc)
+    period_end = datetime(to_date.year, to_date.month, to_date.day, tzinfo=timezone.utc)
+    
+    # Common power/energy field patterns to look for
+    POWER_FIELDS = [
+        "energy_consumption_w",  # Light poles
+        "battery.loadPowerW",  # Smart benches
+        "charging.powerW",  # Smart benches
+        "active_power_total",  # Energy meters (kW, will convert)
+        "active_power_l1",  # Energy meters (kW, will convert)
+        "active_power_l2",  # Energy meters (kW, will convert)
+        "active_power_l3",  # Energy meters (kW, will convert)
+    ]
+    
+    device_query = db.query(Device).join(Tenant)
+    
+    # Tenant admins can only access their own tenant's data
+    if current_user.role == UserRole.TENANT_ADMIN:
+        device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
+    elif tenant_id is not None:
+        device_query = device_query.filter(Device.tenant_id == tenant_id)
+    
+    devices = device_query.filter(Device.is_active == True).all()
+    
+    # Get tenant country for rate calculation
+    # Try to get tenant from query first, then from devices
+    tenant_country = None
+    tenant = None
+    
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
+        # For tenant admins, get tenant directly
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    elif tenant_id is not None:
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    elif devices:
+        tenant = devices[0].tenant
+    
+    if tenant:
+        tenant_country = tenant.country
+    
+    rate_per_unit, currency = _resolve_rate("electricity", tenant_country)
+    
+    results: List[AllDevicesEnergyConsumption] = []
+    
+    for device in devices:
+        # Try each power field pattern
+        for power_field in POWER_FIELDS:
+            # Query telemetry for this field
+            samples = (
+                db.query(TelemetryTimeseries)
+                .filter(
+                    TelemetryTimeseries.device_id == device.id,
+                    TelemetryTimeseries.key == power_field,
+                    TelemetryTimeseries.ts >= period_start,
+                    TelemetryTimeseries.ts < period_end,
+                )
+                .order_by(TelemetryTimeseries.ts.asc())
+                .all()
+            )
+            
+            if not samples:
+                continue  # No data for this field
+            
+            # Convert power to energy by integrating over time
+            # Use trapezoidal rule: average power between samples * time interval
+            total_energy_kwh = 0.0
+            total_power_w = 0.0
+            prev_ts = None
+            prev_power_w = None
+            
+            for sample in samples:
+                power_w = sample.value
+                
+                # Convert kW to W if needed (for active_power_* fields)
+                if power_field.startswith("active_power") and power_w is not None and power_w < 1000:
+                    # Likely already in kW, convert to W
+                    power_w = power_w * 1000
+                
+                if power_w is None or power_w < 0:
+                    continue
+                
+                total_power_w += power_w
+                
+                # Calculate energy for this interval using trapezoidal rule
+                if prev_ts is not None and prev_power_w is not None:
+                    # Time difference in hours
+                    time_diff_hours = (sample.ts - prev_ts).total_seconds() / 3600.0
+                    # Average power between samples
+                    avg_power_w_interval = (prev_power_w + power_w) / 2.0
+                    # Energy = average power * time (convert W to kW)
+                    interval_energy_kwh = (avg_power_w_interval / 1000.0) * time_diff_hours
+                    total_energy_kwh += interval_energy_kwh
+                
+                prev_ts = sample.ts
+                prev_power_w = power_w
+            
+            # If we have samples, calculate average power
+            avg_power_w = total_power_w / len(samples) if samples else 0.0
+            
+            # Calculate cost
+            cost = total_energy_kwh * rate_per_unit
+            
+            # Only include if we have meaningful energy consumption
+            if total_energy_kwh > 0:
+                results.append(
+                    AllDevicesEnergyConsumption(
+                        device_id=device.id,
+                        device_external_id=device.device_id,
+                        device_name=device.name,
+                        device_type=device.device_type.name if device.device_type else None,
+                        power_field=power_field,
+                        total_energy_kwh=round(total_energy_kwh, 3),
+                        avg_power_w=round(avg_power_w, 2),
+                        sample_count=len(samples),
+                        period_start=period_start,
+                        period_end=period_end,
+                        cost=round(cost, 2),
+                        currency=currency,
+                    )
+                )
+                # Only use the first matching field per device to avoid double counting
+                break
+    
+    # Always return a placeholder entry with currency info if we have tenant info
+    # This ensures the frontend always knows what currency to use, even with no data
+    if tenant:
+        # Check if we already have a placeholder (shouldn't happen, but be safe)
+        has_placeholder = any(r.device_id == 0 or r.device_external_id == "__currency_placeholder__" for r in results)
+        if not has_placeholder:
+            # Prepend placeholder entry so it's first in the list
+            placeholder = AllDevicesEnergyConsumption(
+                device_id=0,
+                device_external_id="__currency_placeholder__",
+                device_name="",
+                device_type=None,
+                power_field="",
+                total_energy_kwh=0.0,
+                avg_power_w=0.0,
+                sample_count=0,
+                period_start=period_start,
+                period_end=period_end,
+                cost=0.0,
+                currency=currency,
+            )
+            results.insert(0, placeholder)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Added currency placeholder: {currency} for tenant {tenant.name} (country: {tenant.country})")
     
     return results
 

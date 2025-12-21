@@ -77,10 +77,12 @@ class MQTTTelemetryHandler:
             logger.info(f"Connected to MQTT broker at {settings.mqtt_broker_host}:{settings.mqtt_broker_port}")
             
             # Subscribe to all device telemetry topics
-            # Format: devices/{device_id}/telemetry
+            # Format: devices/{device_id}/telemetry or device/{device_id}/telemetry
             client.subscribe("devices/+/telemetry", qos=1)
             client.subscribe("devices/+/status", qos=1)
-            logger.info("Subscribed to MQTT topics: devices/+/telemetry, devices/+/status")
+            client.subscribe("device/+/telemetry", qos=1)  # Also support singular "device" prefix
+            client.subscribe("device/+/status", qos=1)
+            logger.info("Subscribed to MQTT topics: devices/+/telemetry, devices/+/status, device/+/telemetry, device/+/status")
         else:
             logger.error(f"Failed to connect to MQTT broker. Return code: {rc}")
             self.is_connected = False
@@ -130,6 +132,31 @@ class MQTTTelemetryHandler:
             # Parse payload
             try:
                 payload = json.loads(msg.payload.decode('utf-8'))
+                
+                # Verify access token if configured (after parsing payload)
+                provided_token = payload.get("access_token") or payload.get("token")
+                db = SessionLocal()
+                try:
+                    device = db.query(Device).filter(Device.id == device_db_id).first()
+                    if device:
+                        from auth import verify_device_access_token
+                        if not verify_device_access_token(device, provided_token):
+                            logger.warning(
+                                f"Rejected MQTT message from device {device_id}: invalid access token "
+                                f"(topic: {msg.topic})"
+                            )
+                            metrics.record_message_rejected(device_id, "invalid_access_token")
+                            metrics.record_auth_failure(device_id)
+                            return
+                finally:
+                    db.close()
+                
+                # Remove token from payload before processing (don't store it)
+                if "access_token" in payload:
+                    payload.pop("access_token")
+                if "token" in payload:
+                    payload.pop("token")
+                    
             except json.JSONDecodeError:
                 error_msg = "Invalid JSON payload"
                 logger.warning(f"{error_msg} from device {device_id}")

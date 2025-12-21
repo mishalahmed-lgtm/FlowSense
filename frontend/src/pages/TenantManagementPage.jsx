@@ -18,6 +18,7 @@ export default function TenantManagementPage() {
   const [formData, setFormData] = useState({
     name: "",
     code: "",
+    country: "",
     is_active: true,
   });
 
@@ -40,7 +41,7 @@ export default function TenantManagementPage() {
 
   const handleCreate = () => {
     setEditingTenant(null);
-    setFormData({ name: "", code: "", is_active: true });
+    setFormData({ name: "", code: "", country: "", is_active: true });
     setShowModal(true);
   };
 
@@ -49,6 +50,7 @@ export default function TenantManagementPage() {
     setFormData({
       name: tenant.name,
       code: tenant.code,
+      country: tenant.country || "",
       is_active: tenant.is_active,
     });
     setShowModal(true);
@@ -138,6 +140,7 @@ export default function TenantManagementPage() {
               <tr>
                 <th>Name</th>
                 <th>Code</th>
+                <th>Country</th>
                 <th>Status</th>
                 <th>Devices</th>
                 <th>Users</th>
@@ -151,6 +154,13 @@ export default function TenantManagementPage() {
                   <td>{tenant.name}</td>
                   <td>
                     <code>{tenant.code}</code>
+                  </td>
+                  <td>
+                    {tenant.country ? (
+                      <span className="badge badge--info">{tenant.country}</span>
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
                   </td>
                   <td>
                     <span
@@ -183,7 +193,7 @@ export default function TenantManagementPage() {
               ))}
               {tenants.length === 0 && (
                 <tr>
-                  <td colSpan="7" style={{ textAlign: "center" }}>
+                  <td colSpan="8" style={{ textAlign: "center" }}>
                     No tenants found. Click "Add Tenant" to create one.
                   </td>
                 </tr>
@@ -232,6 +242,27 @@ export default function TenantManagementPage() {
               </small>
             </div>
 
+            <div className="form-group">
+              <label className="form-label">Country *</label>
+              <select
+                className="form-select"
+                value={formData.country}
+                onChange={(e) =>
+                  setFormData({ ...formData, country: e.target.value })
+                }
+                required
+              >
+                <option value="">Select country...</option>
+                <option value="Saudi Arabia">Saudi Arabia (SAR)</option>
+                <option value="AE">United Arab Emirates (AED)</option>
+                <option value="US">United States (USD)</option>
+                <option value="GB">United Kingdom (GBP)</option>
+              </select>
+              <small className="form-help">
+                Country for accurate utility billing rate calculations
+              </small>
+            </div>
+
             <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-2)" }}>
               <input
                 type="checkbox"
@@ -257,7 +288,7 @@ export default function TenantManagementPage() {
               <button
                 className="btn btn--primary"
                 onClick={handleSave}
-                disabled={!formData.name || !formData.code}
+                disabled={!formData.name || !formData.code || !formData.country}
               >
                 {editingTenant ? "Update" : "Create"}
               </button>

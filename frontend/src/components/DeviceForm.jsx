@@ -29,11 +29,40 @@ export default function DeviceForm({
     setFormState(buildInitialState(initialDevice, userTenantId));
   }, [initialDevice, userTenantId]);
 
+  // Get unique protocols (only the ones user wants)
+  const allowedProtocols = ['MQTT', 'HTTP', 'TCP', 'LoRaWAN', 'DALI', 'Modbus_TCP'];
+  const protocolDisplayMap = {
+    'Modbus_TCP': 'Modbus'
+  };
+  
+  const uniqueProtocols = [...new Set(deviceTypes
+    .filter(dt => allowedProtocols.includes(dt.protocol))
+    .map(dt => dt.protocol)
+  )].sort();
+
+  // Map protocol to device type ID (use first device type for each protocol)
+  const protocolToDeviceTypeId = {};
+  deviceTypes.forEach(dt => {
+    if (allowedProtocols.includes(dt.protocol) && !protocolToDeviceTypeId[dt.protocol]) {
+      protocolToDeviceTypeId[dt.protocol] = dt.id;
+    }
+  });
+
   const currentDeviceType = deviceTypes.find((dt) => dt.id === Number(formState.device_type_id));
   const currentProtocol = currentDeviceType?.protocol;
 
   const handleChange = (field, value) => {
-    setFormState((prev) => ({ ...prev, [field]: value }));
+    if (field === 'protocol') {
+      // When protocol is selected, automatically set the device_type_id
+      const deviceTypeId = protocolToDeviceTypeId[value] || '';
+      setFormState((prev) => ({ 
+        ...prev, 
+        protocol: value,
+        device_type_id: deviceTypeId 
+      }));
+    } else {
+      setFormState((prev) => ({ ...prev, [field]: value }));
+    }
   };
 
   const handleMetadataChange = (group, data) => {
@@ -46,14 +75,30 @@ export default function DeviceForm({
     }));
   };
 
+  const handleAccessTokenChange = (value) => {
+    setFormState((prev) => ({
+      ...prev,
+      metadata: {
+        ...prev.metadata,
+        access_token: value,
+      },
+    }));
+  };
+
   const submitForm = (event) => {
     event.preventDefault();
+    
+    // Validate access token is provided
+    if (!formState.metadata?.access_token || formState.metadata.access_token.trim() === "") {
+      alert("Access Token is required. Please enter an access token for secure device connection.");
+      return;
+    }
+    
     onSubmit({
       ...formState,
       device_type_id: Number(formState.device_type_id),
       tenant_id: Number(userTenantId || formState.tenant_id),
-      // For tenant users, always keep devices active
-      is_active: userTenantId ? true : formState.is_active,
+      is_active: formState.is_active, // Use the checkbox value (defaults to false)
     });
   };
 
@@ -84,105 +129,90 @@ export default function DeviceForm({
       </div>
 
       <div className="form-group">
-        <label className="form-label form-label--required">Device Type</label>
+        <label className="form-label form-label--required">Protocol</label>
         <select
           className="form-select"
-          value={formState.device_type_id}
-          onChange={(event) => handleChange("device_type_id", event.target.value)}
+          value={currentProtocol || ""}
+          onChange={(event) => handleChange("protocol", event.target.value)}
           required
         >
-          <option value="">Select device type...</option>
-          {deviceTypes.map((type) => (
-            <option key={type.id} value={type.id}>
-              {type.name} ({type.protocol})
+          <option value="">Select protocol...</option>
+          {uniqueProtocols.map((protocol) => (
+            <option key={protocol} value={protocol}>
+              {protocolDisplayMap[protocol] || protocol}
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="form-group">
+        <label className="form-label form-label--required">Access Token</label>
+        <input
+          type="text"
+          className="form-input"
+          value={formState.metadata?.access_token || ""}
+          onChange={(event) => handleAccessTokenChange(event.target.value)}
+          placeholder="Enter access token for secure connection"
+          required
+        />
+        <small style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)", marginTop: "var(--space-1)", display: "block" }}>
+          Required: Token for device authentication. Devices must include this token when connecting.
+        </small>
       </div>
 
       {userTenantId ? (
         <>
           {/* Hide tenant selector for tenant users and lock to their tenant */}
           <input type="hidden" value={userTenantId} />
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              padding: "var(--space-4)",
-              backgroundColor: "var(--color-bg-secondary)",
-              borderRadius: "var(--radius-lg)",
-              marginTop: "var(--space-2)",
-            }}
-          >
-            <span
-              style={{
-                width: 10,
-                height: 10,
-                borderRadius: "999px",
-                backgroundColor: "var(--color-success-text)",
-              }}
-            ></span>
-            <span
-              style={{
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-primary)",
-              }}
-            >
-              Device will be active for your tenant
-            </span>
-          </div>
         </>
       ) : (
-        <>
-          <div className="form-group">
-            <label className="form-label form-label--required">Tenant</label>
-            <select
-              className="form-select"
-              value={formState.tenant_id}
-              onChange={(event) => handleChange("tenant_id", event.target.value)}
-              required
-            >
-              <option value="">Select tenant...</option>
-              {tenants.map((tenant) => (
-                <option key={tenant.id} value={tenant.id}>
-                  {tenant.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              padding: "var(--space-4)",
-              backgroundColor: "var(--color-bg-secondary)",
-              borderRadius: "var(--radius-lg)",
-            }}
+        <div className="form-group">
+          <label className="form-label form-label--required">Tenant</label>
+          <select
+            className="form-select"
+            value={formState.tenant_id}
+            onChange={(event) => handleChange("tenant_id", event.target.value)}
+            required
           >
-            <input
-              type="checkbox"
-              id="device-active"
-              checked={formState.is_active}
-              onChange={(event) => handleChange("is_active", event.target.checked)}
-              style={{ cursor: "pointer" }}
-            />
-            <label
-              htmlFor="device-active"
-              style={{
-                cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-                color: "var(--color-text-primary)",
-                margin: 0,
-              }}
-            >
-              Device is active
-            </label>
-          </div>
-        </>
+            <option value="">Select tenant...</option>
+            {tenants.map((tenant) => (
+              <option key={tenant.id} value={tenant.id}>
+                {tenant.name}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          padding: "var(--space-4)",
+          backgroundColor: "var(--color-bg-secondary)",
+          borderRadius: "var(--radius-lg)",
+        }}
+      >
+        <input
+          type="checkbox"
+          id="device-active"
+          checked={formState.is_active}
+          onChange={(event) => handleChange("is_active", event.target.checked)}
+          style={{ cursor: "pointer" }}
+        />
+        <label
+          htmlFor="device-active"
+          style={{
+            cursor: "pointer",
+            fontSize: "var(--font-size-sm)",
+            color: "var(--color-text-primary)",
+            margin: 0,
+          }}
+        >
+          Device is active
+        </label>
+      </div>
 
       {currentProtocol && (
         <ProtocolFields
@@ -210,8 +240,9 @@ function buildInitialState(device, userTenantId) {
       device_id: "",
       name: "",
       device_type_id: "",
+      protocol: "",
       tenant_id: userTenantId || "", // Auto-set tenant_id for tenant admins
-      is_active: true,
+      is_active: false, // Default to inactive
       metadata: cloneMetadata(),
     };
   }
@@ -220,8 +251,9 @@ function buildInitialState(device, userTenantId) {
     device_id: device.device_id,
     name: device.name || "",
     device_type_id: device.device_type_id || device.device_type?.id || "",
+    protocol: device.device_type?.protocol || "",
     tenant_id: device.tenant_id || userTenantId || "",
-    is_active: device.is_active,
+    is_active: device.is_active ?? false, // Default to false if not set
     metadata: cloneMetadata(device.metadata),
   };
 }

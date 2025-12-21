@@ -108,18 +108,24 @@
 }
 
 .dashboard-grid__item {
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--color-border-light);
-  overflow: hidden;
+  background: transparent;
+  border-radius: var(--radius-xl);
+  overflow: visible;
   position: relative;
-  transition: box-shadow var(--transition-base), transform var(--transition-base);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .dashboard-grid__item:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-1px);
+  z-index: 10;
+}
+
+.dashboard-grid__item.react-grid-item.cssTransforms {
+  transition-property: transform;
+}
+
+.dashboard-grid__item.react-grid-item.resizing {
+  z-index: 100;
+  opacity: 0.9;
 }
 
 .widget-remove-btn {

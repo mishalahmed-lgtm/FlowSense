@@ -400,7 +400,20 @@ export default function DeviceDashboardPage() {
 
   const handleLayoutChange = (currentLayout, allLayouts) => {
     // Save the layout for the current breakpoint (lg)
-    setLayout(currentLayout);
+    // Ensure all layout items have valid positions and don't overlap
+    const sanitizedLayout = currentLayout.map((item) => ({
+      ...item,
+      x: Math.max(0, Number(item.x) || 0),
+      y: Math.max(0, Number(item.y) || 0),
+      w: Math.max(1, Math.min(12, Number(item.w) || 4)),
+      h: Math.max(1, Number(item.h) || 3),
+    }));
+    
+    // Remove any layout items that don't have corresponding widgets
+    const widgetIds = new Set(widgets.map(w => w.id));
+    const filteredLayout = sanitizedLayout.filter(item => widgetIds.has(item.i));
+    
+    setLayout(filteredLayout);
   };
 
   const handleSave = async () => {
@@ -408,20 +421,62 @@ export default function DeviceDashboardPage() {
     setError(null);
     setSuccessMessage(null);
     try {
-      // Ensure layout is properly formatted before saving
-      const layoutToSave = layout.map((item) => ({
-        ...item,
-        // Ensure x, y, w, h are numbers
-        x: Number(item.x) || 0,
-        y: Number(item.y) || 0,
-        w: Number(item.w) || 4,
-        h: Number(item.h) || 3,
-      }));
+      // Ensure layout is properly formatted and synchronized with widgets
+      const widgetIds = new Set(widgets.map(w => w.id));
+      
+      // Remove any layout items without corresponding widgets
+      let layoutToSave = layout.filter(item => widgetIds.has(item.i));
+      
+      // Ensure all widgets have layout items
+      widgets.forEach(widget => {
+        const existingLayout = layoutToSave.find(item => item.i === widget.id);
+        if (!existingLayout) {
+          // Add missing layout item
+          const maxY = layoutToSave.length > 0 
+            ? Math.max(...layoutToSave.map(item => item.y + item.h))
+            : 0;
+          layoutToSave.push({
+            i: widget.id,
+            x: (layoutToSave.length * 4) % 12,
+            y: maxY,
+            w: widget.type === "chart" ? 6 : 4,
+            h: widget.type === "chart" ? 4 : 3,
+          });
+        }
+      });
+      
+      // Sanitize and ensure no overlaps
+      layoutToSave = layoutToSave.map((item, index) => {
+        // Ensure valid bounds
+        const sanitized = {
+          ...item,
+          x: Math.max(0, Math.min(11, Number(item.x) || 0)),
+          y: Math.max(0, Number(item.y) || 0),
+          w: Math.max(1, Math.min(12, Number(item.w) || 4)),
+          h: Math.max(1, Number(item.h) || 3),
+        };
+        
+        // Ensure widget doesn't overflow grid
+        if (sanitized.x + sanitized.w > 12) {
+          sanitized.x = Math.max(0, 12 - sanitized.w);
+        }
+        
+        return sanitized;
+      });
+      
+      // Compact layout to remove gaps
+      layoutToSave.sort((a, b) => {
+        if (a.y !== b.y) return a.y - b.y;
+        return a.x - b.x;
+      });
       
       await api.post(`/dashboard/devices/${deviceId}/dashboard`, {
         config: { widgets, layout: layoutToSave },
       });
-      setSuccessMessage("Dashboard saved");
+      
+      // Update local layout state to match saved layout
+      setLayout(layoutToSave);
+      setSuccessMessage("Dashboard saved successfully");
       setEditMode(false);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to save dashboard");
@@ -889,11 +944,12 @@ export default function DeviceDashboardPage() {
                 isDraggable={editMode}
                 isResizable={editMode}
                 draggableCancel=".widget-remove-btn"
-                compactType={null}
+                compactType={editMode ? null : "vertical"}
                 preventCollision={true}
                 margin={[16, 16]}
                 useCSSTransforms={true}
                 measureBeforeMount={false}
+                allowOverlap={false}
               >
                   {widgets.map((widget) => (
                     <div key={widget.id} className="dashboard-grid__item">

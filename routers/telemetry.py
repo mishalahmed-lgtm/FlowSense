@@ -42,10 +42,22 @@ async def ingest_telemetry_http(
     Supports devices using HTTP protocol (LPG Meter via NB-IoT, LoRaVan, LTEM, GPS).
     
     Expected header: X-Device-Key: <provisioning_key>
+    Optional header: X-Access-Token: <access_token> (if device has access token configured)
     """
     start_time = time.time()
     
     try:
+        # Verify access token (required)
+        access_token = request.headers.get("X-Access-Token")
+        from auth import verify_device_access_token
+        if not verify_device_access_token(device, access_token):
+            metrics.record_message_rejected(device.device_id, "invalid_access_token")
+            metrics.record_auth_failure(device.device_id)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing access token. Provide X-Access-Token header."
+            )
+        
         # Record message received
         logger.info(f"[HTTP] Processing telemetry from device: {device.device_id}")
         metrics.record_message_received(device.device_id, source="http")

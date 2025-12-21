@@ -120,6 +120,28 @@ export default function Sidebar() {
                 {item.badge && <span className="sidebar__link-badge">{item.badge}</span>}
               </NavLink>
             ))}
+            {hasModule("utility") && (
+              <NavLink 
+                to="/dashboard/energy" 
+                className="sidebar__link"
+              >
+                <span className="sidebar__link-icon">
+                  <Icon name="zap" size={18} />
+                </span>
+                <span>Energy Management</span>
+              </NavLink>
+            )}
+            {hasModule("dashboards") && (
+              <NavLink 
+                to="/dashboard/environmental" 
+                className="sidebar__link"
+              >
+                <span className="sidebar__link-icon">
+                  <Icon name="activity" size={18} />
+                </span>
+                <span>Environmental</span>
+              </NavLink>
+            )}
           </nav>
         </div>
       )}

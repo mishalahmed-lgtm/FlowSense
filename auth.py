@@ -1,4 +1,5 @@
 """Device authentication using provisioning keys."""
+import logging
 from datetime import datetime
 from fastapi import HTTPException, Security, Depends, status
 from fastapi.security import APIKeyHeader
@@ -6,6 +7,8 @@ from sqlalchemy.orm import Session
 from models import ProvisioningKey, Device
 from database import get_db
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # API Key header for device authentication
 api_key_header = APIKeyHeader(name="X-Device-Key", auto_error=False)
@@ -83,4 +86,43 @@ async def get_device_from_key(
     db.commit()
     
     return device
+
+
+def verify_device_access_token(device: Device, provided_token: Optional[str]) -> bool:
+    """
+    Verify if the provided access token matches the device's configured access token.
+    
+    Args:
+        device: The device object
+        provided_token: The access token provided by the device
+        
+    Returns:
+        True if token is valid, False otherwise
+        
+    Raises:
+        HTTPException: If token is missing or invalid
+    """
+    import json
+    
+    try:
+        metadata = json.loads(device.device_metadata) if isinstance(device.device_metadata, str) else device.device_metadata
+        device_token = metadata.get("access_token") if metadata else None
+        
+        # Access token is required - if not configured, reject (should not happen for new devices)
+        if not device_token:
+            logger.warning(f"Device {device.device_id} has no access token configured")
+            return False
+        
+        # Token must be provided and must match
+        if not provided_token:
+            return False
+        
+        if provided_token != device_token:
+            return False
+        
+        return True
+    except (json.JSONDecodeError, AttributeError, TypeError) as e:
+        # Invalid metadata format - reject for security
+        logger.error(f"Invalid device metadata for device {device.device_id}: {e}")
+        return False
 

@@ -294,6 +294,25 @@ class TCPIngestionServer:
                     "message": "Provisioning key does not belong to device_id",
                     "error": "device_key_mismatch"
                 }
+            
+            # Verify access token if configured
+            provided_token = message.get("access_token") or message.get("token")
+            from auth import verify_device_access_token
+            if not verify_device_access_token(device, provided_token):
+                metrics.record_message_rejected(device_id, "invalid_access_token")
+                metrics.record_auth_failure(device_id)
+                return {
+                    "status": "rejected",
+                    "device_id": device_id,
+                    "message": "Invalid or missing access token",
+                    "error": "invalid_access_token"
+                }
+            
+            # Remove token from payload before processing (don't store it)
+            if "access_token" in message:
+                message.pop("access_token")
+            if "token" in message:
+                message.pop("token")
 
             if provisioning_key.expires_at and provisioning_key.expires_at < datetime.utcnow():
                 metrics.record_message_rejected(device_id, "device_key_expired")

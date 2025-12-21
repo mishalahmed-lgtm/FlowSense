@@ -21,23 +21,8 @@ export default function LineChartWidget({ title, data, dataKey, unit }) {
   const lineColor = getColor();
 
   return (
-    <div className="widget-content linechart-widget" style={{
-      background: "linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.02) 100%)",
-      border: "1px solid var(--color-border-light)",
-      borderRadius: "var(--radius-lg)",
-      boxShadow: "var(--shadow-lg)",
-      padding: "var(--space-5)",
-      transition: "all 0.3s ease"
-    }}>
-      <div style={{
-        fontSize: "var(--font-size-base)",
-        fontWeight: "var(--font-weight-semibold)",
-        color: "var(--color-text-primary)",
-        marginBottom: "var(--space-4)",
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--space-2)"
-      }}>
+    <div className="widget-content linechart-widget">
+      <div className="widget-title">
         <div style={{
           width: "32px",
           height: "32px",
