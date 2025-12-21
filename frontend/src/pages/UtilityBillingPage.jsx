@@ -311,9 +311,8 @@ export default function UtilityBillingPage() {
 
           {/* Error Display */}
           {error && (
-            <div className="card card--error">
-              <Icon name="alert" size={20} />
-              <p>{error}</p>
+            <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+              {error}
             </div>
           )}
 
@@ -538,9 +537,8 @@ export default function UtilityBillingPage() {
 
           {/* Error Display */}
           {error && (
-            <div className="card card--error">
-              <Icon name="alert" size={20} />
-              <p>{error}</p>
+            <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+              {error}
             </div>
           )}
 
@@ -670,7 +668,7 @@ export default function UtilityBillingPage() {
                             <td className="text-muted" style={{ fontSize: "var(--font-size-xs)" }}>
                               {row.currency} {row.rate_per_unit.toFixed(4)}
                             </td>
-                            <td style={{ fontWeight: "var(--font-weight-bold)", fontSize: "var(--font-size-lg)", color: "var(--color-success-500)" }}>
+                            <td style={{ fontWeight: "var(--font-weight-bold)", fontSize: "var(--font-size-lg)", color: "var(--color-success-text)" }}>
                               {row.currency} {row.total_amount.toFixed(2)}
                             </td>
                             <td>
@@ -698,7 +696,7 @@ export default function UtilityBillingPage() {
                                       <div className="text-muted" style={{ fontSize: "var(--font-size-xs)" }}>
                                         Consumption: <strong>{device.consumption != null ? device.consumption.toFixed(2) : "—"}</strong> {row.unit}
                                         {" | "}
-                                        Amount: <strong style={{ color: "var(--color-success-500)" }}>
+                                        Amount: <strong style={{ color: "var(--color-success-text)" }}>
                                           {device.amount != null ? `${row.currency} ${device.amount.toFixed(2)}` : "—"}
                                         </strong>
                                       </div>

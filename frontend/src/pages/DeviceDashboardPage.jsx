@@ -280,22 +280,6 @@ export default function DeviceDashboardPage() {
     load();
   }, [token, api, deviceId]);
 
-  // Auto-refresh telemetry data every 10 seconds (smooth, no layout flash)
-  useEffect(() => {
-    if (!deviceId || !device) return;
-
-    const refreshData = async () => {
-      try {
-        const resp = await api.get(`/dashboard/devices/${deviceId}/latest`);
-        setTelemetryData(resp.data.data || {});
-      } catch (err) {
-        console.error("Failed to refresh telemetry:", err);
-      }
-    };
-
-    const interval = setInterval(refreshData, 10000);
-    return () => clearInterval(interval);
-  }, [api, deviceId, device]);
 
   // Load history data for chart widgets
   const loadHistory = useCallback(
@@ -499,6 +483,7 @@ export default function DeviceDashboardPage() {
         icon = "activity";
       }
 
+      // Add primary widget (gauge/thermometer/number)
       widgets.push({
         id: `${baseId}-primary`,
         type,
@@ -508,6 +493,17 @@ export default function DeviceDashboardPage() {
         min,
         max,
         icon,
+        isDynamic: true,
+      });
+
+      // Also add a chart widget for history visualization
+      widgets.push({
+        id: `${baseId}-chart`,
+        type: "chart",
+        title: `${field.display_name} History`,
+        field: field.key,
+        unit: field.unit || "",
+        icon: "trending",
         isDynamic: true,
       });
     });
@@ -772,7 +768,7 @@ export default function DeviceDashboardPage() {
                             >
                               <td style={{ whiteSpace: "nowrap" }}>{new Date(reading.timestamp).toLocaleString()}</td>
                               <td>
-                                <code style={{ fontSize: "var(--font-size-xs)", backgroundColor: "var(--color-gray-100)", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-sm)" }}>
+                                <code style={{ fontSize: "var(--font-size-xs)", backgroundColor: "var(--color-bg-secondary)", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-sm)" }}>
                                   {reading.key}
                                 </code>
                               </td>
@@ -821,13 +817,13 @@ export default function DeviceDashboardPage() {
       )}
 
       {error && (
-          <div className="card" style={{ borderColor: "var(--color-error-500)", marginBottom: "var(--space-6)" }}>
-            <p className="text-error">{error}</p>
+          <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+            {error}
           </div>
         )}
         {successMessage && (
-          <div className="card" style={{ borderColor: "var(--color-success-500)", marginBottom: "var(--space-6)" }}>
-            <p className="text-success">{successMessage}</p>
+          <div className="badge badge--success" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+            {successMessage}
           </div>
         )}
 

@@ -29,7 +29,7 @@ export default function AdminPortalPage() {
       description: "Manage user accounts and permissions",
       icon: "👥",
       path: "/admin/users",
-      color: "var(--color-success-500)",
+      color: "var(--color-success-text)",
     },
   ];
 
@@ -49,7 +49,7 @@ export default function AdminPortalPage() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: "var(--space-6)", background: "var(--color-primary-50)", borderColor: "var(--color-primary-200)" }}>
+      <div className="card" style={{ marginBottom: "var(--space-6)", background: "rgba(59, 130, 246, 0.1)", borderColor: "rgba(59, 130, 246, 0.3)" }}>
         <p style={{ margin: 0 }}>
           Welcome, <strong>{user?.full_name || user?.email}</strong>! 
           <span style={{ marginLeft: "var(--space-2)" }} className="badge badge--primary">Admin</span>

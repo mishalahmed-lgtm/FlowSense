@@ -1,10 +1,18 @@
-import { Link, NavLink, useLocation } from "react-router-dom";
+import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import Icon from "./Icon.jsx";
 
 export default function Sidebar() {
   const location = useLocation();
-  const { user, hasModule, isAdmin, isTenantAdmin } = useAuth();
+  const navigate = useNavigate();
+  const { user, hasModule, isAdmin, isTenantAdmin, logout } = useAuth();
+  
+  // Debug: Log module access
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Sidebar - User:', user?.email);
+    console.log('Sidebar - Enabled Modules:', user?.enabled_modules);
+    console.log('Sidebar - Has alerts module:', hasModule('alerts'));
+  }
   
   // Build navigation items based on user role
   const navItems = [];
@@ -153,6 +161,22 @@ export default function Sidebar() {
             )}
           </div>
         )}
+        <button
+          onClick={() => {
+            logout();
+            navigate("/login");
+          }}
+          className="btn btn--ghost"
+          style={{
+            width: "100%",
+            marginTop: "var(--space-4)",
+            justifyContent: "flex-start",
+            fontSize: "var(--font-size-sm)",
+          }}
+        >
+          <Icon name="logout" size={16} />
+          <span>Logout</span>
+        </button>
       </div>
     </aside>
   );

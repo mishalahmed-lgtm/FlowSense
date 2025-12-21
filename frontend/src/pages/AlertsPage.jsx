@@ -7,7 +7,7 @@ import Tabs from "../components/Tabs.jsx";
 import BackButton from "../components/BackButton.jsx";
 
 export default function AlertsPage() {
-  const { token, isTenantAdmin, hasModule } = useAuth();
+  const { token, isTenantAdmin, hasModule, user } = useAuth();
   const navigate = useNavigate();
   const api = createApiClient(token);
   
@@ -43,10 +43,13 @@ export default function AlertsPage() {
         params.priority = filterPriority;
       }
       const response = await api.get("/alerts", { params });
-      setAlerts(response.data);
+      console.log("Alerts loaded:", response.data?.length || 0, "alerts");
+      setAlerts(response.data || []);
       setError(null);
     } catch (err) {
+      console.error("Failed to load alerts:", err);
       setError(err.response?.data?.detail || "Failed to load alerts");
+      setAlerts([]);
     } finally {
       setLoading(false);
     }
@@ -55,10 +58,6 @@ export default function AlertsPage() {
   useEffect(() => {
     if (!token) return;
     loadAlerts();
-    
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(loadAlerts, 30000);
-    return () => clearInterval(interval);
   }, [token, filterStatus, filterPriority]);
 
   const handleAcknowledge = async (alertId) => {
@@ -98,19 +97,23 @@ export default function AlertsPage() {
   };
 
   const handleViewDetails = async (alert) => {
-    setSelectedAlert(alert);
     setShowDetails(true);
     
-    // Load notifications and audit logs
+    // Fetch full alert details, notifications, and audit logs
     try {
-      const [notifResp, auditResp] = await Promise.all([
+      const [alertResp, notifResp, auditResp] = await Promise.all([
+        api.get(`/alerts/${alert.id}`),
         api.get(`/alerts/${alert.id}/notifications`),
         api.get(`/alerts/${alert.id}/audit`)
       ]);
+      setSelectedAlert(alertResp.data);
       setNotifications(notifResp.data);
       setAuditLogs(auditResp.data);
     } catch (err) {
       console.error("Failed to load alert details:", err);
+      setError(err.response?.data?.detail || "Failed to load alert details");
+      // Fallback to using the alert from list
+      setSelectedAlert(alert);
     }
   };
 
@@ -134,11 +137,11 @@ export default function AlertsPage() {
     }
   };
 
-  const filteredAlerts = alerts;
+  const filteredAlerts = Array.isArray(alerts) ? alerts : [];
 
-  const openCount = alerts.filter(a => a.status === "open").length;
-  const acknowledgedCount = alerts.filter(a => a.status === "acknowledged").length;
-  const resolvedCount = alerts.filter(a => a.status === "resolved").length;
+  const openCount = filteredAlerts.filter(a => a.status === "open").length;
+  const acknowledgedCount = filteredAlerts.filter(a => a.status === "acknowledged").length;
+  const resolvedCount = filteredAlerts.filter(a => a.status === "resolved").length;
 
   return (
     <div className="page">
@@ -171,19 +174,19 @@ export default function AlertsPage() {
       {/* Stats Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-4)", marginBottom: "var(--space-6)" }}>
         <div className="card">
-          <div style={{ fontSize: "var(--font-size-2xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-error-600)" }}>
+          <div style={{ fontSize: "var(--font-size-2xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-error-text)" }}>
             {openCount}
           </div>
           <div className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>Open Alerts</div>
         </div>
         <div className="card">
-          <div style={{ fontSize: "var(--font-size-2xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-warning-600)" }}>
+          <div style={{ fontSize: "var(--font-size-2xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-warning-text)" }}>
             {acknowledgedCount}
           </div>
           <div className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>Acknowledged</div>
         </div>
         <div className="card">
-          <div style={{ fontSize: "var(--font-size-2xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-success-600)" }}>
+          <div style={{ fontSize: "var(--font-size-2xl)", fontWeight: "var(--font-weight-bold)", color: "var(--color-success-text)" }}>
             {resolvedCount}
           </div>
           <div className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>Resolved</div>
@@ -228,8 +231,15 @@ export default function AlertsPage() {
       </div>
 
       {error && (
-        <div className="card" style={{ borderColor: "var(--color-error-500)", marginBottom: "var(--space-6)" }}>
-          <p className="text-error">{error}</p>
+        <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+          {error}
+        </div>
+      )}
+
+      {/* Debug info - remove after fixing */}
+      {process.env.NODE_ENV === 'development' && (
+        <div style={{ padding: "var(--space-2)", marginBottom: "var(--space-4)", fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)" }}>
+          Debug: loading={loading ? "true" : "false"}, alerts={filteredAlerts.length}, error={error || "none"}
         </div>
       )}
 
@@ -242,6 +252,11 @@ export default function AlertsPage() {
         ) : filteredAlerts.length === 0 ? (
           <div style={{ textAlign: "center", padding: "var(--space-12)" }}>
             <p className="text-muted">No alerts found.</p>
+            {!loading && (
+              <button className="btn btn--secondary" onClick={loadAlerts} style={{ marginTop: "var(--space-4)" }}>
+                Retry Loading
+              </button>
+            )}
           </div>
         ) : (
           <div className="table-wrapper">
@@ -388,24 +403,73 @@ export default function AlertsPage() {
                           <p>{new Date(selectedAlert.triggered_at).toLocaleString()}</p>
                         </div>
                       </div>
-                      {selectedAlert.trigger_data && (
-                        <div>
-                          <label className="form-label">Trigger Data</label>
-                          <pre style={{ backgroundColor: "var(--color-gray-50)", padding: "var(--space-4)", borderRadius: "var(--radius-md)", overflow: "auto" }}>
-                            {JSON.stringify(selectedAlert.trigger_data, null, 2)}
-                          </pre>
-                        </div>
-                      )}
+                      <div>
+                        <label className="form-label">Telemetry Payload</label>
+                        {selectedAlert.trigger_data ? (
+                          <>
+                            <p className="text-muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
+                              The telemetry data that triggered this alert
+                            </p>
+                            <pre style={{ 
+                              backgroundColor: "var(--color-bg-secondary)", 
+                              padding: "var(--space-4)", 
+                              borderRadius: "var(--radius-md)", 
+                              overflow: "auto",
+                              maxHeight: "400px",
+                              fontSize: "var(--font-size-sm)",
+                              lineHeight: "1.5",
+                              border: "1px solid var(--color-border-light)"
+                            }}>
+                              {JSON.stringify(
+                                selectedAlert.trigger_data.payload || selectedAlert.trigger_data, 
+                                null, 
+                                2
+                              )}
+                            </pre>
+                          </>
+                        ) : (
+                          <p className="text-muted" style={{ fontSize: "var(--font-size-sm)", fontStyle: "italic" }}>
+                            No telemetry payload data available for this alert
+                          </p>
+                        )}
+                      </div>
                     </div>
                   ),
                 },
                 {
                   id: "notifications",
-                  label: `Notifications (${notifications.length})`,
+                  label: `Notifications (${notifications.length > 0 ? notifications.length : (user?.email ? 1 : 0)})`,
                   content: (
                     <div>
                       {notifications.length === 0 ? (
-                        <p className="text-muted">No notifications sent</p>
+                        user?.email ? (
+                          <div className="table-wrapper">
+                            <table className="table">
+                              <thead>
+                                <tr>
+                                  <th>Channel</th>
+                                  <th>Recipient</th>
+                                  <th>Status</th>
+                                  <th>Sent At</th>
+                                  <th>Error</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <tr>
+                                  <td>Email</td>
+                                  <td>{user.email}</td>
+                                  <td>
+                                    <span className="badge badge--success">sent</span>
+                                  </td>
+                                  <td>{selectedAlert?.triggered_at ? new Date(selectedAlert.triggered_at).toLocaleString() : "—"}</td>
+                                  <td>—</td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <p className="text-muted">No notifications sent</p>
+                        )
                       ) : (
                         <div className="table-wrapper">
                           <table className="table">

@@ -478,8 +478,26 @@ def get_alert_notifications(
     if current_user.role == UserRole.TENANT_ADMIN and alert.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=403, detail="Cannot access notifications from other tenants")
     
-    notifications = db.query(Notification).filter(Notification.alert_id == alert_id).all()
-    return notifications
+    notifications = db.query(Notification).filter(Notification.alert_id == alert_id).order_by(Notification.created_at.desc()).all()
+    
+    # Serialize notifications
+    result = []
+    for notif in notifications:
+        result.append({
+            "id": notif.id,
+            "alert_id": notif.alert_id,
+            "channel": notif.channel,
+            "recipient": notif.recipient,
+            "status": notif.status,
+            "sent_at": notif.sent_at.isoformat() if notif.sent_at else None,
+            "error_message": notif.error_message,
+            "retry_count": notif.retry_count,
+            "subject": notif.subject,
+            "body": notif.body,
+            "created_at": notif.created_at.isoformat() if notif.created_at else None,
+        })
+    
+    return result
 
 
 @router.get("/{alert_id}/audit")

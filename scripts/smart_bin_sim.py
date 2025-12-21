@@ -20,7 +20,7 @@ import paho.mqtt.client as mqtt
 # ---------------------------------------------------------------------------
 # Configuration (can be overridden via environment variables)
 # ---------------------------------------------------------------------------
-DEVICE_ID = os.environ.get("BIN_DEVICE_ID", "B-RP-1")
+DEVICE_ID = os.environ.get("DEVICE_ID", os.environ.get("BIN_DEVICE_ID", "B-RP-1"))
 BIN_ID = os.environ.get("BIN_ID", "bin_01")
 
 # Inside Docker network, the broker service is "mqtt-broker:1883"

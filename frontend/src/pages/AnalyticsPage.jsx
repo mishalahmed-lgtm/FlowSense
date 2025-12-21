@@ -4,6 +4,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
 
 export default function AnalyticsPage() {
   const { token, isTenantAdmin, hasModule } = useAuth();
@@ -18,6 +19,7 @@ export default function AnalyticsPage() {
   
   const [patternResults, setPatternResults] = useState([]);
   const [analyzingPatterns, setAnalyzingPatterns] = useState(false);
+  const [expandedDevices, setExpandedDevices] = useState(new Set());
   
   const [correlationResults, setCorrelationResults] = useState([]);
   const [analyzingCorrelations, setAnalyzingCorrelations] = useState(false);
@@ -71,8 +73,6 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (!token) return;
     loadData();
-    const interval = setInterval(loadData, 60000);
-    return () => clearInterval(interval);
   }, [token]);
 
   const handleAnalyzePatterns = async () => {
@@ -156,6 +156,8 @@ export default function AnalyticsPage() {
 
   return (
     <div className="page">
+      <Breadcrumbs items={[{ label: "Analytics", path: "/analytics" }]} />
+      
       {/* Header */}
       <div className="page-header">
         <div className="page-header__title-section">
@@ -241,10 +243,23 @@ export default function AnalyticsPage() {
       {activeTab === "overview" && (
         <div className="grid grid--2">
           {/* Detection Trends Card */}
-          <div className="card">
+          <div className="card" style={{ 
+            background: "linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, transparent 100%)",
+            border: "1px solid var(--color-border-light)"
+          }}>
             <div className="card__header">
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <Icon name="trending" size={20} />
+                <div style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "var(--radius-md)",
+                  backgroundColor: "rgba(59, 130, 246, 0.15)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}>
+                  <Icon name="trending" size={20} style={{ color: "var(--color-primary-400)" }} />
+                </div>
                 <h3 className="card__title">Detection Trends</h3>
               </div>
             </div>
@@ -260,17 +275,30 @@ export default function AnalyticsPage() {
                   <div style={{ marginBottom: "var(--space-4)", opacity: 0.2 }}>
                     <Icon name="activity" size={48} />
                   </div>
-                  <p>No data available</p>
+                  <p style={{ fontSize: "var(--font-size-sm)" }}>No data available</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Activity Card */}
-          <div className="card">
+          <div className="card" style={{ 
+            background: "linear-gradient(135deg, rgba(16, 185, 129, 0.05) 0%, transparent 100%)",
+            border: "1px solid var(--color-border-light)"
+          }}>
             <div className="card__header">
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <Icon name="activity" size={20} />
+                <div style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "var(--radius-md)",
+                  backgroundColor: "rgba(16, 185, 129, 0.15)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}>
+                  <Icon name="activity" size={20} style={{ color: "var(--color-success-text)" }} />
+                </div>
                 <h3 className="card__title">Motion Activity</h3>
               </div>
             </div>
@@ -286,23 +314,64 @@ export default function AnalyticsPage() {
                   <div style={{ marginBottom: "var(--space-4)", opacity: 0.2 }}>
                     <Icon name="activity" size={48} />
                   </div>
-                  <p>No data available</p>
+                  <p style={{ fontSize: "var(--font-size-sm)" }}>No data available</p>
                 </div>
               </div>
             </div>
           </div>
 
           {/* Predictions Table */}
-          <div className="card" style={{ gridColumn: "1 / -1" }}>
+          <div className="card" style={{ 
+            gridColumn: "1 / -1",
+            background: "linear-gradient(135deg, rgba(139, 92, 246, 0.05) 0%, transparent 100%)",
+            border: "1px solid var(--color-border-light)"
+          }}>
             <div className="card__header">
               <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-                <Icon name="trending" size={20} />
+                <div style={{
+                  width: "40px",
+                  height: "40px",
+                  borderRadius: "var(--radius-md)",
+                  backgroundColor: "rgba(139, 92, 246, 0.15)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center"
+                }}>
+                  <Icon name="trending" size={20} style={{ color: "var(--color-info-text)" }} />
+                </div>
+                <div>
                 <h3 className="card__title">Predictive Insights</h3>
+                  <p style={{ 
+                    fontSize: "var(--font-size-xs)",
+                    color: "var(--color-text-tertiary)",
+                    margin: 0,
+                    marginTop: "var(--space-1)"
+                  }}>
+                    ML-powered predictions and forecasts
+                  </p>
+                </div>
               </div>
             </div>
             {predictions.length === 0 ? (
-              <div style={{ padding: "var(--space-8)", textAlign: "center", color: "var(--color-text-tertiary)" }}>
-                <p>No predictions yet. Train an ML model to generate predictions.</p>
+              <div style={{ 
+                padding: "var(--space-12)", 
+                textAlign: "center", 
+                color: "var(--color-text-tertiary)" 
+              }}>
+                <div style={{ marginBottom: "var(--space-4)", opacity: 0.2 }}>
+                  <Icon name="cpu" size={64} />
+                </div>
+                <h4 style={{ 
+                  fontSize: "var(--font-size-base)",
+                  fontWeight: "var(--font-weight-semibold)",
+                  color: "var(--color-text-primary)",
+                  marginBottom: "var(--space-2)"
+                }}>
+                  No predictions yet
+                </h4>
+                <p style={{ fontSize: "var(--font-size-sm)" }}>
+                  Train an ML model to generate predictions and insights
+                </p>
               </div>
             ) : (
               <div className="table-wrapper">
@@ -318,14 +387,21 @@ export default function AnalyticsPage() {
                   </thead>
                   <tbody>
                     {predictions.slice(0, 10).map((pred, idx) => (
-                      <tr key={idx}>
-                        <td>{pred.device_name || pred.device_id}</td>
+                      <tr key={idx} style={{ transition: "background-color 0.2s ease" }}>
+                        <td style={{ fontWeight: "var(--font-weight-medium)" }}>
+                          {pred.device_name || pred.device_id}
+                        </td>
                         <td>
                           <span className="badge badge--info">
                             {pred.prediction_type}
                           </span>
                         </td>
-                        <td>
+                        <td style={{ 
+                          fontWeight: "var(--font-weight-semibold)",
+                          color: pred.prediction_type === "failure_probability" && pred.predicted_value > 0.7 
+                            ? "var(--color-error-text)" 
+                            : "var(--color-text-primary)"
+                        }}>
                           {pred.prediction_type === "failure_probability"
                             ? `${(pred.predicted_value * 100).toFixed(1)}%`
                             : pred.predicted_value?.toFixed(2)}
@@ -333,8 +409,8 @@ export default function AnalyticsPage() {
                         <td>
                           <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
                             <div style={{ 
-                              width: "40px", 
-                              height: "6px", 
+                              width: "60px", 
+                              height: "8px", 
                               backgroundColor: "var(--color-bg-secondary)", 
                               borderRadius: "var(--radius-full)", 
                               overflow: "hidden" 
@@ -342,10 +418,15 @@ export default function AnalyticsPage() {
                               <div style={{ 
                                 width: `${(pred.confidence || 0) * 100}%`, 
                                 height: "100%", 
-                                backgroundColor: pred.confidence > 0.7 ? "var(--color-success-bright)" : "var(--color-warning-bright)" 
+                                backgroundColor: pred.confidence > 0.7 ? "var(--color-success-bright)" : "var(--color-warning-bright)",
+                                transition: "width 0.3s ease"
                               }}></div>
                             </div>
-                            <span style={{ fontSize: "var(--font-size-xs)" }}>
+                            <span style={{ 
+                              fontSize: "var(--font-size-xs)",
+                              fontWeight: "var(--font-weight-medium)",
+                              minWidth: "40px"
+                            }}>
                               {pred.confidence ? `${(pred.confidence * 100).toFixed(0)}%` : "—"}
                             </span>
                           </div>
@@ -365,62 +446,381 @@ export default function AnalyticsPage() {
 
       {/* Pattern Analysis Tab */}
       {activeTab === "patterns" && (
-        <div className="card">
-          <div className="card__header">
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ 
+            padding: "var(--space-6)",
+            background: "linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(59, 130, 246, 0.05) 100%)",
+            borderBottom: "1px solid var(--color-border-light)"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "var(--space-4)" }}>
             <div>
-              <h2 className="card__title">Usage Pattern Analysis</h2>
-              <p className="card__subtitle">Analyze occupancy, traffic, and energy consumption patterns</p>
+                <h2 style={{ 
+                  fontSize: "var(--font-size-2xl)", 
+                  fontWeight: "var(--font-weight-bold)",
+                  color: "var(--color-text-primary)",
+                  marginBottom: "var(--space-2)"
+                }}>
+                  Usage Pattern Analysis
+                </h2>
+                <p style={{ 
+                  color: "var(--color-text-secondary)",
+                  fontSize: "var(--font-size-sm)",
+                  margin: 0
+                }}>
+                  Analyze occupancy, traffic, and energy consumption patterns across your devices
+                </p>
             </div>
             <button
               className="btn btn--primary"
               onClick={handleAnalyzePatterns}
               disabled={analyzingPatterns || devices.length === 0}
-            >
-              {analyzingPatterns ? "Analyzing..." : "Run Analysis"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "var(--space-2)",
+                  padding: "var(--space-3) var(--space-5)",
+                  fontSize: "var(--font-size-base)",
+                  fontWeight: "var(--font-weight-semibold)"
+                }}
+              >
+                {analyzingPatterns ? (
+                  <>
+                    <Icon name="activity" size={18} />
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="trending" size={18} />
+                    <span>Run Analysis</span>
+                  </>
+                )}
             </button>
+            </div>
           </div>
           
           {patternResults.length === 0 ? (
-            <div style={{ padding: "var(--space-12)", textAlign: "center", color: "var(--color-text-tertiary)" }}>
-              <div style={{ marginBottom: "var(--space-4)", opacity: 0.3 }}>
-                <Icon name="trending" size={64} />
+            <div style={{ 
+              padding: "var(--space-16)", 
+              textAlign: "center", 
+              color: "var(--color-text-tertiary)" 
+            }}>
+              <div style={{ 
+                marginBottom: "var(--space-6)", 
+                opacity: 0.2,
+                display: "inline-block"
+              }}>
+                <Icon name="trending" size={80} />
               </div>
-              <p>Click "Run Analysis" to analyze device patterns</p>
+              <h3 style={{ 
+                fontSize: "var(--font-size-lg)",
+                fontWeight: "var(--font-weight-semibold)",
+                color: "var(--color-text-primary)",
+                marginBottom: "var(--space-2)"
+              }}>
+                Ready to Analyze Patterns
+              </h3>
+              <p style={{ 
+                fontSize: "var(--font-size-sm)",
+                color: "var(--color-text-secondary)",
+                marginBottom: "var(--space-6)"
+              }}>
+                Click "Run Analysis" to discover usage patterns and trends across your devices
+              </p>
             </div>
           ) : (
-            <div className="table-wrapper">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Device</th>
-                    <th>Analysis Type</th>
-                    <th>Peak Hour</th>
-                    <th>Trend</th>
-                    <th>Summary</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {patternResults.map((result, idx) => (
-                    <tr key={idx}>
-                      <td>{result.device_name}</td>
-                      <td><span className="badge badge--info">{result.analysis_type}</span></td>
-                      <td>{result.peak_times?.hour !== null ? `Hour ${result.peak_times.hour}` : "N/A"}</td>
-                      <td>
-                        <span className={`badge ${
-                          result.trends?.overall === "increasing" ? "badge--success" :
-                          result.trends?.overall === "decreasing" ? "badge--warning" :
-                          "badge--neutral"
-                        }`}>
-                          {result.trends?.overall || "stable"}
+            <div style={{ padding: "var(--space-6)", display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+              {patternResults.map((result, idx) => {
+                const deviceKey = result.device_id || idx;
+                const isExpanded = expandedDevices.has(deviceKey);
+                
+                const formatHour = (hour) => {
+                  if (hour === null || hour === undefined) return "N/A";
+                  const period = hour >= 12 ? "PM" : "AM";
+                  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+                  return `${displayHour}:00 ${period}`;
+                };
+
+                const formatDay = (day) => {
+                  if (day === null || day === undefined) return null;
+                  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+                  return days[day] || `Day ${day}`;
+                };
+
+                const peakHour = result.peak_times?.hour;
+                const peakDay = result.peak_times?.day;
+                const trend = result.trends?.overall || "stable";
+                const trendIcon = trend === "increasing" ? "↑" : trend === "decreasing" ? "↓" : "→";
+                const trendColor = trend === "increasing" ? "var(--color-success-text)" : trend === "decreasing" ? "var(--color-warning-text)" : "var(--color-text-secondary)";
+
+                return (
+                  <div 
+                    key={idx} 
+                    style={{ 
+                      border: "1px solid var(--color-border-medium)",
+                      borderRadius: "var(--radius-lg)",
+                      backgroundColor: "var(--color-bg-primary)",
+                      overflow: "hidden",
+                      transition: "all 0.3s ease",
+                      boxShadow: isExpanded ? "var(--shadow-lg)" : "var(--shadow-sm)"
+                    }}
+                  >
+                    {/* Collapsible Header */}
+                    <button
+                      onClick={() => {
+                        const newExpanded = new Set(expandedDevices);
+                        if (isExpanded) {
+                          newExpanded.delete(deviceKey);
+                        } else {
+                          newExpanded.add(deviceKey);
+                        }
+                        setExpandedDevices(newExpanded);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "var(--space-5)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "background-color 0.2s ease"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = "transparent";
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-4)", flex: 1 }}>
+                        <div style={{
+                          width: "48px",
+                          height: "48px",
+                          borderRadius: "var(--radius-md)",
+                          backgroundColor: trend === "increasing" ? "rgba(16, 185, 129, 0.15)" : trend === "decreasing" ? "rgba(245, 158, 11, 0.15)" : "rgba(59, 130, 246, 0.15)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: "var(--font-size-xl)",
+                          color: trendColor,
+                          fontWeight: "var(--font-weight-bold)"
+                        }}>
+                          {trendIcon}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <h3 style={{ 
+                            fontSize: "var(--font-size-lg)", 
+                            fontWeight: "var(--font-weight-semibold)",
+                            color: "var(--color-text-primary)",
+                            marginBottom: "var(--space-1)"
+                          }}>
+                            {result.device_name || result.device_id}
+                          </h3>
+                          <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                            <span className="badge badge--info" style={{ fontSize: "var(--font-size-xs)" }}>
+                              {result.analysis_type || "Pattern Analysis"}
                         </span>
-                      </td>
-                      <td style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-secondary)" }}>
-                        {result.summary}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                            <span style={{ 
+                              fontSize: "var(--font-size-xs)",
+                              color: "var(--color-text-tertiary)"
+                            }}>
+                              {peakHour !== null && peakHour !== undefined && `Peak: ${formatHour(peakHour)}`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ 
+                        display: "flex", 
+                        alignItems: "center", 
+                        gap: "var(--space-2)",
+                        color: "var(--color-text-secondary)"
+                      }}>
+                        <span style={{ 
+                          fontSize: "var(--font-size-sm)",
+                          color: trendColor,
+                          fontWeight: "var(--font-weight-semibold)",
+                          textTransform: "capitalize"
+                        }}>
+                          {trend}
+                        </span>
+                        <div style={{
+                          width: "24px",
+                          height: "24px",
+                          borderRadius: "var(--radius-sm)",
+                          backgroundColor: isExpanded ? "var(--color-primary-600)" : "var(--color-bg-secondary)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          transition: "all 0.2s ease"
+                        }}>
+                          <Icon 
+                            name={isExpanded ? "chevron-up" : "chevron-down"} 
+                            size={16} 
+                          />
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Collapsible Content */}
+                    {isExpanded && (
+                      <div style={{ 
+                        padding: "0 var(--space-5) var(--space-5)",
+                        borderTop: "1px solid var(--color-border-light)",
+                        animation: "slideDown 0.3s ease"
+                      }}>
+                        <div style={{ 
+                          display: "grid", 
+                          gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                          gap: "var(--space-4)",
+                          marginTop: "var(--space-4)",
+                          marginBottom: "var(--space-4)"
+                        }}>
+                          {peakHour !== null && peakHour !== undefined && (
+                            <div style={{ 
+                              padding: "var(--space-4)",
+                              backgroundColor: "var(--color-bg-secondary)",
+                              borderRadius: "var(--radius-lg)",
+                              border: "1px solid var(--color-border-light)"
+                            }}>
+                              <div style={{ 
+                                fontSize: "var(--font-size-xs)", 
+                                color: "var(--color-text-tertiary)",
+                                marginBottom: "var(--space-2)",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.5px",
+                                fontWeight: "var(--font-weight-medium)"
+                              }}>
+                                Peak Usage Time
+                              </div>
+                              <div style={{ 
+                                fontSize: "var(--font-size-2xl)", 
+                                fontWeight: "var(--font-weight-bold)",
+                                color: "var(--color-primary-400)",
+                                marginBottom: "var(--space-1)"
+                              }}>
+                                {formatHour(peakHour)}
+                              </div>
+                              {peakDay !== null && peakDay !== undefined && (
+                                <div style={{ 
+                                  fontSize: "var(--font-size-sm)", 
+                                  color: "var(--color-text-secondary)"
+                                }}>
+                                  {formatDay(peakDay)}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div style={{ 
+                            padding: "var(--space-4)",
+                            backgroundColor: "var(--color-bg-secondary)",
+                            borderRadius: "var(--radius-lg)",
+                            border: "1px solid var(--color-border-light)"
+                          }}>
+                            <div style={{ 
+                              fontSize: "var(--font-size-xs)", 
+                              color: "var(--color-text-tertiary)",
+                              marginBottom: "var(--space-2)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.5px",
+                              fontWeight: "var(--font-weight-medium)"
+                            }}>
+                              Trend Direction
+                            </div>
+                            <div style={{ 
+                              fontSize: "var(--font-size-2xl)", 
+                              fontWeight: "var(--font-weight-bold)",
+                              color: trendColor,
+                              textTransform: "capitalize"
+                            }}>
+                              {trend}
+                            </div>
+                            <div style={{ 
+                              fontSize: "var(--font-size-xs)",
+                              color: "var(--color-text-secondary)",
+                              marginTop: "var(--space-1)"
+                            }}>
+                              {trend === "increasing" ? "Growing usage" : trend === "decreasing" ? "Declining usage" : "Stable pattern"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {result.insights && (
+                          <div style={{ 
+                            padding: "var(--space-5)",
+                            backgroundColor: "var(--color-bg-secondary)",
+                            borderRadius: "var(--radius-lg)",
+                            border: "1px solid var(--color-border-light)",
+                            marginTop: "var(--space-4)"
+                          }}>
+                            <div style={{ 
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "var(--space-2)",
+                              marginBottom: "var(--space-4)"
+                            }}>
+                              <Icon name="activity" size={20} style={{ color: "var(--color-primary-400)" }} />
+                              <h4 style={{ 
+                                fontSize: "var(--font-size-base)", 
+                                fontWeight: "var(--font-weight-semibold)",
+                                color: "var(--color-text-primary)",
+                                margin: 0
+                              }}>
+                                Key Insights
+                              </h4>
+                            </div>
+                            <div style={{ 
+                              fontSize: "var(--font-size-sm)", 
+                              color: "var(--color-text-secondary)",
+                              lineHeight: "var(--line-height-relaxed)",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "var(--space-3)"
+                            }}>
+                              {result.insights.trend && (
+                                <div style={{ 
+                                  display: "flex",
+                                  alignItems: "flex-start",
+                                  gap: "var(--space-2)"
+                                }}>
+                                  <span style={{ color: trendColor, fontSize: "var(--font-size-lg)" }}>•</span>
+                                  <div>
+                                    Overall trend is <strong style={{ color: trendColor }}>{trend}</strong> over the analysis period
+                                  </div>
+                                </div>
+                              )}
+                              {peakHour !== null && peakHour !== undefined && (
+                                <div style={{ 
+                                  display: "flex",
+                                  alignItems: "flex-start",
+                                  gap: "var(--space-2)"
+                                }}>
+                                  <span style={{ color: "var(--color-primary-400)", fontSize: "var(--font-size-lg)" }}>•</span>
+                                  <div>
+                                    Highest activity occurs at <strong style={{ color: "var(--color-text-primary)" }}>{formatHour(peakHour)}</strong>
+                                  </div>
+                                </div>
+                              )}
+                              {result.summary && !result.summary.includes("Hour") && (
+                                <div style={{ 
+                                  display: "flex",
+                                  alignItems: "flex-start",
+                                  gap: "var(--space-2)"
+                                }}>
+                                  <span style={{ color: "var(--color-info-text)", fontSize: "var(--font-size-lg)" }}>•</span>
+                                  <div>{result.summary}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

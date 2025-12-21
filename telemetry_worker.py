@@ -93,6 +93,14 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
     """Persist latest and time-series telemetry for a single message."""
     event_ts = _parse_event_timestamp(metadata or {})
     
+    # Record metrics (if available)
+    try:
+        from metrics import metrics
+        source = metadata.get("source", "kafka") if metadata else "kafka"
+        metrics.record_message_received(device_id, source=source)
+    except Exception as e:
+        logger.debug(f"Could not record metrics (non-critical): {e}")
+    
     device_db_id = None
     tenant_db_id = None
     
@@ -122,6 +130,9 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
         else:
             latest.data = payload
             latest.event_timestamp = event_ts
+            # Explicitly update updated_at to ensure it's refreshed
+            from datetime import datetime, timezone
+            latest.updated_at = datetime.now(timezone.utc)
         
         # Append time-series points for numeric fields
         for item in _flatten_payload(payload):
@@ -183,6 +194,13 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
                 ws_db.close()
         except Exception as e:
             logger.debug(f"WebSocket broadcast error (non-critical): {e}")
+    
+    # Record message as published/processed
+    try:
+        from metrics import metrics
+        metrics.record_message_published(device_id)
+    except Exception as e:
+        logger.debug(f"Could not record published metrics (non-critical): {e}")
 
 
 def run_worker() -> None:

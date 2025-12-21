@@ -218,14 +218,14 @@ export default function AlertRulesPage() {
       </div>
 
       {error && (
-        <div className="card" style={{ borderColor: "var(--color-error-500)", marginBottom: "var(--space-6)" }}>
-          <p className="text-error">{error}</p>
+        <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+          {error}
         </div>
       )}
 
       {successMessage && (
-        <div className="card" style={{ borderColor: "var(--color-success-500)", marginBottom: "var(--space-6)" }}>
-          <p className="text-success">{successMessage}</p>
+        <div className="badge badge--success" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+          {successMessage}
         </div>
       )}
 
@@ -320,31 +320,34 @@ export default function AlertRulesPage() {
 
       {/* Create/Edit Modal */}
       <Modal isOpen={showModal} onClose={closeModal}>
-        <form className="card form" onSubmit={handleSubmit}>
-          <h3>{selectedRule ? "Edit Alert Rule" : "Create Alert Rule"}</h3>
+        <form className="form" onSubmit={handleSubmit}>
+          <h3 style={{ marginBottom: "var(--space-6)" }}>{selectedRule ? "Edit Alert Rule" : "Create Alert Rule"}</h3>
 
-          <label>
-            Name *
+          <div className="form-group">
+            <label className="form-label form-label--required">Name</label>
             <input
               type="text"
+              className="form-input"
               value={formState.name}
               onChange={(e) => setFormState({ ...formState, name: e.target.value })}
               required
             />
-          </label>
+          </div>
 
-          <label>
-            Description
+          <div className="form-group">
+            <label className="form-label">Description</label>
             <textarea
+              className="form-textarea"
               value={formState.description}
               onChange={(e) => setFormState({ ...formState, description: e.target.value })}
               rows={3}
             />
-          </label>
+          </div>
 
-          <label>
-            Device (optional - leave empty for tenant-wide rule)
+          <div className="form-group">
+            <label className="form-label">Device (optional - leave empty for tenant-wide rule)</label>
             <select
+              className="form-select"
               value={formState.device_id || ""}
               onChange={(e) => setFormState({ ...formState, device_id: e.target.value ? parseInt(e.target.value) : null })}
             >
@@ -355,15 +358,16 @@ export default function AlertRulesPage() {
                 </option>
               ))}
             </select>
-          </label>
+          </div>
 
           <div style={{ border: "1px solid var(--color-border-light)", padding: "var(--space-4)", borderRadius: "var(--radius-md)" }}>
             <h4 style={{ marginBottom: "var(--space-3)" }}>Condition</h4>
-            <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "var(--space-3)" }}>
-              <label>
-                Field *
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label form-label--required">Field</label>
                 <input
                   type="text"
+                  className="form-input"
                   placeholder="e.g., payload.temperature"
                   value={formState.condition.field}
                   onChange={(e) => setFormState({
@@ -372,10 +376,11 @@ export default function AlertRulesPage() {
                   })}
                   required
                 />
-              </label>
-              <label>
-                Operator *
+              </div>
+              <div className="form-group">
+                <label className="form-label form-label--required">Operator</label>
                 <select
+                  className="form-select"
                   value={formState.condition.operator}
                   onChange={(e) => setFormState({
                     ...formState,
@@ -390,11 +395,12 @@ export default function AlertRulesPage() {
                   <option value="==">==</option>
                   <option value="!=">!=</option>
                 </select>
-              </label>
-              <label>
-                Value *
+              </div>
+              <div className="form-group">
+                <label className="form-label form-label--required">Value</label>
                 <input
                   type="text"
+                  className="form-input"
                   value={formState.condition.value}
                   onChange={(e) => setFormState({
                     ...formState,
@@ -402,13 +408,14 @@ export default function AlertRulesPage() {
                   })}
                   required
                 />
-              </label>
+              </div>
             </div>
           </div>
 
-          <label>
-            Priority *
+          <div className="form-group">
+            <label className="form-label form-label--required">Priority</label>
             <select
+              className="form-select"
               value={formState.priority}
               onChange={(e) => setFormState({ ...formState, priority: e.target.value })}
               required
@@ -418,77 +425,96 @@ export default function AlertRulesPage() {
               <option value="high">High</option>
               <option value="critical">Critical</option>
             </select>
-          </label>
+          </div>
 
-          <label>
-            Alert Title Template *
+          <div className="form-group">
+            <label className="form-label form-label--required">Alert Title Template</label>
             <input
               type="text"
+              className="form-input"
               placeholder="e.g., High Temperature Alert: {{payload.temperature}}°C"
               value={formState.title_template}
               onChange={(e) => setFormState({ ...formState, title_template: e.target.value })}
               required
             />
-              <small className="text-muted">Use {'{{'}field.path{'}}'} for variable substitution</small>
-          </label>
+            <small className="text-muted" style={{ fontSize: "var(--font-size-xs)", marginTop: "var(--space-1)", display: "block" }}>Use {'{{'}field.path{'}}'} for variable substitution</small>
+          </div>
 
-          <label>
-            Alert Message Template
+          <div className="form-group">
+            <label className="form-label">Alert Message Template</label>
             <textarea
+              className="form-textarea"
               placeholder="e.g., Device {{device.name}} has temperature {{payload.temperature}}°C which exceeds threshold"
               value={formState.message_template}
               onChange={(e) => setFormState({ ...formState, message_template: e.target.value })}
               rows={3}
             />
-          </label>
+          </div>
 
           <div style={{ border: "1px solid var(--color-border-light)", padding: "var(--space-4)", borderRadius: "var(--radius-md)" }}>
             <h4 style={{ marginBottom: "var(--space-3)" }}>Notification Channels</h4>
-            <label className="checkbox">
+            <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-2)" }}>
               <input
                 type="checkbox"
+                id="notify_email"
                 checked={formState.notify_email}
                 onChange={(e) => setFormState({ ...formState, notify_email: e.target.checked })}
+                style={{ width: "auto" }}
               />
-              Email
-            </label>
-            <label className="checkbox">
+              <label htmlFor="notify_email" className="form-label" style={{ margin: 0, cursor: "pointer" }}>
+                Email
+              </label>
+            </div>
+            <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-2)" }}>
               <input
                 type="checkbox"
+                id="notify_sms"
                 checked={formState.notify_sms}
                 onChange={(e) => setFormState({ ...formState, notify_sms: e.target.checked })}
+                style={{ width: "auto" }}
               />
-              SMS
-            </label>
-            <label className="checkbox">
+              <label htmlFor="notify_sms" className="form-label" style={{ margin: 0, cursor: "pointer" }}>
+                SMS
+              </label>
+            </div>
+            <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-2)" }}>
               <input
                 type="checkbox"
+                id="notify_webhook"
                 checked={formState.notify_webhook}
                 onChange={(e) => setFormState({ ...formState, notify_webhook: e.target.checked })}
+                style={{ width: "auto" }}
               />
-              Webhook
-            </label>
+              <label htmlFor="notify_webhook" className="form-label" style={{ margin: 0, cursor: "pointer" }}>
+                Webhook
+              </label>
+            </div>
             {formState.notify_webhook && (
-              <label>
-                Webhook URL
+              <div className="form-group">
+                <label className="form-label">Webhook URL</label>
                 <input
                   type="url"
+                  className="form-input"
                   value={formState.webhook_url}
                   onChange={(e) => setFormState({ ...formState, webhook_url: e.target.value })}
                   placeholder="https://example.com/webhook"
                 />
-              </label>
+              </div>
             )}
           </div>
 
-          <label className="checkbox">
+          <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-2)" }}>
             <input
               type="checkbox"
+              id="is_active"
               checked={formState.is_active}
               onChange={(e) => setFormState({ ...formState, is_active: e.target.checked })}
+              style={{ width: "auto" }}
             />
-            Active
-          </label>
+            <label htmlFor="is_active" className="form-label" style={{ margin: 0, cursor: "pointer" }}>
+              Active
+            </label>
+          </div>
 
           <div className="form-actions">
             <button type="button" className="btn btn--secondary" onClick={closeModal}>

@@ -69,6 +69,9 @@ class FOTAJobCreateRequest(BaseModel):
 
 class FOTAJobDeviceStatusResponse(BaseModel):
     device_id: int
+    device_name: Optional[str] = None
+    current_version: Optional[str] = None
+    target_version: Optional[str] = None
     status: FirmwareUpdateStatus
     last_error: Optional[str] = None
     last_update_at: Optional[datetime] = None
@@ -79,6 +82,7 @@ class FOTAJobResponse(BaseModel):
     name: str
     tenant_id: int
     firmware_version_id: int
+    firmware_version: Optional[dict] = None  # Include firmware version details
     status: FOTAJobStatus
     scheduled_at: Optional[datetime]
     started_at: Optional[datetime]
@@ -86,6 +90,7 @@ class FOTAJobResponse(BaseModel):
     created_by_user_id: Optional[int]
     created_at: datetime
     devices: List[FOTAJobDeviceStatusResponse]
+    device_count: Optional[int] = None  # Number of devices in this job
 
 
 class DeviceFirmwareStatusResponse(BaseModel):
@@ -433,9 +438,18 @@ def create_fota_job(
     # Build response
     device_statuses = []
     for jd in job.devices:
+        device = db.query(Device).filter(Device.id == jd.device_id).first()
+        dfs = (
+            db.query(DeviceFirmwareStatus)
+            .filter(DeviceFirmwareStatus.device_id == jd.device_id)
+            .first()
+        )
         device_statuses.append(
             FOTAJobDeviceStatusResponse(
                 device_id=jd.device_id,
+                device_name=device.name if device else None,
+                current_version=dfs.current_version if dfs else None,
+                target_version=dfs.target_version if dfs else (job.firmware_version.version if job.firmware_version else None),
                 status=jd.status,
                 last_error=jd.last_error,
                 last_update_at=jd.last_update_at,
@@ -447,6 +461,10 @@ def create_fota_job(
         name=job.name,
         tenant_id=job.tenant_id,
         firmware_version_id=job.firmware_version_id,
+        firmware_version={
+            "id": firmware_version.id,
+            "version": firmware_version.version,
+        } if firmware_version else None,
         status=job.status,
         scheduled_at=job.scheduled_at,
         started_at=job.started_at,
@@ -454,6 +472,7 @@ def create_fota_job(
         created_by_user_id=job.created_by_user_id,
         created_at=job.created_at,
         devices=device_statuses,
+        device_count=len(device_statuses),
     )
 
 
@@ -488,6 +507,10 @@ def list_fota_jobs(
                 name=job.name,
                 tenant_id=job.tenant_id,
                 firmware_version_id=job.firmware_version_id,
+                firmware_version={
+                    "id": job.firmware_version.id,
+                    "version": job.firmware_version.version,
+                } if job.firmware_version else None,
                 status=job.status,
                 scheduled_at=job.scheduled_at,
                 started_at=job.started_at,
@@ -495,6 +518,7 @@ def list_fota_jobs(
                 created_by_user_id=job.created_by_user_id,
                 created_at=job.created_at,
                 devices=device_statuses,
+                device_count=len(device_statuses),
             )
         )
     return results
@@ -516,20 +540,35 @@ def get_fota_job(
     if current_user.role == UserRole.TENANT_ADMIN and job.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to access this job")
 
-    device_statuses = [
-        FOTAJobDeviceStatusResponse(
-            device_id=jd.device_id,
-            status=jd.status,
-            last_error=jd.last_error,
-            last_update_at=jd.last_update_at,
+    # Fetch device and firmware status information
+    device_statuses = []
+    for jd in job.devices:
+        device = db.query(Device).filter(Device.id == jd.device_id).first()
+        dfs = (
+            db.query(DeviceFirmwareStatus)
+            .filter(DeviceFirmwareStatus.device_id == jd.device_id)
+            .first()
         )
-        for jd in job.devices
-    ]
+        device_statuses.append(
+            FOTAJobDeviceStatusResponse(
+                device_id=jd.device_id,
+                device_name=device.name if device else None,
+                current_version=dfs.current_version if dfs else None,
+                target_version=dfs.target_version if dfs else (job.firmware_version.version if job.firmware_version else None),
+                status=jd.status,
+                last_error=jd.last_error,
+                last_update_at=jd.last_update_at,
+            )
+        )
     return FOTAJobResponse(
         id=job.id,
         name=job.name,
         tenant_id=job.tenant_id,
         firmware_version_id=job.firmware_version_id,
+        firmware_version={
+            "id": job.firmware_version.id,
+            "version": job.firmware_version.version,
+        } if job.firmware_version else None,
         status=job.status,
         scheduled_at=job.scheduled_at,
         started_at=job.started_at,
@@ -537,6 +576,7 @@ def get_fota_job(
         created_by_user_id=job.created_by_user_id,
         created_at=job.created_at,
         devices=device_statuses,
+        device_count=len(device_statuses),
     )
 
 

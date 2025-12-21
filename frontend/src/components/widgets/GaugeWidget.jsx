@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import Icon from "../Icon.jsx";
 import "./widgets.css";
 
 export default function GaugeWidget({ title, value, unit, min = 0, max = 100 }) {
@@ -13,7 +14,21 @@ export default function GaugeWidget({ title, value, unit, min = 0, max = 100 }) 
 
   return (
     <div className="widget-content gauge-widget">
-      <div className="widget-title">{title}</div>
+      <div className="widget-title">
+        <div style={{
+          width: "32px",
+          height: "32px",
+          borderRadius: "var(--radius-md)",
+          background: `linear-gradient(135deg, ${color} 0%, ${color}dd 100%)`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: `0 4px 12px ${color}40`
+        }}>
+          <Icon name="activity" size={18} style={{ color: "#ffffff" }} />
+        </div>
+        <span>{title}</span>
+      </div>
       <div className="gauge-display">
         <svg viewBox="0 0 200 120" className="gauge-svg">
           {/* Background arc */}

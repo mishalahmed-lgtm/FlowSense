@@ -18,7 +18,7 @@ import requests
 API_BASE = os.environ.get("IOT_API_BASE", "http://localhost:5000/api/v1")
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@flowsense.com")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "AdminFlow")
-DEVICE_ID = os.environ.get("GPS_DEVICE_ID", "GPS-TRUCK-001")
+DEVICE_ID = os.environ.get("DEVICE_ID", os.environ.get("GPS_DEVICE_ID", "GPS-TRUCK-001"))
 INTERVAL = int(os.environ.get("GPS_INTERVAL", "30"))  # seconds
 
 # Starting location (example: somewhere in a city)
@@ -29,7 +29,7 @@ START_LON = -74.0060  # New York City longitude
 def get_admin_token() -> str:
     """Authenticate as admin and return JWT access token."""
     resp = requests.post(
-        f"{API_BASE}/admin/login",
+        f"{API_BASE}/api/v1/admin/login",
         json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD},
         timeout=5,
     )
@@ -41,7 +41,7 @@ def get_admin_token() -> str:
 def get_device_key(token: str, device_id: str) -> str:
     """Fetch provisioning key for the given device_id via admin API."""
     resp = requests.get(
-        f"{API_BASE}/admin/devices",
+        f"{API_BASE}/api/v1/admin/devices",
         headers={"Authorization": f"Bearer {token}"},
         timeout=5,
     )
@@ -60,7 +60,7 @@ def get_device_key(token: str, device_id: str) -> str:
 def send_telemetry(device_id: str, key: str, payload: dict):
     """Send telemetry via HTTP endpoint."""
     resp = requests.post(
-        f"{API_BASE}/telemetry/http",
+        f"{API_BASE}/api/v1/telemetry/http",
         json=payload,
         headers={"X-Device-Key": key},
         timeout=5,

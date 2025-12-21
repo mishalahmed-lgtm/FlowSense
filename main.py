@@ -1,6 +1,7 @@
 """Main FastAPI application for IoT Platform Ingestion Gateway."""
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -294,7 +295,19 @@ async def get_tenant_metrics(
     """
     # Platform admins get global view
     if current_user.role != UserRole.TENANT_ADMIN or not current_user.tenant_id:
-        return metrics.get_stats()
+        base_stats = metrics.get_stats()
+        # Add database-sourced protocol counts for admins too
+        from models import DeviceType
+        protocol_counts = {}
+        devices_all = db.query(Device).all()
+        for device in devices_all:
+            if device.device_type:
+                protocol = device.device_type.protocol or "unknown"
+                protocol_counts[protocol] = protocol_counts.get(protocol, 0) + 1
+        
+        # Override sources with database counts
+        base_stats["sources"] = protocol_counts
+        return base_stats
 
     # Fetch devices for this tenant
     devices = (
@@ -304,31 +317,77 @@ async def get_tenant_metrics(
     )
     device_ids = [d.device_id for d in devices]
 
-    base_stats = metrics.get_stats()
-    all_device_stats = base_stats.get("devices", {})
-
-    # Filter per-device stats for this tenant
-    tenant_device_stats = {
-        device_id: all_device_stats.get(device_id, {
-            "received": 0,
-            "published": 0,
+    # Get message counts from database (TelemetryTimeseries) instead of in-memory metrics
+    from models import TelemetryTimeseries
+    from sqlalchemy import func
+    
+    # Count distinct (device_id, timestamp) pairs to get actual message count
+    # Each message creates multiple TelemetryTimeseries rows (one per field), 
+    # so we count distinct timestamps per device
+    message_counts = (
+        db.query(
+            Device.device_id,
+            func.count(func.distinct(TelemetryTimeseries.ts)).label("message_count")
+        )
+        .join(TelemetryTimeseries, TelemetryTimeseries.device_id == Device.id)
+        .filter(Device.tenant_id == current_user.tenant_id)
+        .group_by(Device.device_id)
+        .all()
+    )
+    
+    # Also get total count across all tenant devices
+    total_message_count = (
+        db.query(func.count(func.distinct(
+            func.concat(TelemetryTimeseries.device_id, '-', TelemetryTimeseries.ts)
+        )))
+        .join(Device, Device.id == TelemetryTimeseries.device_id)
+        .filter(Device.tenant_id == current_user.tenant_id)
+        .scalar() or 0
+    )
+    
+    # Build device stats from database
+    tenant_device_stats = {}
+    for device_id in device_ids:
+        # Find message count for this device
+        msg_count = next((mc.message_count for mc in message_counts if mc.device_id == device_id), 0)
+        tenant_device_stats[device_id] = {
+            "received": msg_count,
+            "published": msg_count,  # Assume all received messages were published
             "rejected": 0,
             "last_seen": None,
-        })
-        for device_id in device_ids
-    }
+        }
+    
+    # Use database count for total messages
+    total_received = total_message_count
+    total_published = total_message_count  # Assume all received messages were published
+    total_rejected = 0
+    
+    base_stats = metrics.get_stats()
 
-    total_received = sum(d.get("received", 0) for d in tenant_device_stats.values())
-    total_published = sum(d.get("published", 0) for d in tenant_device_stats.values())
-    total_rejected = sum(d.get("rejected", 0) for d in tenant_device_stats.values())
+    # Count active devices based on live telemetry (consistent with /devices endpoint)
+    # A device is active if it has sent telemetry in the last 10 minutes
+    from models import TelemetryLatest
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=600)  # 10 minutes
+    
+    active_devices = 0
+    for device in devices:
+        latest = (
+            db.query(TelemetryLatest)
+            .filter(TelemetryLatest.device_id == device.id)
+            .first()
+        )
+        is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
+        if is_live:
+            active_devices += 1
 
-    # Count devices that have ever been seen
-    active_devices = sum(
-        1 for d in tenant_device_stats.values()
-        if d.get("last_seen") is not None
-    )
-
-    sources = metrics.get_sources_for_devices(device_ids)
+    # Get protocol distribution from database instead of in-memory metrics
+    from models import DeviceType
+    protocol_counts = {}
+    for device in devices:
+        if device.device_type:
+            protocol = device.device_type.protocol or "unknown"
+            protocol_counts[protocol] = protocol_counts.get(protocol, 0) + 1
 
     success_rate = (
         total_published / total_received * 100
@@ -362,7 +421,7 @@ async def get_tenant_metrics(
             "samples": base_stats.get("processing", {}).get("samples", 0),
         },
         "rules": base_stats.get("rules", {}),
-        "sources": sources,
+        "sources": protocol_counts,  # Use database-sourced protocol counts
         "active_devices": active_devices,
         "devices": tenant_device_stats,
     }

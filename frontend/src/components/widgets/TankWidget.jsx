@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import Icon from "../Icon.jsx";
 import "./widgets.css";
 
 export default function TankWidget({ title, value, unit = "%", min = 0, max = 100 }) {
@@ -13,7 +14,21 @@ export default function TankWidget({ title, value, unit = "%", min = 0, max = 10
 
   return (
     <div className="widget-content tank-widget">
-      <div className="widget-title">{title}</div>
+      <div className="widget-title">
+        <div style={{
+          width: "32px",
+          height: "32px",
+          borderRadius: "var(--radius-md)",
+          background: `linear-gradient(135deg, ${fillColor} 0%, ${fillColor}dd 100%)`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: `0 4px 12px ${fillColor}40`
+        }}>
+          <Icon name="droplet" size={18} style={{ color: "#ffffff" }} />
+        </div>
+        <span>{title}</span>
+      </div>
       <div className="tank-display">
         <div style={{ position: "relative", display: "inline-block" }}>
           <svg viewBox="0 0 120 160" className="tank-svg">

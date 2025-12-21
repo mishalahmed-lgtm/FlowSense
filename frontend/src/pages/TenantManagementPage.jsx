@@ -3,6 +3,7 @@ import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
+import BackButton from "../components/BackButton.jsx";
 
 export default function TenantManagementPage() {
   const { token, isAdmin } = useAuth();
@@ -102,16 +103,26 @@ export default function TenantManagementPage() {
         ]}
       />
 
-      <div className="section-header">
-        <h1>Tenant Management</h1>
-        <button className="btn btn--primary" onClick={handleCreate}>
-          + Add Tenant
-        </button>
+      <div className="page-header">
+        <div className="page-header__title-section">
+          <div style={{ marginBottom: "var(--space-3)" }}>
+            <BackButton />
+          </div>
+          <h1 className="page-header__title">Tenant Management</h1>
+          <p className="page-header__subtitle">
+            Create and manage tenant organizations
+          </p>
+        </div>
+        <div className="page-header__actions">
+          <button className="btn btn--primary" onClick={handleCreate}>
+            + Add Tenant
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div className="card" style={{ borderColor: "var(--color-error-500)" }}>
-          <p className="text-error">{error}</p>
+        <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+          {error}
         </div>
       )}
 
@@ -121,7 +132,8 @@ export default function TenantManagementPage() {
         </div>
       ) : (
         <div className="card">
-          <table className="table">
+          <div className="table-wrapper">
+            <table className="table">
             <thead>
               <tr>
                 <th>Name</th>
@@ -178,6 +190,7 @@ export default function TenantManagementPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import Icon from "../Icon.jsx";
 import "./widgets.css";
 
 export default function NumberWidget({ title, value, unit }) {
@@ -11,7 +12,21 @@ export default function NumberWidget({ title, value, unit }) {
 
   return (
     <div className="widget-content number-widget">
-      <div className="widget-title">{title}</div>
+      <div className="widget-title">
+        <div style={{
+          width: "32px",
+          height: "32px",
+          borderRadius: "var(--radius-md)",
+          background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: "0 4px 12px rgba(59, 130, 246, 0.3)"
+        }}>
+          <Icon name="analytics" size={18} style={{ color: "#ffffff" }} />
+        </div>
+        <span>{title}</span>
+      </div>
       <div className="number-display">
         <span className="number-value">{displayValue}</span>
         {unit && <span className="number-unit">{unit}</span>}

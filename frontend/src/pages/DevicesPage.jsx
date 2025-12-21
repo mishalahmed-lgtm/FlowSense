@@ -6,6 +6,7 @@ import DeviceForm from "../components/DeviceForm.jsx";
 import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
 
 export default function DevicesPage() {
   const { token, isTenantAdmin, user } = useAuth();
@@ -150,6 +151,8 @@ export default function DevicesPage() {
 
   return (
     <div className="page">
+      <Breadcrumbs items={[{ label: "Devices", path: "/devices" }]} />
+      
       {/* Page Header */}
       <div className="page-header">
         <div className="page-header__title-section">
@@ -327,6 +330,17 @@ export default function DevicesPage() {
                   className="btn btn--sm btn--ghost"
                   onClick={(e) => {
                     e.stopPropagation();
+                    navigate(`/devices/${device.device_id}/rules`);
+                  }}
+                  title="Configure Rules"
+                >
+                  <Icon name="code" size={14} />
+                  Rules
+                </button>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={(e) => {
+                    e.stopPropagation();
                     openModal(device);
                   }}
                 >
@@ -381,6 +395,14 @@ export default function DevicesPage() {
                   <td>{device.tenant}</td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                      <button
+                        className="btn btn--sm btn--ghost"
+                        onClick={() => navigate(`/devices/${device.device_id}/rules`)}
+                        title="Configure Rules"
+                      >
+                        <Icon name="code" size={14} />
+                        Rules
+                      </button>
                       <button
                         className="btn btn--sm btn--ghost"
                         onClick={() => openModal(device)}

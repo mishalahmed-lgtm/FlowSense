@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Icon from "./Icon.jsx";
 
 const CUSTOM_FIELD_VALUE = "__custom_field__";
 
@@ -58,13 +59,56 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
   }, [deviceId]);
 
   useEffect(() => {
-    const options = extractFieldOptions(deviceType);
-    setFieldOptions(options);
-    setFormState((prev) => ({
-      ...prev,
-      conditionFieldChoice: options[0]?.value || CUSTOM_FIELD_VALUE,
-    }));
-  }, [deviceType?.id]);
+    const loadFieldOptions = async () => {
+      let options = [];
+      
+      // Always try to fetch from actual telemetry first (most accurate)
+      if (deviceId) {
+        try {
+          const resp = await api.get(`/dashboard/devices/${deviceId}/fields`);
+          if (resp.data && resp.data.length > 0) {
+            const humanizeField = (value) => {
+              return value
+                .split(".")
+                .slice(-1)[0]
+                .replace(/_/g, " ")
+                .replace(/\b\w/g, (letter) => letter.toUpperCase());
+            };
+            options = resp.data
+              .filter(f => {
+                const fieldType = f.field_type || f.type; // Support both field_type and type
+                return fieldType === "number" || fieldType === "string" || fieldType === "boolean";
+              })
+              .map(f => ({
+                label: f.display_name ? `${f.display_name} (${f.key})` : `${humanizeField(f.key)} (${f.key})`,
+                value: f.key.startsWith("payload.") ? f.key : `payload.${f.key}`,
+              }));
+          }
+        } catch (err) {
+          console.error("Failed to load fields from telemetry:", err);
+        }
+      }
+      
+      // If no telemetry fields, try schema as fallback
+      if (options.length === 0) {
+        options = extractFieldOptions(deviceType);
+      }
+      
+      // If still no fields, show a message but allow custom field entry
+      if (options.length === 0) {
+        console.warn("No payload fields found for device. User can enter custom field.");
+        // Don't set default fields - let user enter custom field instead
+      }
+      
+      setFieldOptions(options);
+      setFormState((prev) => ({
+        ...prev,
+        conditionFieldChoice: options[0]?.value || CUSTOM_FIELD_VALUE,
+      }));
+    };
+    
+    loadFieldOptions();
+  }, [deviceType?.id, deviceId, api]);
 
   const loadRules = async () => {
     if (!deviceId) {
@@ -282,122 +326,181 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
   };
 
   return (
-    <section className="rules-panel">
-      <div className="rules-panel__content">
-        <div className="rules-card">
-          <div className="section-header">
-            <div>
-              <h3>Rule Engine</h3>
-              <p className="muted">Define per-device automation and routing</p>
-            </div>
-            <button type="button" className="secondary" onClick={loadRules} disabled={isLoading}>
-              Refresh
+    <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-6)" }}>
+      {/* Rules List Card */}
+      <div className="card">
+        <div className="card__header">
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            <Icon name="code" size={20} />
+            <h3 className="card__title">Rule Engine</h3>
+          </div>
+          <div className="card__header-actions">
+            <button 
+              type="button" 
+              className="btn btn--secondary btn--sm" 
+              onClick={loadRules} 
+              disabled={isLoading}
+            >
+              <Icon name="refresh" size={16} />
+              <span>Refresh</span>
             </button>
           </div>
-          {error && <p className="error-message">{error}</p>}
-          {success && <p className="success-message">{success}</p>}
+        </div>
+        <div className="card__body">
+          <p style={{ color: "var(--color-text-secondary)", marginBottom: "var(--space-4)" }}>
+            Define per-device automation and routing
+          </p>
+          
+          {error && (
+            <div className="badge badge--error" style={{ display: "block", padding: "var(--space-3)", marginBottom: "var(--space-4)" }}>
+              {error}
+            </div>
+          )}
+          {success && (
+            <div className="badge badge--success" style={{ display: "block", padding: "var(--space-3)", marginBottom: "var(--space-4)" }}>
+              {success}
+            </div>
+          )}
+          
           {isLoading ? (
-            <p>Loading rules…</p>
+            <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-secondary)" }}>
+              <Icon name="activity" size={32} />
+              <p style={{ marginTop: "var(--space-3)" }}>Loading rules…</p>
+            </div>
           ) : rules.length === 0 ? (
-            <p className="muted">No rules configured yet.</p>
+            <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-tertiary)" }}>
+              <Icon name="code" size={48} style={{ opacity: 0.3, marginBottom: "var(--space-3)" }} />
+              <p>No rules configured yet.</p>
+            </div>
           ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Priority</th>
-                  <th>Action</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {rules.map((rule) => (
-                  <tr key={rule.id}>
-                    <td>{rule.name}</td>
-                    <td>{rule.priority}</td>
-                    <td>{describeAction(rule.action)}</td>
-                    <td>
-                      <span className={`status ${rule.is_active ? "status--ok" : "status--off"}`}>
-                        {rule.is_active ? "Active" : "Paused"}
-                      </span>
-                    </td>
-                    <td className="table-actions">
-                      <button type="button" className="secondary" onClick={() => toggleRule(rule)}>
-                        {rule.is_active ? "Disable" : "Enable"}
-                      </button>
-                      <button type="button" className="danger" onClick={() => deleteRule(rule)}>
-                        Delete
-                      </button>
-                    </td>
+            <div className="table-wrapper">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Priority</th>
+                    <th>Action</th>
+                    <th>Status</th>
+                    <th>Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rules.map((rule) => (
+                    <tr key={rule.id}>
+                      <td style={{ fontWeight: "var(--font-weight-medium)" }}>{rule.name}</td>
+                      <td>{rule.priority}</td>
+                      <td>{describeAction(rule.action)}</td>
+                      <td>
+                        <span className={`badge ${rule.is_active ? "badge--success" : "badge--neutral"}`}>
+                          <span className="badge__dot"></span>
+                          {rule.is_active ? "Active" : "Paused"}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                          <button 
+                            type="button" 
+                            className="btn btn--sm btn--ghost" 
+                            onClick={() => toggleRule(rule)}
+                          >
+                            {rule.is_active ? "Disable" : "Enable"}
+                          </button>
+                          <button 
+                            type="button" 
+                            className="btn btn--sm btn--danger" 
+                            onClick={() => deleteRule(rule)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
-
       </div>
-      <form className="rules-form card form" onSubmit={handleCreateRule}>
-        <h4>Create Rule</h4>
-          <label>
-            Name
+
+      {/* Create Rule Form Card */}
+      <div className="card">
+        <div className="card__header">
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+            <Icon name="plus" size={20} />
+            <h3 className="card__title">Create Rule</h3>
+          </div>
+        </div>
+        <form className="form" onSubmit={handleCreateRule} style={{ padding: "var(--space-6)" }}>
+          <div className="form-group">
+            <label className="form-label form-label--required">Name</label>
             <input
               type="text"
+              className="form-input"
               value={formState.name}
               onChange={(event) => handleInputChange("name", event.target.value)}
               placeholder="High temperature route"
               required
             />
-          </label>
-          <label>
-            Priority
+          </div>
+          
+          <div className="form-group">
+            <label className="form-label">Priority</label>
             <input
               type="number"
+              className="form-input"
               value={formState.priority}
               onChange={(event) => handleInputChange("priority", event.target.value)}
               min={1}
             />
-          </label>
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={formState.is_active}
-              onChange={(event) => handleInputChange("is_active", event.target.checked)}
-            />
-            Active
-          </label>
-          <div className="field-picker">
-            <label>
-              When field
-              <select
-                value={formState.conditionFieldChoice}
-                onChange={(event) => handleFieldChoice(event.target.value)}
-              >
-                {fieldOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-                <option value={CUSTOM_FIELD_VALUE}>Custom field…</option>
-              </select>
-            </label>
-            {formState.conditionFieldChoice === CUSTOM_FIELD_VALUE && (
-              <label>
-                Custom field name
-                <input
-                  type="text"
-                  value={formState.conditionFieldCustom}
-                  placeholder="payload.temperature"
-                  onChange={(event) => handleInputChange("conditionFieldCustom", event.target.value)}
-                  required
-                />
-              </label>
-            )}
           </div>
-          <label>
-            Operator
+          
+          <div className="form-group">
+            <label className="form-label">
+              <input
+                type="checkbox"
+                checked={formState.is_active}
+                onChange={(event) => handleInputChange("is_active", event.target.checked)}
+                style={{ marginRight: "var(--space-2)", cursor: "pointer" }}
+              />
+              Active
+            </label>
+          </div>
+          
+          <div className="form-group">
+            <label className="form-label form-label--required">When field</label>
             <select
+              className="form-select"
+              value={formState.conditionFieldChoice}
+              onChange={(event) => handleFieldChoice(event.target.value)}
+            >
+              {fieldOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+              <option value={CUSTOM_FIELD_VALUE}>Custom field…</option>
+            </select>
+          </div>
+          
+          {formState.conditionFieldChoice === CUSTOM_FIELD_VALUE && (
+            <div className="form-group">
+              <label className="form-label form-label--required">Custom field name</label>
+              <input
+                type="text"
+                className="form-input"
+                value={formState.conditionFieldCustom}
+                placeholder="payload.temperature"
+                onChange={(event) => handleInputChange("conditionFieldCustom", event.target.value)}
+                required
+              />
+            </div>
+          )}
+          
+          <div className="form-group">
+            <label className="form-label form-label--required">Operator</label>
+            <select
+              className="form-select"
               value={formState.conditionOperator}
               onChange={(event) => handleInputChange("conditionOperator", event.target.value)}
             >
@@ -411,19 +514,23 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
               <option value="starts_with">Starts with</option>
               <option value="ends_with">Ends with</option>
             </select>
-          </label>
-          <label>
-            Compare to
+          </div>
+          
+          <div className="form-group">
+            <label className="form-label form-label--required">Compare to</label>
             <input
               type="text"
+              className="form-input"
               value={formState.conditionValue}
               onChange={(event) => handleInputChange("conditionValue", event.target.value)}
               required
             />
-          </label>
-          <label>
-            Action
+          </div>
+          
+          <div className="form-group">
+            <label className="form-label form-label--required">Action</label>
             <select
+              className="form-select"
               value={formState.actionPreset}
               onChange={(event) => handleInputChange("actionPreset", event.target.value)}
             >
@@ -433,31 +540,34 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
                 </option>
               ))}
             </select>
-          </label>
+          </div>
           {formState.actionPreset === "alert" && (
             <>
-              <label>
-                Alert Title
+              <div className="form-group">
+                <label className="form-label form-label--required">Alert Title</label>
                 <input
                   type="text"
+                  className="form-input"
                   value={formState.alertTitle || ""}
                   placeholder="High Temperature Alert"
                   onChange={(event) => handleInputChange("alertTitle", event.target.value)}
                   required
                 />
-              </label>
-              <label>
-                Alert Message
+              </div>
+              <div className="form-group">
+                <label className="form-label">Alert Message</label>
                 <input
                   type="text"
+                  className="form-input"
                   value={formState.alertMessage || ""}
                   placeholder="Temperature exceeded threshold"
                   onChange={(event) => handleInputChange("alertMessage", event.target.value)}
                 />
-              </label>
-              <label>
-                Priority
+              </div>
+              <div className="form-group">
+                <label className="form-label">Priority</label>
                 <select
+                  className="form-select"
                   value={formState.alertPriority || "medium"}
                   onChange={(event) => handleInputChange("alertPriority", event.target.value)}
                 >
@@ -466,33 +576,36 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
                   <option value="high">High</option>
                   <option value="critical">Critical</option>
                 </select>
-              </label>
+              </div>
             </>
           )}
           {formState.actionPreset === "device_command" && (
             <>
-              <label>
-                Command (JSON or simple string)
+              <div className="form-group">
+                <label className="form-label form-label--required">Command (JSON or simple string)</label>
                 <input
                   type="text"
+                  className="form-input"
                   value={formState.deviceCommand || ""}
                   placeholder='{"action": "reboot"} or "reboot"'
                   onChange={(event) => handleInputChange("deviceCommand", event.target.value)}
                   required
                 />
-              </label>
-              <label>
-                MQTT Topic (optional, defaults to devices/{deviceId}/commands)
+              </div>
+              <div className="form-group">
+                <label className="form-label">MQTT Topic (optional, defaults to devices/{deviceId}/commands)</label>
                 <input
                   type="text"
+                  className="form-input"
                   value={formState.deviceCommandTopic || ""}
                   placeholder={`devices/${deviceId}/commands`}
                   onChange={(event) => handleInputChange("deviceCommandTopic", event.target.value)}
                 />
-              </label>
-              <label>
-                QoS
+              </div>
+              <div className="form-group">
+                <label className="form-label">QoS</label>
                 <select
+                  className="form-select"
                   value={formState.deviceCommandQos || 1}
                   onChange={(event) => handleInputChange("deviceCommandQos", parseInt(event.target.value))}
                 >
@@ -500,24 +613,26 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
                   <option value={1}>1 - At least once</option>
                   <option value={2}>2 - Exactly once</option>
                 </select>
-              </label>
+              </div>
             </>
           )}
           {formState.actionPreset === "webhook" && (
             <>
-              <label>
-                Webhook URL
+              <div className="form-group">
+                <label className="form-label form-label--required">Webhook URL</label>
                 <input
                   type="url"
+                  className="form-input"
                   value={formState.webhookUrl || ""}
                   placeholder="https://example.com/webhook"
                   onChange={(event) => handleInputChange("webhookUrl", event.target.value)}
                   required
                 />
-              </label>
-              <label>
-                HTTP Method
+              </div>
+              <div className="form-group">
+                <label className="form-label">HTTP Method</label>
                 <select
+                  className="form-select"
                   value={formState.webhookMethod || "POST"}
                   onChange={(event) => handleInputChange("webhookMethod", event.target.value)}
                 >
@@ -525,108 +640,126 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
                   <option value="PUT">PUT</option>
                   <option value="GET">GET</option>
                 </select>
-              </label>
-              <label>
-                Headers (JSON, optional)
+              </div>
+              <div className="form-group">
+                <label className="form-label">Headers (JSON, optional)</label>
                 <textarea
+                  className="form-input"
                   value={formState.webhookHeaders || ""}
                   placeholder='{"Authorization": "Bearer token"}'
                   onChange={(event) => handleInputChange("webhookHeaders", event.target.value)}
                   rows={2}
                 />
-              </label>
-              <label>
-                Body (JSON, optional - use {'{{'}field.path{'}}'} for variables)
+              </div>
+              <div className="form-group">
+                <label className="form-label">Body (JSON, optional - use {'{{'}field.path{'}}'} for variables)</label>
                 <textarea
+                  className="form-input"
                   value={formState.webhookBody || ""}
                   placeholder='{"device": "{{device.device_id}}", "value": "{{payload.temperature}}"}'
                   onChange={(event) => handleInputChange("webhookBody", event.target.value)}
                   rows={3}
                 />
-              </label>
+              </div>
             </>
           )}
           {formState.actionPreset === "flag_warning" && (
-            <label>
-              Status label
+            <div className="form-group">
+              <label className="form-label">Status label</label>
               <input
                 type="text"
+                className="form-input"
                 value={formState.flagStatus}
                 onChange={(event) => handleInputChange("flagStatus", event.target.value)}
               />
-            </label>
+            </div>
           )}
           {formState.actionPreset === "custom_route" && (
-            <label>
-              Feed / topic name
+            <div className="form-group">
+              <label className="form-label form-label--required">Feed / topic name</label>
               <input
                 type="text"
+                className="form-input"
                 value={formState.customRouteTopic}
                 placeholder="alerts.low_pressure"
                 onChange={(event) => handleInputChange("customRouteTopic", event.target.value)}
                 required
               />
-            </label>
+            </div>
           )}
           {formState.actionPreset === "custom_mutate" && (
             <>
-              <label>
-                Field to update
+              <div className="form-group">
+                <label className="form-label form-label--required">Field to update</label>
                 <input
                   type="text"
+                  className="form-input"
                   value={formState.customMutateField}
                   placeholder="payload.status"
                   onChange={(event) => handleInputChange("customMutateField", event.target.value)}
                   required
                 />
-              </label>
-              <label>
-                New value
+              </div>
+              <div className="form-group">
+                <label className="form-label form-label--required">New value</label>
                 <input
                   type="text"
+                  className="form-input"
                   value={formState.customMutateValue}
                   onChange={(event) => handleInputChange("customMutateValue", event.target.value)}
                   required
                 />
-              </label>
+              </div>
             </>
           )}
-          <label>
-            Rule Type
+          <div className="form-group">
+            <label className="form-label">Rule Type</label>
             <select
+              className="form-select"
               value={formState.ruleType}
               onChange={(event) => handleInputChange("ruleType", event.target.value)}
             >
               <option value="event">Event-based (real-time)</option>
               <option value="scheduled">Scheduled (cron-based)</option>
             </select>
-          </label>
+          </div>
           {formState.ruleType === "scheduled" && (
-            <label>
-              Cron Schedule
+            <div className="form-group">
+              <label className="form-label form-label--required">Cron Schedule</label>
               <input
                 type="text"
+                className="form-input"
                 value={formState.cronSchedule}
                 placeholder="0 */5 * * * (every 5 minutes)"
                 onChange={(event) => handleInputChange("cronSchedule", event.target.value)}
                 required
               />
-              <small className="text-muted">
+              <small style={{ display: "block", marginTop: "var(--space-1)", color: "var(--color-text-tertiary)", fontSize: "var(--font-size-xs)" }}>
                 Format: minute hour day month weekday (e.g., "0 */5 * * *" = every 5 minutes)
               </small>
-            </label>
+            </div>
           )}
-          <label className="checkbox">
-            <input
-              type="checkbox"
-              checked={formState.stopAfter}
-              onChange={(event) => handleInputChange("stopAfter", event.target.checked)}
-            />
-            Stop evaluating additional rules
-          </label>
-        <button type="submit">Add Rule</button>
-      </form>
-    </section>
+          <div className="form-group">
+            <label className="form-label">
+              <input
+                type="checkbox"
+                checked={formState.stopAfter}
+                onChange={(event) => handleInputChange("stopAfter", event.target.checked)}
+                style={{ marginRight: "var(--space-2)", cursor: "pointer" }}
+              />
+              Stop evaluating additional rules
+            </label>
+          </div>
+          
+          <div className="form-actions">
+            <button type="submit" className="btn btn--primary">
+              <Icon name="plus" size={18} />
+              <span>Add Rule</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
 

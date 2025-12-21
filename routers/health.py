@@ -77,7 +77,9 @@ def list_device_health(
         # Admin: all devices
         query = db.query(Device)
     
-    devices = query.filter(Device.is_active == True).all()
+    # Return all devices (consistent with /devices endpoint)
+    # Status filtering is done later based on health metrics
+    devices = query.all()
     
     results = []
     for device in devices:

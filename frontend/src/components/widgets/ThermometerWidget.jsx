@@ -1,4 +1,5 @@
 import PropTypes from "prop-types";
+import Icon from "../Icon.jsx";
 import "./widgets.css";
 
 export default function ThermometerWidget({ title, value, unit = "°C", min = -20, max = 50 }) {
@@ -13,7 +14,21 @@ export default function ThermometerWidget({ title, value, unit = "°C", min = -2
 
   return (
     <div className="widget-content thermometer-widget">
-      <div className="widget-title">{title}</div>
+      <div className="widget-title">
+        <div style={{
+          width: "32px",
+          height: "32px",
+          borderRadius: "var(--radius-md)",
+          background: `linear-gradient(135deg, ${mercuryColor} 0%, ${mercuryColor}dd 100%)`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          boxShadow: `0 4px 12px ${mercuryColor}40`
+        }}>
+          <Icon name="activity" size={18} style={{ color: "#ffffff" }} />
+        </div>
+        <span>{title}</span>
+      </div>
       <div className="thermometer-display">
         <svg viewBox="0 0 80 200" className="thermometer-svg">
           {/* Outer tube */}

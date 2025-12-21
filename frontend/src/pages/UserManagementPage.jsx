@@ -86,6 +86,17 @@ export default function UserManagementPage() {
   };
 
   const handleSave = async () => {
+    // Client-side validation
+    if (!editingUser && (!formData.password || formData.password.length < 6)) {
+      setError("Password must be at least 6 characters");
+      return;
+    }
+    
+    if (formData.role === "tenant_admin" && !formData.tenant_id) {
+      setError("Please select a tenant for tenant admin users");
+      return;
+    }
+
     try {
       const payload = { ...formData };
       
@@ -103,9 +114,33 @@ export default function UserManagementPage() {
         await api.post("/admin/users", payload);
       }
       setShowModal(false);
+      setError(null);
       loadUsers();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to save user");
+      let errorMessage = "Failed to save user";
+      
+      if (err.response?.data) {
+        const data = err.response.data;
+        
+        // Handle Pydantic validation errors
+        if (Array.isArray(data.detail)) {
+          const validationErrors = data.detail.map((e) => {
+            if (e.type === "string_too_short") {
+              return `${e.loc.join('.')}: ${e.msg}`;
+            }
+            return `${e.loc.join('.')}: ${e.msg}`;
+          });
+          errorMessage = validationErrors.join(", ");
+        } else if (typeof data.detail === 'string') {
+          errorMessage = data.detail;
+        } else if (data.detail?.msg) {
+          errorMessage = `${data.detail.loc?.join('.') || 'Field'}: ${data.detail.msg}`;
+        }
+      } else if (err.message) {
+        errorMessage = err.message;
+      }
+      
+      setError(errorMessage);
     }
   };
 
@@ -119,9 +154,12 @@ export default function UserManagementPage() {
     }
     try {
       await api.delete(`/admin/users/${user.id}`);
+      setError(null);
       loadUsers();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete user");
+      const errorMessage = err.response?.data?.detail || err.message || "Failed to delete user";
+      const errorString = typeof errorMessage === 'string' ? errorMessage : JSON.stringify(errorMessage);
+      setError(errorString);
     }
   };
 
@@ -171,8 +209,8 @@ export default function UserManagementPage() {
       </div>
 
       {error && (
-        <div className="card" style={{ borderColor: "var(--color-error-500)" }}>
-          <p className="text-error">{error}</p>
+        <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+          {error}
         </div>
       )}
 
@@ -182,7 +220,8 @@ export default function UserManagementPage() {
         </div>
       ) : (
         <div className="card">
-          <table className="table">
+          <div className="table-wrapper">
+            <table className="table">
             <thead>
               <tr>
                 <th>Email</th>
@@ -252,6 +291,7 @@ export default function UserManagementPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 
@@ -288,7 +328,13 @@ export default function UserManagementPage() {
                 }
                 placeholder="Min. 6 characters"
                 required={!editingUser}
+                minLength={!editingUser ? 6 : undefined}
               />
+              {!editingUser && formData.password && formData.password.length < 6 && (
+                <small className="form-help" style={{ color: "var(--color-error-text)" }}>
+                  Password must be at least 6 characters
+                </small>
+              )}
             </div>
 
             <div className="form-group">
@@ -396,7 +442,7 @@ export default function UserManagementPage() {
                 onClick={handleSave}
                 disabled={
                   !formData.email ||
-                  (!editingUser && !formData.password) ||
+                  (!editingUser && (!formData.password || formData.password.length < 6)) ||
                   (formData.role === "tenant_admin" && !formData.tenant_id)
                 }
               >

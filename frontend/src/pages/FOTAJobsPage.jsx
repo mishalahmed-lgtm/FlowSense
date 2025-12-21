@@ -5,6 +5,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
 
 export default function FOTAJobsPage() {
   const { token, isTenantAdmin, hasModule } = useAuth();
@@ -143,6 +144,8 @@ export default function FOTAJobsPage() {
 
   return (
     <div className="page">
+      <Breadcrumbs items={[{ label: "Firmware Updates", path: "/fota/jobs" }]} />
+      
       {/* Page Header */}
       <div className="page-header">
         <div className="page-header__title-section">
@@ -181,9 +184,9 @@ export default function FOTAJobsPage() {
             </div>
           </div>
           <div className="metric-card__label">TOTAL JOBS</div>
-          <div className="metric-card__value">{jobs.length}</div>
+          <div className="metric-card__value">{jobs.filter(j => j.status !== "running" && j.status !== "failed").length}</div>
           <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-2)" }}>
-            All time
+            Active jobs
           </div>
         </div>
 
@@ -200,21 +203,14 @@ export default function FOTAJobsPage() {
         <div className="metric-card">
           <div className="metric-card__header">
             <div className="metric-card__icon metric-card__icon--info">
-              <Icon name="activity" size={24} />
+              <Icon name="devices" size={24} />
             </div>
           </div>
-          <div className="metric-card__label">RUNNING</div>
-          <div className="metric-card__value">{jobs.filter(j => j.status === "running").length}</div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-card__header">
-            <div className="metric-card__icon metric-card__icon--error">
-              <Icon name="warning" size={24} />
-            </div>
+          <div className="metric-card__label">TOTAL DEVICES</div>
+          <div className="metric-card__value">{devices.length}</div>
+          <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-2)" }}>
+            Unique devices (note: devices may appear in multiple jobs)
           </div>
-          <div className="metric-card__label">FAILED</div>
-          <div className="metric-card__value">{jobs.filter(j => j.status === "failed").length}</div>
         </div>
       </div>
 
@@ -249,7 +245,7 @@ export default function FOTAJobsPage() {
               </tr>
             </thead>
             <tbody>
-              {jobs.map((job) => (
+              {jobs.filter(job => job.status !== "running" && job.status !== "failed").map((job) => (
                 <tr key={job.id}>
                   <td style={{ fontWeight: "var(--font-weight-semibold)" }}>{job.name}</td>
                   <td>
@@ -464,15 +460,15 @@ export default function FOTAJobsPage() {
                     <tbody>
                       {selectedJob.devices.map((device) => (
                         <tr key={device.device_id}>
-                          <td>{device.device_name || device.device_id}</td>
+                          <td>{device.device_name || `Device ${device.device_id}`}</td>
                           <td>
                             <code style={{ fontSize: "var(--font-size-xs)" }}>
-                              {device.current_version || "Unknown"}
+                              {device.current_version || selectedJob.firmware_version?.version || "Unknown"}
                             </code>
                           </td>
                           <td>
                             <code style={{ fontSize: "var(--font-size-xs)" }}>
-                              {device.target_version || "N/A"}
+                              {device.target_version || selectedJob.firmware_version?.version || "N/A"}
                             </code>
                           </td>
                           <td>

@@ -181,15 +181,18 @@ a:hover {
 .app-main {
   flex: 1;
   min-height: 100vh;
+  max-height: 100vh;
   display: flex;
   flex-direction: column;
   background-color: var(--color-bg-app);
+  overflow: hidden;
 }
 
 main {
   flex: 1;
   padding: var(--space-8) var(--space-10);
   overflow-x: hidden;
+  overflow-y: auto;
   min-height: 100vh;
 }
 
@@ -488,35 +491,53 @@ main {
 }
 
 .metric-card {
-  background-color: var(--color-bg-primary);
-  padding: var(--space-6);
-  border-radius: var(--radius-xl);
+  background: linear-gradient(135deg, var(--color-bg-primary) 0%, var(--color-bg-secondary) 100%);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-border-light);
-  transition: all var(--transition-fast);
+  box-shadow: var(--shadow-md);
+  transition: all 0.3s ease;
   position: relative;
   overflow: hidden;
 }
 
+.metric-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 0%, var(--color-primary-500) 50%, transparent 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
 .metric-card:hover {
-  border-color: var(--color-border-medium);
-  transform: translateY(-2px);
+  border-color: var(--color-primary-400);
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-xl);
+}
+
+.metric-card:hover::before {
+  opacity: 1;
 }
 
 .metric-card__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .metric-card__icon {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--radius-lg);
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-xl);
+  font-size: var(--font-size-lg);
 }
 
 .metric-card__icon--primary {
@@ -541,17 +562,17 @@ main {
 
 .metric-card__label {
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 
 .metric-card__value {
-  font-size: var(--font-size-4xl);
+  font-size: var(--font-size-3xl);
   font-weight: var(--font-weight-bold);
   color: var(--color-text-inverse);
   line-height: 1;
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 
 .metric-card__trend {
