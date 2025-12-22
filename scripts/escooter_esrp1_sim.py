@@ -20,11 +20,15 @@ MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
+
+# Access token used for secure telemetry ingestion (must match device metadata)
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
 
-# Location (Riyadh coordinates)
-LAT = float(os.environ.get("LAT", "24.8607"))
-LNG = float(os.environ.get("LNG", "67.0011"))
+# Location (Murabba, Riyadh coordinates) - ES-RP-1
+LAT = float(os.environ.get("LAT", "24.6400"))
+LNG = float(os.environ.get("LNG", "46.7000"))
 
 
 def build_payload() -> dict:
@@ -66,6 +70,15 @@ def build_payload() -> dict:
     # Signal strength
     signal_strength = random.randint(-90, -60)
     
+    # Rough estimate of instantaneous power draw (W) based on speed and trip state.
+    # This is a simplified demo model for the Energy Management dashboard.
+    if trip_active:
+        # More power when moving faster
+        energy_consumption_w = max(150.0, min(600.0, speed * 20.0))
+    else:
+        # Idle / parked power draw
+        energy_consumption_w = 20.0 if not is_locked else 5.0
+
     payload = {
         "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
@@ -82,7 +95,11 @@ def build_payload() -> dict:
         "motor_temperature_c": motor_temp,
         "tamper_detected": tamper_detected,
         "geofence_status": geofence_status,
-        "signal_strength_dbm": signal_strength
+        "signal_strength_dbm": signal_strength,
+        # Instantaneous power draw in watts for Energy Management dashboard
+        "energy_consumption_w": round(energy_consumption_w, 1),
+        # Access token for backend authentication
+        "access_token": ACCESS_TOKEN,
     }
     
     return payload

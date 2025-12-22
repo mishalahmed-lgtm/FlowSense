@@ -32,6 +32,8 @@ export default function EnergyManagementDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [timeRange, setTimeRange] = useState("24h"); // 24h, 7d, 30d
+  const [dateRange, setDateRange] = useState({ from: null, to: null, label: "" });
+  const [topConsumersLimit, setTopConsumersLimit] = useState(10);
   const [energyData, setEnergyData] = useState({
     realtime: {},
     totals: {},
@@ -63,7 +65,15 @@ export default function EnergyManagementDashboard() {
       }
 
       const fromDateStr = fromDate.toISOString().slice(0, 10);
-      const toDateStr = today.toISOString().slice(0, 10);
+      // Add 1 day to today for toDateStr since backend uses exclusive end date (< period_end)
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const toDateStr = tomorrow.toISOString().slice(0, 10);
+
+      // Store current period label for display
+      const fmtOpts = { year: "numeric", month: "short", day: "numeric" };
+      const label = `${fromDate.toLocaleDateString(undefined, fmtOpts)} – ${today.toLocaleDateString(undefined, fmtOpts)}`;
+      setDateRange({ from: fromDateStr, to: toDateStr, label });
 
       // Load energy consumption from ALL devices (not just utility meters)
       let allDevicesEnergy = [];
@@ -140,6 +150,13 @@ export default function EnergyManagementDashboard() {
         } catch (err) {
           console.warn("Failed to fetch user/tenant info for currency:", err);
         }
+      }
+
+      // Hard override for Murabba tenant (tenant_id === 3) so you always see SAR
+      // This is a safety net in case backend metadata is missing
+      if (user?.tenant_id === 3 && defaultCurrency === "USD") {
+        defaultCurrency = "SAR";
+        console.log("Overriding currency to SAR for Murabba tenant (tenant_id=3)");
       }
       
       console.log("Final determined currency:", defaultCurrency);
@@ -227,10 +244,9 @@ export default function EnergyManagementDashboard() {
         }
       });
 
-      // Top consumers
+      // Top consumers (we'll apply the limit later in render based on user selection)
       const topConsumers = Array.from(deviceMap.values())
-        .sort((a, b) => b.consumption - a.consumption)
-        .slice(0, 10);
+        .sort((a, b) => b.consumption - a.consumption);
 
       // Cost breakdown for pie chart
       Object.keys(totals).forEach((utility) => {
@@ -300,20 +316,37 @@ export default function EnergyManagementDashboard() {
           </div>
           <h1 className="page-header__title">Energy Management Dashboard</h1>
           <p className="page-header__subtitle">
-            Track energy consumption from all devices (lighting, benches, sensors, meters) and utility usage (gas, water)
+            Live view of energy usage and cost across all Murabba devices for the selected period.
           </p>
+          {dateRange.label && (
+            <p className="text-muted" style={{ marginTop: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
+              Showing data for <strong>{dateRange.label}</strong>
+            </p>
+          )}
         </div>
         <div className="page-header__actions">
-          <select
-            className="form-select"
-            value={timeRange}
-            onChange={(e) => setTimeRange(e.target.value)}
-            style={{ minWidth: "120px" }}
-          >
-            <option value="24h">Last 24 Hours</option>
-            <option value="7d">Last 7 Days</option>
-            <option value="30d">Last 30 Days</option>
-          </select>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)", alignItems: "flex-end" }}>
+            <div style={{ display: "flex", gap: "var(--space-2)" }}>
+              {[
+                { id: "24h", label: "Last 24 Hours" },
+                { id: "7d", label: "Last 7 Days" },
+                { id: "30d", label: "Last 30 Days" },
+              ].map((range) => (
+                <button
+                  key={range.id}
+                  type="button"
+                  className={`btn btn--ghost${timeRange === range.id ? " btn--primary" : ""}`}
+                  onClick={() => setTimeRange(range.id)}
+                >
+                  {range.label}
+                </button>
+              ))}
+            </div>
+            <a href="/utility/billing" className="btn btn--primary">
+              <Icon name="file" size={18} />
+              <span>View Billing Reports</span>
+            </a>
+          </div>
         </div>
       </div>
 
@@ -333,7 +366,7 @@ export default function EnergyManagementDashboard() {
       ) : (
         <>
           {/* Summary Metrics */}
-          <div className="metrics-grid" style={{ marginBottom: "var(--space-6)" }}>
+          <div className="metrics-grid" style={{ marginBottom: "var(--space-6)", gridTemplateColumns: "repeat(4, 1fr)" }}>
             <div className="metric-card">
               <div className="metric-card__header">
                 <span className="metric-card__label">Total Energy Consumption</span>
@@ -388,7 +421,7 @@ export default function EnergyManagementDashboard() {
                 {currency} {totalCost.toFixed(2)}
               </div>
               <div className="metric-card__footer">
-                Period: {timeRange}
+                {dateRange.label ? `Period: ${dateRange.label}` : `Period: ${timeRange}`}
               </div>
             </div>
           </div>
@@ -450,8 +483,41 @@ export default function EnergyManagementDashboard() {
           {/* Top Energy Consumers */}
           {energyData.topConsumers.length > 0 && (
             <div className="card">
-              <div className="card__header">
+              <div className="card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h3 className="card__title">Top Energy Consumers</h3>
+                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                  <label className="form-label" style={{ margin: 0, fontSize: "var(--font-size-sm)", whiteSpace: "nowrap" }}>
+                    Show top
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    className="form-input"
+                    value={topConsumersLimit}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      if (!Number.isNaN(val) && val >= 1) {
+                        const clamped = Math.max(1, Math.min(val, 100));
+                        setTopConsumersLimit(clamped);
+                      } else if (e.target.value === "") {
+                        // Allow empty input while typing
+                        return;
+                      }
+                    }}
+                    onBlur={(e) => {
+                      // Ensure a valid value on blur if input is empty or invalid
+                      const val = parseInt(e.target.value, 10);
+                      if (Number.isNaN(val) || val < 1) {
+                        setTopConsumersLimit(10);
+                      }
+                    }}
+                    style={{ width: "72px", padding: "var(--space-2) var(--space-4)", textAlign: "left" }}
+                  />
+                  <span className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>
+                    devices
+                  </span>
+                </div>
               </div>
               <div className="card__body">
                 <div className="table-wrapper">
@@ -465,7 +531,7 @@ export default function EnergyManagementDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {energyData.topConsumers.map((device, idx) => (
+                      {energyData.topConsumers.slice(0, topConsumersLimit).map((device, idx) => (
                         <tr key={`${device.device_id}-${device.utility_kind}-${idx}`}>
                           <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
                             {device.device_name}
@@ -492,21 +558,7 @@ export default function EnergyManagementDashboard() {
             </div>
           )}
 
-          {/* Link to Detailed Billing Report */}
-          <div className="card" style={{ marginTop: "var(--space-6)" }}>
-            <div className="card__body" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                <h3 style={{ marginBottom: "var(--space-2)" }}>Detailed Billing Reports</h3>
-                <p className="text-muted" style={{ margin: 0 }}>
-                  View detailed consumption reports and download PDF invoices
-                </p>
-              </div>
-              <a href="/utility/billing" className="btn btn--primary">
-                <Icon name="file" size={18} />
-                <span>View Billing Reports</span>
-              </a>
-            </div>
-          </div>
+          {/* (Billing link moved up into header actions for quick access) */}
         </>
       )}
     </div>

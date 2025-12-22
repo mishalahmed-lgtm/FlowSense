@@ -45,20 +45,63 @@ export default function UtilityBillingPage() {
     
     try {
       if (viewMode === "per-device") {
-        const params = {
-          utility_kind: utilityKind,
-          from_date: fromDate,
-          to_date: toDate,
-        };
+        // Use all-devices energy aggregation as the billing source so that
+        // any device publishing energy_consumption_w (and similar fields)
+        // contributes to the report, not just traditional utility meters.
         
-        if (selectedDevice) {
-          params.device_id = parseInt(selectedDevice);
-        }
+        // Add 1 day to toDate since backend uses exclusive end date (< period_end)
+        const toDateObj = new Date(toDate);
+        toDateObj.setDate(toDateObj.getDate() + 1);
+        const toDateInclusive = toDateObj.toISOString().slice(0, 10);
         
-        const response = await api.get("/admin/utility/consumption/preview", { params });
-        setRows(response.data || []);
+        const energyResp = await api.get("/admin/utility/energy/all-devices", {
+          params: {
+            from_date: fromDate,
+            to_date: toDateInclusive,
+          },
+        });
+
+        const energyData = Array.isArray(energyResp.data) ? energyResp.data : [];
+
+        // Filter out placeholder currency entry
+        const realEnergy = energyData.filter(
+          (item) =>
+            item.device_id !== 0 &&
+            item.device_external_id !== "__currency_placeholder__"
+        );
+
+        // Map energy aggregation shape → per-device billing row shape
+        const mappedRows = realEnergy.map((item) => ({
+          tenant_id: null,
+          tenant_name: "",
+          device_id: item.device_id,
+          device_external_id: item.device_external_id,
+          device_name: item.device_name,
+          utility_kind: "electricity",
+          index_key: item.power_field,
+          period_start: item.period_start,
+          period_end: item.period_end,
+          start_index: null,
+          end_index: null,
+          // Use kWh as "consumption" and cost from backend
+          consumption: item.total_energy_kwh,
+          unit: "kWh",
+          rate_per_unit:
+            item.total_energy_kwh > 0
+              ? item.cost / item.total_energy_kwh
+              : null,
+          currency: item.currency || "USD",
+          amount: item.cost,
+        }));
+
+        setRows(mappedRows);
         setConsolidatedRows([]);
       } else {
+        // Add 1 day to toDate since backend uses exclusive end date (< period_end)
+        const toDateObj = new Date(toDate);
+        toDateObj.setDate(toDateObj.getDate() + 1);
+        const toDateInclusive = toDateObj.toISOString().slice(0, 10);
+        
         const allUtilities = ["electricity", "gas", "water"];
         const allResults = [];
         
@@ -68,7 +111,7 @@ export default function UtilityBillingPage() {
               params: {
                 utility_kind: utility,
                 from_date: fromDate,
-                to_date: toDate,
+                to_date: toDateInclusive,
               },
             });
             allResults.push(...(response.data || []));
@@ -143,6 +186,14 @@ export default function UtilityBillingPage() {
 
   const currency = (viewMode === "per-device" ? rows[0]?.currency : consolidatedRows[0]?.currency) || "USD";
 
+  // When using all-devices energy aggregation, there is no index-style
+  // start/end reading, only total kWh. Detect that and hide Start/End.
+  const hideIndexColumns =
+    viewMode === "per-device" &&
+    rows.length > 0 &&
+    rows[0]?.start_index == null &&
+    rows[0]?.end_index == null;
+
   const handleTabChange = (newTab) => {
     setViewMode(newTab);
     setHasRun(false);
@@ -154,13 +205,18 @@ export default function UtilityBillingPage() {
     setDownloading(true);
     
     try {
+      // Add 1 day to toDate since backend uses exclusive end date (< period_end)
+      const toDateObj = new Date(toDate);
+      toDateObj.setDate(toDateObj.getDate() + 1);
+      const toDateInclusive = toDateObj.toISOString().slice(0, 10);
+      
       let endpoint, params, filename;
       
       if (viewMode === "consolidated") {
         endpoint = "/admin/utility/reports/all-utilities-billing.pdf";
         params = {
           from_date: fromDate,
-          to_date: toDate,
+          to_date: toDateInclusive,
           show_device_breakdown: true,
         };
         filename = `all_utilities_billing_${fromDate}_${toDate}.pdf`;
@@ -169,7 +225,7 @@ export default function UtilityBillingPage() {
         params = {
           utility_kind: utilityKind,
           from_date: fromDate,
-          to_date: toDate,
+          to_date: toDateInclusive,
         };
         
         if (selectedDevice) {
@@ -318,7 +374,10 @@ export default function UtilityBillingPage() {
 
           {/* Summary Metrics (only show when data is loaded) */}
           {!loading && rows.length > 0 && (
-            <div className="metrics-grid">
+            <div
+              className="metrics-grid"
+              style={{ gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "var(--space-6)" }}
+            >
               <div className="metric-card">
                 <div className="metric-card__header">
                   <span className="metric-card__label">Total Devices</span>
@@ -415,8 +474,8 @@ export default function UtilityBillingPage() {
                         <th>Tenant</th>
                         <th>Device</th>
                         <th>Index Key</th>
-                        <th>Start</th>
-                        <th>End</th>
+                        {!hideIndexColumns && <th>Start</th>}
+                        {!hideIndexColumns && <th>End</th>}
                         <th>Consumption</th>
                         <th>Unit</th>
                         <th>Rate</th>
@@ -442,8 +501,12 @@ export default function UtilityBillingPage() {
                               {row.index_key}
                             </code>
                           </td>
-                          <td>{row.start_index?.toFixed(2) ?? "—"}</td>
-                          <td>{row.end_index?.toFixed(2) ?? "—"}</td>
+                          {!hideIndexColumns && (
+                            <td>{row.start_index != null ? row.start_index.toFixed(2) : "—"}</td>
+                          )}
+                          {!hideIndexColumns && (
+                            <td>{row.end_index != null ? row.end_index.toFixed(2) : "—"}</td>
+                          )}
                           <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
                             {row.consumption != null ? row.consumption.toFixed(2) : "—"}
                           </td>

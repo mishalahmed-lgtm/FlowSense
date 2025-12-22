@@ -42,6 +42,14 @@ export default function Sidebar() {
         badge: null,
       });
     }
+    
+    // Device Map is always available for tenant admins
+    navItems.push({
+      label: "Device Map",
+      path: "/maps",
+      icon: "map",
+      module: null,
+    });
 
     if (hasModule("utility")) {
       navItems.push({
@@ -107,7 +115,7 @@ export default function Sidebar() {
         <div className="sidebar__section">
           <div className="sidebar__section-label">Monitoring</div>
           <nav className="sidebar__nav">
-            {navItems.filter(item => ['Dashboard', 'Devices', 'Analytics', 'Device Health'].includes(item.label)).map((item) => (
+            {navItems.filter(item => ['Dashboard', 'Devices', 'Device Map', 'Analytics', 'Device Health'].includes(item.label)).map((item) => (
               <NavLink 
                 key={item.label} 
                 to={item.path} 

@@ -20,7 +20,15 @@ MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
+
+# Access token used for secure telemetry ingestion (must match device metadata)
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
+
+# Location (Murabba, Riyadh coordinates) - SG-RP-1
+LAT = float(os.environ.get("LAT", "24.6700"))
+LNG = float(os.environ.get("LNG", "46.7300"))
 
 
 def build_payload() -> dict:
@@ -68,10 +76,19 @@ def build_payload() -> dict:
     
     # Fault detection - rare
     fault_detected = random.random() < 0.01  # 1% chance
+
+    # Approximate instantaneous power draw (W)
+    # Higher when in use (motor + console), very low when idle
+    if in_use:
+        energy_consumption_w = random.uniform(300.0, 600.0)
+    else:
+        energy_consumption_w = random.uniform(30.0, 80.0)
     
     payload = {
         "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,
+        "longitude": LNG,
         "in_use": in_use,
         "user_session_id": user_session_id,
         "reps_count": reps_count,
@@ -79,7 +96,11 @@ def build_payload() -> dict:
         "usage_duration_min": usage_duration,
         "equipment_load_level": equipment_load_level,
         "maintenance_score": maintenance_score,
-        "fault_detected": fault_detected
+        "fault_detected": fault_detected,
+        # Instantaneous power draw in watts for Energy Management dashboard
+        "energy_consumption_w": round(energy_consumption_w, 1),
+        # Access token for backend authentication
+        "access_token": ACCESS_TOKEN,
     }
     
     return payload

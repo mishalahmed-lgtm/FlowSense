@@ -66,7 +66,9 @@ export default function EnvironmentalMonitoringDashboard() {
     },
     trends: {
       pm25: [],
+      pm10: [],
       temperature: [],
+      humidity: [],
       noise: [],
     },
     sensorStatus: [],
@@ -87,17 +89,29 @@ export default function EnvironmentalMonitoringDashboard() {
       const devicesResp = await api.get("/admin/devices");
       const devices = devicesResp.data || [];
 
-      // Filter environmental sensors
-      const airQualitySensors = devices.filter(d => 
-        d.device_type?.name?.toLowerCase().includes("air quality") ||
-        d.device_type?.name?.toLowerCase().includes("environmental")
-      );
-      const weatherSensors = devices.filter(d => 
-        d.device_type?.name?.toLowerCase().includes("weather")
-      );
-      const noiseSensors = devices.filter(d => 
-        d.device_type?.name?.toLowerCase().includes("noise")
-      );
+      // Filter environmental sensors by device name patterns and telemetry fields
+      // Since Murabba devices all use generic "MQTT" device type, we detect by name/fields
+      const airQualitySensors = devices.filter(d => {
+        const nameLower = (d.name || d.device_id || "").toLowerCase();
+        const deviceIdLower = (d.device_id || "").toLowerCase();
+        return nameLower.includes("bench") || nameLower.includes("air quality") || 
+               nameLower.includes("environmental") || nameLower.includes("smartbench") ||
+               deviceIdLower.includes("sm1-rp") || deviceIdLower.includes("smartbench");
+      });
+      const weatherSensors = devices.filter(d => {
+        const nameLower = (d.name || d.device_id || "").toLowerCase();
+        const deviceIdLower = (d.device_id || "").toLowerCase();
+        return nameLower.includes("weather") || nameLower.includes("bench") || 
+               nameLower.includes("washroom") || nameLower.includes("kiosk") ||
+               deviceIdLower.includes("sm1-rp") || deviceIdLower.includes("sw-rp") ||
+               deviceIdLower.includes("dk_mp") || deviceIdLower.includes("smartbench");
+      });
+      const noiseSensors = devices.filter(d => {
+        const nameLower = (d.name || d.device_id || "").toLowerCase();
+        const deviceIdLower = (d.device_id || "").toLowerCase();
+        return nameLower.includes("noise") || nameLower.includes("an-rp") ||
+               deviceIdLower.includes("an-rp");
+      });
 
       // Get latest telemetry for each sensor type
       const airQualityValues = { pm25: [], pm10: [], co2: [] };
@@ -105,50 +119,111 @@ export default function EnvironmentalMonitoringDashboard() {
       const noiseValues = { level: [], peak: [] };
 
       // Load latest data for air quality sensors
+      console.log("Air quality sensors found:", airQualitySensors.map(s => s.device_id));
       for (const sensor of airQualitySensors.slice(0, 5)) {
         try {
           const latestResp = await api.get(`/dashboard/devices/${sensor.device_id}/latest`);
           const data = latestResp.data?.data || {};
+          console.log(`Air quality sensor ${sensor.device_id} data:`, data);
           
-          // Try different field names
-          if (data.pm25 !== undefined) airQualityValues.pm25.push(data.pm25);
-          if (data.pm10 !== undefined) airQualityValues.pm10.push(data.pm10);
-          if (data.environment?.pm25 !== undefined) airQualityValues.pm25.push(data.environment.pm25);
-          if (data.environment?.pm10 !== undefined) airQualityValues.pm10.push(data.environment.pm10);
-          if (data.co2 !== undefined) airQualityValues.co2.push(data.co2);
-          if (data.environment?.co2 !== undefined) airQualityValues.co2.push(data.environment.co2);
+          // Try different field name patterns (including nested environment object)
+          if (data.pm25 !== undefined && data.pm25 !== null) {
+            airQualityValues.pm25.push(data.pm25);
+            console.log(`  Found pm25: ${data.pm25}`);
+          }
+          if (data.pm10 !== undefined && data.pm10 !== null) {
+            airQualityValues.pm10.push(data.pm10);
+            console.log(`  Found pm10: ${data.pm10}`);
+          }
+          if (data.environment?.pm25 !== undefined && data.environment.pm25 !== null) {
+            airQualityValues.pm25.push(data.environment.pm25);
+            console.log(`  Found environment.pm25: ${data.environment.pm25}`);
+          }
+          if (data.environment?.pm10 !== undefined && data.environment.pm10 !== null) {
+            airQualityValues.pm10.push(data.environment.pm10);
+            console.log(`  Found environment.pm10: ${data.environment.pm10}`);
+          }
+          if (data.co2 !== undefined && data.co2 !== null) {
+            airQualityValues.co2.push(data.co2);
+            console.log(`  Found co2: ${data.co2}`);
+          }
+          if (data.environment?.co2 !== undefined && data.environment.co2 !== null) {
+            airQualityValues.co2.push(data.environment.co2);
+            console.log(`  Found environment.co2: ${data.environment.co2}`);
+          }
+          // Also check for VOC as air quality indicator
+          if (data.voc_ppm !== undefined && data.voc_ppm !== null) {
+            airQualityValues.co2.push(data.voc_ppm);
+            console.log(`  Found voc_ppm: ${data.voc_ppm}`);
+          }
         } catch (err) {
-          console.warn(`Failed to load data for sensor ${sensor.device_id}:`, err);
+          console.warn(`Failed to load data for air quality sensor ${sensor.device_id}:`, err);
         }
       }
+      console.log("Air quality values collected:", airQualityValues);
 
       // Load latest data for weather sensors
-      for (const sensor of weatherSensors.slice(0, 3)) {
+      console.log("Weather sensors found:", weatherSensors.map(s => s.device_id));
+      for (const sensor of weatherSensors.slice(0, 10)) {
         try {
           const latestResp = await api.get(`/dashboard/devices/${sensor.device_id}/latest`);
           const data = latestResp.data?.data || {};
+          console.log(`Weather sensor ${sensor.device_id} data:`, data);
           
-          if (data.temperature !== undefined) weatherValues.temperature.push(data.temperature);
-          if (data.environment?.temperature !== undefined) weatherValues.temperature.push(data.environment.temperature);
-          if (data.humidity !== undefined) weatherValues.humidity.push(data.humidity);
-          if (data.environment?.humidity !== undefined) weatherValues.humidity.push(data.environment.humidity);
+          // Try different temperature field patterns
+          if (data.temperature !== undefined && data.temperature !== null) {
+            weatherValues.temperature.push(data.temperature);
+            console.log(`  Found temperature: ${data.temperature}`);
+          }
+          if (data.temperature_c !== undefined && data.temperature_c !== null) {
+            weatherValues.temperature.push(data.temperature_c);
+            console.log(`  Found temperature_c: ${data.temperature_c}`);
+          }
+          if (data.environment?.temperature !== undefined && data.environment.temperature !== null) {
+            weatherValues.temperature.push(data.environment.temperature);
+            console.log(`  Found environment.temperature: ${data.environment.temperature}`);
+          }
+          
+          // Try different humidity field patterns
+          if (data.humidity !== undefined && data.humidity !== null) {
+            weatherValues.humidity.push(data.humidity);
+            console.log(`  Found humidity: ${data.humidity}`);
+          }
+          if (data.humidity_percent !== undefined && data.humidity_percent !== null) {
+            weatherValues.humidity.push(data.humidity_percent);
+            console.log(`  Found humidity_percent: ${data.humidity_percent}`);
+          }
+          if (data.environment?.humidity !== undefined && data.environment.humidity !== null) {
+            weatherValues.humidity.push(data.environment.humidity);
+            console.log(`  Found environment.humidity: ${data.environment.humidity}`);
+          }
         } catch (err) {
           console.warn(`Failed to load data for weather sensor ${sensor.device_id}:`, err);
         }
       }
+      console.log("Weather values collected:", weatherValues);
 
       // Load latest data for noise sensors
+      console.log("Noise sensors found:", noiseSensors.map(s => s.device_id));
       for (const sensor of noiseSensors.slice(0, 10)) {
         try {
           const latestResp = await api.get(`/dashboard/devices/${sensor.device_id}/latest`);
           const data = latestResp.data?.data || {};
+          console.log(`Noise sensor ${sensor.device_id} data:`, data);
           
-          if (data.noise_level_db !== undefined) noiseValues.level.push(data.noise_level_db);
-          if (data.noise_peak_db !== undefined) noiseValues.peak.push(data.noise_peak_db);
+          if (data.noise_level_db !== undefined && data.noise_level_db !== null) {
+            noiseValues.level.push(data.noise_level_db);
+            console.log(`  Found noise_level_db: ${data.noise_level_db}`);
+          }
+          if (data.noise_peak_db !== undefined && data.noise_peak_db !== null) {
+            noiseValues.peak.push(data.noise_peak_db);
+            console.log(`  Found noise_peak_db: ${data.noise_peak_db}`);
+          }
         } catch (err) {
           console.warn(`Failed to load data for noise sensor ${sensor.device_id}:`, err);
         }
       }
+      console.log("Noise values collected:", noiseValues);
 
       // Calculate averages
       const avgPM25 = airQualityValues.pm25.length > 0 
@@ -176,12 +251,121 @@ export default function EnvironmentalMonitoringDashboard() {
       // Calculate AQI
       const aqi = (avgPM25 || avgPM10) ? calculateAQI(avgPM25, avgPM10, avgCO2) : null;
 
-      // Load historical trends (simplified - would need proper time-series endpoint)
+      // Load historical trends for charts
+      const today = new Date();
+      const fromDate = new Date(today);
+      
+      if (timeRange === "24h") {
+        fromDate.setHours(today.getHours() - 24);
+      } else if (timeRange === "7d") {
+        fromDate.setDate(today.getDate() - 7);
+      } else if (timeRange === "30d") {
+        fromDate.setDate(today.getDate() - 30);
+      }
+
+      const fromDateStr = fromDate.toISOString().slice(0, 10);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const toDateStr = tomorrow.toISOString().slice(0, 10);
+
       const trends = {
         pm25: [],
+        pm10: [],
         temperature: [],
+        humidity: [],
         noise: [],
       };
+
+      // Load PM2.5 history from air quality sensors
+      for (const sensor of airQualitySensors.slice(0, 1)) {
+        try {
+          const readingsResp = await api.get(`/dashboard/devices/${sensor.device_id}/readings`, {
+            params: {
+              key: "environment.pm25",
+              from_date: fromDateStr,
+              to_date: toDateStr,
+              limit: 100,
+            },
+          });
+          const pm25Readings = readingsResp.data || [];
+          trends.pm25 = pm25Readings.map(r => ({
+            time: new Date(r.timestamp).getTime(),
+            value: r.value,
+          })).sort((a, b) => a.time - b.time);
+
+          const pm10Resp = await api.get(`/dashboard/devices/${sensor.device_id}/readings`, {
+            params: {
+              key: "environment.pm10",
+              from_date: fromDateStr,
+              to_date: toDateStr,
+              limit: 100,
+            },
+          });
+          const pm10Readings = pm10Resp.data || [];
+          trends.pm10 = pm10Readings.map(r => ({
+            time: new Date(r.timestamp).getTime(),
+            value: r.value,
+          })).sort((a, b) => a.time - b.time);
+        } catch (err) {
+          console.warn(`Failed to load PM history for ${sensor.device_id}:`, err);
+        }
+      }
+
+      // Load temperature/humidity history from weather sensors
+      for (const sensor of weatherSensors.slice(0, 1)) {
+        try {
+          const tempResp = await api.get(`/dashboard/devices/${sensor.device_id}/readings`, {
+            params: {
+              key: sensor.device_id === "SM1-RP" ? "environment.temperature" : "temperature_c",
+              from_date: fromDateStr,
+              to_date: toDateStr,
+              limit: 100,
+            },
+          });
+          const tempReadings = tempResp.data || [];
+          trends.temperature = tempReadings.map(r => ({
+            time: new Date(r.timestamp).getTime(),
+            value: r.value,
+          })).sort((a, b) => a.time - b.time);
+
+          const humidityResp = await api.get(`/dashboard/devices/${sensor.device_id}/readings`, {
+            params: {
+              key: sensor.device_id === "SM1-RP" ? "environment.humidity" : "humidity_percent",
+              from_date: fromDateStr,
+              to_date: toDateStr,
+              limit: 100,
+            },
+          });
+          const humidityReadings = humidityResp.data || [];
+          trends.humidity = humidityReadings.map(r => ({
+            time: new Date(r.timestamp).getTime(),
+            value: r.value,
+          })).sort((a, b) => a.time - b.time);
+        } catch (err) {
+          console.warn(`Failed to load weather history for ${sensor.device_id}:`, err);
+        }
+      }
+
+      // Load noise history
+      for (const sensor of noiseSensors.slice(0, 1)) {
+        try {
+          const noiseResp = await api.get(`/dashboard/devices/${sensor.device_id}/readings`, {
+            params: {
+              key: "noise_level_db",
+              from_date: fromDateStr,
+              to_date: toDateStr,
+              limit: 100,
+            },
+          });
+          const noiseReadings = noiseResp.data || [];
+          trends.noise = noiseReadings.map(r => ({
+            time: new Date(r.timestamp).getTime(),
+            value: r.value,
+          })).sort((a, b) => a.time - b.time);
+        } catch (err) {
+          console.warn(`Failed to load noise history for ${sensor.device_id}:`, err);
+        }
+      }
 
       setEnvData({
         airQuality: {
@@ -307,7 +491,7 @@ export default function EnvironmentalMonitoringDashboard() {
           )}
 
           {/* Summary Metrics */}
-          <div className="metrics-grid" style={{ marginBottom: "var(--space-6)" }}>
+          <div className="metrics-grid" style={{ marginBottom: "var(--space-6)", gridTemplateColumns: "repeat(4, 1fr)" }}>
             {envData.weather.temperature !== null && (
               <div className="metric-card">
                 <div className="metric-card__header">
@@ -372,6 +556,139 @@ export default function EnvironmentalMonitoringDashboard() {
               </div>
             )}
           </div>
+
+          {/* Environmental History Chart */}
+          {(envData.trends.pm25.length > 0 || envData.trends.temperature.length > 0 || envData.trends.noise.length > 0) && (
+            <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+              <div className="card__header">
+                <h3 className="card__title">Environmental Trends</h3>
+              </div>
+              <div className="card__body">
+                <ResponsiveContainer width="100%" height={400}>
+                  <AreaChart data={(() => {
+                    // Combine all time series into a single dataset
+                    const timeMap = new Map();
+                    
+                    // Add PM2.5 data
+                    envData.trends.pm25.forEach(point => {
+                      const key = point.time;
+                      if (!timeMap.has(key)) {
+                        timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
+                      }
+                      timeMap.get(key).pm25 = point.value;
+                    });
+                    
+                    // Add PM10 data
+                    envData.trends.pm10.forEach(point => {
+                      const key = point.time;
+                      if (!timeMap.has(key)) {
+                        timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
+                      }
+                      timeMap.get(key).pm10 = point.value;
+                    });
+                    
+                    // Add temperature data
+                    envData.trends.temperature.forEach(point => {
+                      const key = point.time;
+                      if (!timeMap.has(key)) {
+                        timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
+                      }
+                      timeMap.get(key).temperature = point.value;
+                    });
+                    
+                    // Add humidity data
+                    envData.trends.humidity.forEach(point => {
+                      const key = point.time;
+                      if (!timeMap.has(key)) {
+                        timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
+                      }
+                      timeMap.get(key).humidity = point.value;
+                    });
+                    
+                    // Add noise data
+                    envData.trends.noise.forEach(point => {
+                      const key = point.time;
+                      if (!timeMap.has(key)) {
+                        timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
+                      }
+                      timeMap.get(key).noise = point.value;
+                    });
+                    
+                    return Array.from(timeMap.values()).sort((a, b) => 
+                      a.timestamp - b.timestamp
+                    );
+                  })()}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="time" 
+                      tick={{ fontSize: 12 }}
+                      angle={-45}
+                      textAnchor="end"
+                      height={80}
+                    />
+                    <YAxis yAxisId="left" />
+                    <YAxis yAxisId="right" orientation="right" />
+                    <Tooltip />
+                    {envData.trends.pm25.length > 0 && (
+                      <Area 
+                        yAxisId="left"
+                        type="monotone" 
+                        dataKey="pm25" 
+                        stroke="#facc15" 
+                        fill="#facc15" 
+                        fillOpacity={0.3}
+                        name="PM2.5 (μg/m³)"
+                      />
+                    )}
+                    {envData.trends.pm10.length > 0 && (
+                      <Area 
+                        yAxisId="left"
+                        type="monotone" 
+                        dataKey="pm10" 
+                        stroke="#f97316" 
+                        fill="#f97316" 
+                        fillOpacity={0.3}
+                        name="PM10 (μg/m³)"
+                      />
+                    )}
+                    {envData.trends.temperature.length > 0 && (
+                      <Area 
+                        yAxisId="right"
+                        type="monotone" 
+                        dataKey="temperature" 
+                        stroke="#3b82f6" 
+                        fill="#3b82f6" 
+                        fillOpacity={0.3}
+                        name="Temperature (°C)"
+                      />
+                    )}
+                    {envData.trends.humidity.length > 0 && (
+                      <Area 
+                        yAxisId="right"
+                        type="monotone" 
+                        dataKey="humidity" 
+                        stroke="#10b981" 
+                        fill="#10b981" 
+                        fillOpacity={0.3}
+                        name="Humidity (%)"
+                      />
+                    )}
+                    {envData.trends.noise.length > 0 && (
+                      <Area 
+                        yAxisId="right"
+                        type="monotone" 
+                        dataKey="noise" 
+                        stroke="#ef4444" 
+                        fill="#ef4444" 
+                        fillOpacity={0.3}
+                        name="Noise (dB)"
+                      />
+                    )}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           {/* Sensor Status Grid */}
           <div className="card" style={{ marginBottom: "var(--space-6)" }}>

@@ -20,7 +20,15 @@ MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
+
+# Access token used for secure telemetry ingestion (must match device metadata)
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
+
+# Location (Murabba, Riyadh coordinates) - SR-RP-1
+LAT = float(os.environ.get("LAT", "24.6550"))
+LNG = float(os.environ.get("LNG", "46.7150"))
 
 
 def build_payload() -> dict:
@@ -57,9 +65,18 @@ def build_payload() -> dict:
     else:
         reward_credits = random.randint(0, 3)
     
+    # Approximate instantaneous power draw (W)
+    # Higher when compactor is ACTIVE, lower when IDLE
+    if compactor_status == "ACTIVE":
+        energy_consumption_w = random.uniform(500.0, 1200.0)
+    else:
+        energy_consumption_w = random.uniform(60.0, 150.0)
+
     payload = {
         "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,
+        "longitude": LNG,
         "fill_level_percent": fill_level,
         "bin_weight_kg": bin_weight,
         "compactor_status": compactor_status,
@@ -68,7 +85,11 @@ def build_payload() -> dict:
         "paper_count": paper_count,
         "contamination_detected": contamination_detected,
         "collection_required": collection_required,
-        "reward_credits_issued": reward_credits
+        "reward_credits_issued": reward_credits,
+        # Instantaneous power draw in watts for Energy Management dashboard
+        "energy_consumption_w": round(energy_consumption_w, 1),
+        # Access token for backend authentication
+        "access_token": ACCESS_TOKEN,
     }
     
     return payload

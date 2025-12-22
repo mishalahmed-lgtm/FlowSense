@@ -104,25 +104,49 @@ def verify_device_access_token(device: Device, provided_token: Optional[str]) ->
     """
     import json
     
-    try:
-        metadata = json.loads(device.device_metadata) if isinstance(device.device_metadata, str) else device.device_metadata
-        device_token = metadata.get("access_token") if metadata else None
-        
-        # Access token is required - if not configured, reject (should not happen for new devices)
-        if not device_token:
-            logger.warning(f"Device {device.device_id} has no access token configured")
-            return False
-        
-        # Token must be provided and must match
-        if not provided_token:
-            return False
-        
-        if provided_token != device_token:
-            return False
-        
-        return True
-    except (json.JSONDecodeError, AttributeError, TypeError) as e:
-        # Invalid metadata format - reject for security
-        logger.error(f"Invalid device metadata for device {device.device_id}: {e}")
+    metadata = None
+    raw_meta = device.device_metadata
+    
+    # 1) If already a dict (from JSON/JSONB column), use directly
+    if isinstance(raw_meta, dict):
+        metadata = raw_meta
+    # 2) If it's a string, try strict JSON first
+    elif isinstance(raw_meta, str) and raw_meta.strip():
+        meta_str = raw_meta.strip()
+        try:
+            metadata = json.loads(meta_str)
+        except (json.JSONDecodeError, TypeError):
+            # 3) Fallback: tolerate simple "{key: value}" or "{key: value, ...}" style
+            # used by some existing rows; parse it into a dict instead of hard failing.
+            try:
+                inner = meta_str.lstrip("{").rstrip("}")
+                pairs = [p.strip() for p in inner.split(",") if p.strip()]
+                parsed = {}
+                for pair in pairs:
+                    if ":" not in pair:
+                        continue
+                    k, v = pair.split(":", 1)
+                    parsed[k.strip().strip('"').strip("'")] = v.strip().strip('"').strip("'")
+                metadata = parsed or None
+            except Exception as e:  # noqa: BLE001
+                logger.error(f"Invalid device metadata for device {device.device_id}: {e}")
+                metadata = None
+    else:
+        metadata = None
+    
+    device_token = metadata.get("access_token") if isinstance(metadata, dict) else None
+    
+    # Access token is required - if not configured, reject (should not happen for new devices)
+    if not device_token:
+        logger.warning(f"Device {device.device_id} has no access token configured")
         return False
+    
+    # Token must be provided and must match
+    if not provided_token:
+        return False
+    
+    if provided_token != device_token:
+        return False
+    
+    return True
 

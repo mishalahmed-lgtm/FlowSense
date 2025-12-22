@@ -20,7 +20,15 @@ MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
+
+# Access token used for secure telemetry ingestion (must match device metadata)
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
+
+# Location (Murabba, Riyadh coordinates) - AN-RP-1
+LAT = float(os.environ.get("LAT", "24.6800"))
+LNG = float(os.environ.get("LNG", "46.7400"))
 
 
 def build_payload() -> dict:
@@ -59,17 +67,29 @@ def build_payload() -> dict:
     
     # Location zone
     location_zone = random.choice(["north_lawn", "south_lawn", "east_lawn", "west_lawn", "central_plaza"])
+
+    # Approximate instantaneous power draw (W)
+    # Low-power sensor, slightly higher when alerting
+    base_power_w = random.uniform(3.0, 5.0)
+    alert_extra_power_w = 1.5 if alert_triggered else 0.0
+    energy_consumption_w = base_power_w + alert_extra_power_w
     
     payload = {
         "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,
+        "longitude": LNG,
         "noise_level_db": noise_level,
         "noise_peak_db": noise_peak,
         "frequency_hz": frequency,
         "alert_triggered": alert_triggered,
         "noise_category": noise_category,
         "event_mode": event_mode,
-        "location_zone": location_zone
+        "location_zone": location_zone,
+        # Instantaneous power draw in watts for Energy Management dashboard
+        "energy_consumption_w": round(energy_consumption_w, 2),
+        # Access token for backend authentication
+        "access_token": ACCESS_TOKEN,
     }
     
     return payload

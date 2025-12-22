@@ -13,6 +13,7 @@ import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Collapsible from "../components/Collapsible.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
+import DeviceMapView from "../components/DeviceMapView.jsx";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./DeviceDashboardPage.css";
@@ -209,6 +210,7 @@ export default function DeviceDashboardPage() {
   const [readings, setReadings] = useState([]);
   const [readingsLoading, setReadingsLoading] = useState(false);
   const [readingsError, setReadingsError] = useState(null);
+  const [showMap, setShowMap] = useState(false);
   const [readingsFilter, setReadingsFilter] = useState({
     key: "",
     limit: 10,
@@ -685,6 +687,14 @@ export default function DeviceDashboardPage() {
           <button
             className="btn btn--secondary"
             type="button"
+            onClick={() => setShowMap(!showMap)}
+          >
+            <Icon name="map" size={16} />
+            <span>{showMap ? "Hide map" : "Show map"}</span>
+          </button>
+          <button
+            className="btn btn--secondary"
+            type="button"
             onClick={() => setReadingsExpanded(!readingsExpanded)}
           >
             <Icon name="inbox" size={16} />
@@ -709,6 +719,23 @@ export default function DeviceDashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Device Map Section */}
+      {showMap && (
+        <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+          <div className="card__header">
+            <h3 className="card__title">Device Location</h3>
+          </div>
+          <div className="card__body" style={{ padding: 0 }}>
+            <DeviceMapView 
+              deviceIds={[deviceId]} 
+              highlightDeviceId={deviceId}
+              height="400px"
+              showPopup={true}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Device Readings Section - Expanded in Middle */}
       {readingsExpanded && (

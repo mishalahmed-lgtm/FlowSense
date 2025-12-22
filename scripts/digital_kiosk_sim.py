@@ -36,6 +36,10 @@ MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
 # Default send interval: 5 minutes (can override via SEND_INTERVAL_SECONDS env)
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "300"))
 
+# Location (Murabba, Riyadh coordinates) - DK_MP-1
+LAT = float(os.environ.get("LAT", "24.6750"))
+LNG = float(os.environ.get("LNG", "46.7350"))
+
 
 def build_payload() -> dict:
     """Build a telemetry payload similar to the example, with realistic variation."""
@@ -66,6 +70,8 @@ def build_payload() -> dict:
     payload = {
         "deviceId": KIOSK_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,
+        "longitude": LNG,
         "environment": {
             "temperature": round(random.uniform(28.0, 38.0), 1),
             "humidity": random.randint(35, 65),

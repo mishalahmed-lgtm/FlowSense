@@ -20,7 +20,15 @@ MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
+
+# Access token used for secure telemetry ingestion (must match device metadata)
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
+
+# Location (Murabba, Riyadh coordinates) - SW-RP-1
+LAT = float(os.environ.get("LAT", "24.6600"))
+LNG = float(os.environ.get("LNG", "46.7200"))
 
 
 def build_payload() -> dict:
@@ -74,10 +82,19 @@ def build_payload() -> dict:
     
     # Panic button - very rare
     panic_button_pressed = random.random() < 0.001  # 0.1% chance
+
+    # Approximate instantaneous power draw (W)
+    # Higher when occupied (lights, exhaust fans, sensors), lower when idle
+    if occupancy:
+        energy_consumption_w = random.uniform(250.0, 450.0)
+    else:
+        energy_consumption_w = random.uniform(80.0, 150.0)
     
     payload = {
         "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,
+        "longitude": LNG,
         "occupancy": occupancy,
         "occupancy_duration_min": occupancy_duration,
         "temperature_c": temperature,
@@ -87,7 +104,11 @@ def build_payload() -> dict:
         "soap_level_percent": soap_level,
         "toilet_paper_level_percent": toilet_paper_level,
         "water_leak_detected": water_leak_detected,
-        "panic_button_pressed": panic_button_pressed
+        "panic_button_pressed": panic_button_pressed,
+        # Instantaneous power draw in watts for Energy Management dashboard
+        "energy_consumption_w": round(energy_consumption_w, 1),
+        # Access token for backend authentication
+        "access_token": ACCESS_TOKEN,
     }
     
     return payload

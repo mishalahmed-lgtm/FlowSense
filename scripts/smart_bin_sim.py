@@ -33,8 +33,15 @@ MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"devices/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
 
+# Access token used for secure telemetry ingestion (must match device metadata)
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+
 # Default send interval: 5 minutes (can override via SEND_INTERVAL_SECONDS env)
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "300"))
+
+# Location (Murabba, Riyadh coordinates) - SB-RP-1
+LAT = float(os.environ.get("LAT", "24.6500"))
+LNG = float(os.environ.get("LNG", "46.7100"))
 
 
 def build_payload() -> dict:
@@ -70,10 +77,21 @@ def build_payload() -> dict:
     # Odor control status
     odor_status = random.choice(["active", "active", "active", "standby"])  # Mostly active
     filter_life = random.randint(60, 90)  # Filter life percentage
+
+    # Approximate instantaneous power draw (W)
+    # - Base idle power
+    # - Extra power when solar charging
+    # - Extra power when compacting
+    base_power_w = 15.0
+    charging_power_w = 10.0 if solar_charging else 0.0
+    compaction_power_w = 120.0 if fire_alert or movement_alert else 0.0
+    energy_consumption_w = base_power_w + charging_power_w + compaction_power_w
     
     payload = {
         "deviceId": BIN_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,
+        "longitude": LNG,
         "fillLevel": {
             "generalWaste": general_waste,
             "recyclables": recyclables,
@@ -94,7 +112,11 @@ def build_payload() -> dict:
         "odorControl": {
             "status": odor_status,
             "filterLifePercent": filter_life
-        }
+        },
+        # Instantaneous power draw in watts for Energy Management dashboard
+        "energy_consumption_w": round(energy_consumption_w, 1),
+        # Access token for backend authentication
+        "access_token": ACCESS_TOKEN,
     }
     
     return payload

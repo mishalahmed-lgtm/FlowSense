@@ -22,6 +22,10 @@ MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
 
+# Location (Murabba, Riyadh coordinates) - PLP-RP-1
+LAT = float(os.environ.get("LAT", "24.6650"))
+LNG = float(os.environ.get("LNG", "46.7250"))
+
 
 def build_payload() -> dict:
     """Build a telemetry payload matching lightpole_12 format."""
@@ -71,6 +75,8 @@ def build_payload() -> dict:
     payload = {
         "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,
+        "longitude": LNG,
         "motion_detected": motion_detected,
         "crowd_density": crowd_density,
         "brightness_percent": brightness,

@@ -66,13 +66,14 @@ def get_devices_for_map(
             if isinstance(latest.data, dict):
                 # Check nested location object
                 if "location" in latest.data and isinstance(latest.data["location"], dict):
-                    latitude = latest.data["location"].get("latitude")
-                    longitude = latest.data["location"].get("longitude")
-                # Check top-level lat/lng
+                    loc_obj = latest.data["location"]
+                    latitude = loc_obj.get("latitude") or loc_obj.get("lat")
+                    longitude = loc_obj.get("longitude") or loc_obj.get("lng") or loc_obj.get("lon")
+                # Check top-level latitude/longitude
                 elif "latitude" in latest.data:
                     latitude = latest.data.get("latitude")
                     longitude = latest.data.get("longitude")
-                # Check lat/lon (alternative spelling)
+                # Check top-level lat/lng/lon (alternative spelling)
                 elif "lat" in latest.data:
                     latitude = latest.data.get("lat")
                     longitude = latest.data.get("lon") or latest.data.get("lng")
@@ -135,13 +136,14 @@ def get_device_location(
     if latest and latest.data and isinstance(latest.data, dict):
         # Check nested location object
         if "location" in latest.data and isinstance(latest.data["location"], dict):
-            latitude = latest.data["location"].get("latitude")
-            longitude = latest.data["location"].get("longitude")
-        # Check top-level lat/lng
+            loc_obj = latest.data["location"]
+            latitude = loc_obj.get("latitude") or loc_obj.get("lat")
+            longitude = loc_obj.get("longitude") or loc_obj.get("lng") or loc_obj.get("lon")
+        # Check top-level latitude/longitude
         elif "latitude" in latest.data:
             latitude = latest.data.get("latitude")
             longitude = latest.data.get("longitude")
-        # Check lat/lon (alternative spelling)
+        # Check top-level lat/lng/lon (alternative spelling)
         elif "lat" in latest.data:
             latitude = latest.data.get("lat")
             longitude = latest.data.get("lon") or latest.data.get("lng")

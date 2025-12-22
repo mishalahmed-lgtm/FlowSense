@@ -1,0 +1,27 @@
+/* Custom scrollbar for popup */
+.popup-scrollable::-webkit-scrollbar {
+  width: 8px;
+}
+
+.popup-scrollable::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 4px;
+  margin: 4px 0;
+}
+
+.popup-scrollable::-webkit-scrollbar-thumb {
+  background: #999;
+  border-radius: 4px;
+  border: 1px solid #f5f5f5;
+}
+
+.popup-scrollable::-webkit-scrollbar-thumb:hover {
+  background: #777;
+}
+
+/* Firefox scrollbar */
+.popup-scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: #999 #f5f5f5;
+}
+

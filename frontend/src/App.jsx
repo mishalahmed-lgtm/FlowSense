@@ -18,6 +18,7 @@ import DeviceHealthPage from "./pages/DeviceHealthPage.jsx";
 import AnalyticsPage from "./pages/AnalyticsPage.jsx";
 import EnergyManagementDashboard from "./pages/EnergyManagementDashboard.jsx";
 import EnvironmentalMonitoringDashboard from "./pages/EnvironmentalMonitoringDashboard.jsx";
+import DevicesMapPage from "./pages/DevicesMapPage.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
@@ -88,6 +89,9 @@ function App() {
                 <Route path="/devices/:deviceId/rules" element={<DeviceRulesPage />} />
               </>
             )}
+            
+            {/* Map Routes */}
+            <Route path="/maps" element={<DevicesMapPage />} />
             
             {/* Dashboard Routes */}
             {hasModule("dashboards") && (
