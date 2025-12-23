@@ -37,7 +37,7 @@ const inactiveIcon = new L.Icon({
 });
 
 // Component to auto-fit map bounds to markers
-function MapBounds({ devices }) {
+function MapBounds({ devices, highlightDeviceId }) {
   const map = useMap();
   
   useEffect(() => {
@@ -45,6 +45,15 @@ function MapBounds({ devices }) {
     
     const validDevices = devices.filter(d => d.latitude && d.longitude);
     if (validDevices.length === 0) return;
+    
+    // If highlighting a specific device, center on it
+    if (highlightDeviceId) {
+      const highlighted = validDevices.find(d => d.device_id === highlightDeviceId);
+      if (highlighted) {
+        map.setView([highlighted.latitude, highlighted.longitude], 16);
+        return;
+      }
+    }
     
     if (validDevices.length === 1) {
       map.setView([validDevices[0].latitude, validDevices[0].longitude], 15);
@@ -54,7 +63,7 @@ function MapBounds({ devices }) {
       );
       map.fitBounds(bounds, { padding: [50, 50] });
     }
-  }, [devices, map]);
+  }, [devices, highlightDeviceId, map]);
   
   return null;
 }
@@ -66,6 +75,10 @@ export default function DevicesMapPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [devices, setDevices] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterProtocol, setFilterProtocol] = useState("all");
+  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   
   useEffect(() => {
     if (!token) return;
@@ -87,8 +100,75 @@ export default function DevicesMapPage() {
     }
   };
   
-  const devicesWithLocation = devices.filter(d => d.latitude && d.longitude);
-  const devicesWithoutLocation = devices.filter(d => !d.latitude || !d.longitude);
+  // Filter devices based on search query, status, and protocol
+  const filteredDevices = useMemo(() => {
+    let filtered = devices;
+    
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter(device => 
+        device.device_name?.toLowerCase().includes(query) ||
+        device.device_id?.toLowerCase().includes(query)
+      );
+    }
+    
+    // Status filter
+    if (filterStatus !== "all") {
+      filtered = filtered.filter(device => 
+        filterStatus === "active" ? device.status === "active" : device.status === "inactive"
+      );
+    }
+    
+    // Protocol filter (if we have protocol info in device data)
+    // Note: The maps API might not return protocol, so this might need adjustment
+    if (filterProtocol !== "all") {
+      // This will be implemented if protocol data is available
+      // For now, we'll skip protocol filtering if not available
+    }
+    
+    return filtered;
+  }, [devices, searchQuery, filterStatus, filterProtocol]);
+  
+  // Get unique protocols from devices (if available)
+  const protocols = useMemo(() => {
+    // Extract protocols from devices if available
+    // This might need to be adjusted based on actual data structure
+    return [];
+  }, [devices]);
+  
+  const devicesWithLocation = useMemo(() => 
+    filteredDevices.filter(d => d.latitude && d.longitude),
+    [filteredDevices]
+  );
+  const devicesWithoutLocation = useMemo(() => 
+    filteredDevices.filter(d => !d.latitude || !d.longitude),
+    [filteredDevices]
+  );
+  
+  // Get search suggestions
+  const searchSuggestions = useMemo(() => {
+    if (!searchQuery.trim() || searchQuery.length < 2) return [];
+    const query = searchQuery.toLowerCase().trim();
+    return devices
+      .filter(device => 
+        device.device_name?.toLowerCase().includes(query) ||
+        device.device_id?.toLowerCase().includes(query)
+      )
+      .slice(0, 5);
+  }, [devices, searchQuery]);
+  
+  const handleDeviceSelect = (deviceId) => {
+    setSelectedDeviceId(deviceId);
+    setSearchQuery("");
+    // Scroll to map if needed
+    setTimeout(() => {
+      const mapElement = document.querySelector('.leaflet-container');
+      if (mapElement) {
+        mapElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
+  };
   
   // Default center (Riyadh, Saudi Arabia)
   const defaultCenter = [24.7136, 46.6753];
@@ -188,15 +268,166 @@ export default function DevicesMapPage() {
                 <Icon name="check-circle" size="lg" />
               </div>
               <div className="metric-card__value">
-                {devices.filter(d => d.status === "active").length}
+                {filteredDevices.filter(d => d.status === "active").length}
               </div>
+            </div>
+          </div>
+          
+          {/* Filters Section */}
+          <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-4)", flexWrap: "wrap" }}>
+              {/* Search */}
+              <div className="search-bar" style={{ position: "relative", flex: "1", minWidth: "200px" }}>
+                <span className="search-bar__icon">
+                  <Icon name="search" size={18} />
+                </span>
+                <input
+                  type="text"
+                  className="search-bar__input"
+                  placeholder="Search devices..."
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setSelectedDeviceId(null);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setSearchQuery("");
+                      setSelectedDeviceId(null);
+                    } else if (e.key === "Enter" && searchSuggestions.length > 0) {
+                      handleDeviceSelect(searchSuggestions[0].device_id);
+                    }
+                  }}
+                />
+                {searchQuery && (
+                  <button
+                    onClick={() => {
+                      setSearchQuery("");
+                      setSelectedDeviceId(null);
+                    }}
+                    style={{
+                      position: "absolute",
+                      right: "var(--space-2)",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: "var(--space-1)",
+                      display: "flex",
+                      alignItems: "center",
+                      color: "var(--color-text-secondary)",
+                    }}
+                  >
+                    <Icon name="x" size="sm" />
+                  </button>
+                )}
+                
+                {/* Search Suggestions Dropdown */}
+                {searchQuery.trim().length >= 2 && searchSuggestions.length > 0 && (
+                  <div style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    right: 0,
+                    marginTop: "var(--space-1)",
+                    background: "var(--color-bg-primary)",
+                    border: "1px solid var(--color-border)",
+                    borderRadius: "var(--radius-md)",
+                    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+                    zIndex: 1000,
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}>
+                    {searchSuggestions.map((device) => (
+                      <div
+                        key={device.device_id}
+                        onClick={() => handleDeviceSelect(device.device_id)}
+                        style={{
+                          padding: "var(--space-3)",
+                          cursor: "pointer",
+                          borderBottom: "1px solid var(--color-border)",
+                          transition: "background-color 0.2s",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = "var(--color-bg-secondary)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = "transparent";
+                        }}
+                      >
+                        <div style={{ 
+                          fontWeight: "var(--font-weight-semibold)",
+                          marginBottom: "var(--space-1)",
+                          color: "var(--color-text-primary)"
+                        }}>
+                          {device.device_name}
+                        </div>
+                        <div style={{ 
+                          fontSize: "var(--font-size-sm)",
+                          color: "var(--color-text-secondary)"
+                        }}>
+                          {device.device_id}
+                        </div>
+                        <div style={{ 
+                          fontSize: "var(--font-size-xs)",
+                          marginTop: "var(--space-1)",
+                          color: device.status === "active" ? "var(--color-success)" : "var(--color-error)"
+                        }}>
+                          {device.status === "active" ? "● Active" : "● Inactive"}
+                          {device.latitude && device.longitude && " • Has location"}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Status Filter */}
+              <select
+                className="filter-select"
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="active">Online</option>
+                <option value="inactive">Offline</option>
+              </select>
+
+              {/* Protocol Filter - Only show if protocols are available */}
+              {protocols.length > 0 && (
+                <select
+                  className="filter-select"
+                  value={filterProtocol}
+                  onChange={(e) => setFilterProtocol(e.target.value)}
+                >
+                  <option value="all">All Protocols</option>
+                  {protocols.map((protocol) => (
+                    <option key={protocol} value={protocol}>
+                      {protocol}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
           
           {/* Map */}
           <div className="card" style={{ marginBottom: "var(--space-6)" }}>
             <div className="card__header">
-              <h3 className="card__title">Device Locations</h3>
+              <h3 className="card__title">
+                Device Locations
+                {(searchQuery || filterStatus !== "all" || filterProtocol !== "all") && (
+                  <span style={{ 
+                    fontSize: "var(--font-size-sm)",
+                    fontWeight: "var(--font-weight-normal)",
+                    color: "var(--color-text-secondary)",
+                    marginLeft: "var(--space-2)"
+                  }}>
+                    ({devicesWithLocation.length} {devicesWithLocation.length === 1 ? 'device' : 'devices'} found)
+                  </span>
+                )}
+              </h3>
             </div>
             <div className="card__body" style={{ padding: 0 }}>
               <div style={{ height: "600px", width: "100%", position: "relative" }}>
@@ -211,12 +442,17 @@ export default function DevicesMapPage() {
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
-                    <MapBounds devices={devicesWithLocation} />
+                    <MapBounds devices={devicesWithLocation} highlightDeviceId={selectedDeviceId} />
                     {devicesWithLocation.map((device) => (
                       <Marker
                         key={device.device_id}
                         position={[device.latitude, device.longitude]}
                         icon={device.status === "active" ? activeIcon : inactiveIcon}
+                        eventHandlers={{
+                          click: () => {
+                            setSelectedDeviceId(device.device_id);
+                          }
+                        }}
                       >
                         <Popup maxWidth={300}>
                           <div 

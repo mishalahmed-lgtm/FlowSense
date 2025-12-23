@@ -102,7 +102,12 @@ export default function EnergyManagementDashboard() {
               to_date: toDateStr,
             },
           });
-          utilityConsumption.push(...(response.data || []));
+          const data = response.data || [];
+          console.log(`${utility} consumption data (${data.length} items):`, data);
+          if (data.length > 0) {
+            console.log(`First ${utility} item:`, JSON.stringify(data[0], null, 2));
+          }
+          utilityConsumption.push(...data);
         } catch (err) {
           console.warn(`Failed to load ${utility} data:`, err);
         }
@@ -219,8 +224,11 @@ export default function EnergyManagementDashboard() {
       utilityConsumption.forEach((item) => {
         const utility = item.utility_kind;
         if (totals[utility]) {
-          totals[utility].consumption += item.consumption || 0;
-          totals[utility].cost += item.amount || 0;
+          // Handle null/undefined consumption values
+          const consumption = (item.consumption !== null && item.consumption !== undefined) ? item.consumption : 0;
+          const amount = (item.amount !== null && item.amount !== undefined) ? item.amount : 0;
+          totals[utility].consumption += consumption;
+          totals[utility].cost += amount;
           // Use currency from API if available, otherwise keep default
           if (item.currency) {
             totals[utility].currency = item.currency;
@@ -239,8 +247,8 @@ export default function EnergyManagementDashboard() {
             });
           }
           const deviceData = deviceMap.get(key);
-          deviceData.consumption += item.consumption || 0;
-          deviceData.cost += item.amount || 0;
+          deviceData.consumption += (item.consumption !== null && item.consumption !== undefined) ? item.consumption : 0;
+          deviceData.cost += (item.amount !== null && item.amount !== undefined) ? item.amount : 0;
         }
       });
 
