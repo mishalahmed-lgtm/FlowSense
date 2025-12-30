@@ -1,12 +1,13 @@
 """Admin API endpoints for device management."""
 
 import json
+import math
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import text
+from sqlalchemy import text, or_
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -81,6 +82,17 @@ class DeviceResponse(BaseModel):
     metadata: DeviceMetadata
     provisioning_key: Optional[ProvisioningKeyResponse]
     has_dashboard: bool = False
+
+
+class PaginatedDeviceResponse(BaseModel):
+    """Response model for paginated device list."""
+    devices: List[DeviceResponse]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    total_active: Optional[int] = None  # Total active devices (based on DB flag)
+    total_inactive: Optional[int] = None  # Total inactive devices (based on DB flag)
 
 
 class DeviceTypeResponse(BaseModel):
@@ -224,20 +236,26 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     return TokenResponse(access_token=token, user=user_info)
 
 
-@router.get("/devices", response_model=List[DeviceResponse])
+@router.get("/devices", response_model=PaginatedDeviceResponse)
 def list_devices(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    limit: int = Query(50, ge=1, le=1000, description="Number of devices per page"),
+    search: Optional[str] = Query(None, description="Search by device_id or name"),
+    status: Optional[str] = Query(None, description="Filter by status: 'active' or 'inactive'"),
+    protocol: Optional[str] = Query(None, description="Filter by protocol (e.g., 'HTTP', 'MQTT')"),
 ):
-    """Return devices (filtered by tenant for tenant admins).
+    """Return devices (filtered by tenant for tenant admins) with pagination.
 
     The `is_active` flag in the response reflects *live* status based on
     recent telemetry, not just the static DB flag:
-    - If the device has a `telemetry_latest` row updated in the last 90 seconds,
+    - If the device has a `telemetry_latest` row updated in the last 600 seconds,
       it is marked Active.
     - Otherwise it is marked Inactive.
     """
     from sqlalchemy.orm import joinedload
+    from sqlalchemy import or_
     
     query = db.query(Device).options(
         joinedload(Device.dashboard),
@@ -250,7 +268,48 @@ def list_devices(
     if current_user.role == UserRole.TENANT_ADMIN:
         query = query.filter(Device.tenant_id == current_user.tenant_id)
     
-    devices = query.all()
+    # Server-side search filter
+    if search:
+        search_term = f"%{search.lower()}%"
+        query = query.filter(
+            or_(
+                Device.device_id.ilike(search_term),
+                Device.name.ilike(search_term)
+            )
+        )
+    
+    # Server-side protocol filter
+    if protocol:
+        query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
+    
+    # Get total count before pagination (for metadata)
+    total_count = query.count()
+    
+    # Get total active/inactive counts based on live telemetry status
+    # A device is "active" if it has sent telemetry in the last 10 minutes
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=600)  # 10 minutes
+    
+    # Count devices with recent telemetry (active)
+    # Use a subquery to join with TelemetryLatest and filter by updated_at
+    from models import TelemetryLatest
+    from sqlalchemy import and_
+    
+    active_devices_query = query.join(
+        TelemetryLatest, 
+        and_(
+            TelemetryLatest.device_id == Device.id,
+            TelemetryLatest.updated_at >= cutoff
+        )
+    ).distinct()
+    total_active_count = active_devices_query.count()
+    
+    # Inactive devices = total - active
+    total_inactive_count = total_count - total_active_count
+    
+    # Apply pagination
+    offset = (page - 1) * limit
+    devices = query.offset(offset).limit(limit).all()
 
     # Determine live status from latest telemetry timestamps
     # Increased to 10 minutes to accommodate devices with longer reporting intervals
@@ -259,23 +318,31 @@ def list_devices(
     live_map: Dict[int, bool] = {}
     dashboard_map: Dict[int, bool] = {}
 
-    for device in devices:
-        latest = (
+    # Optimize: Batch query all TelemetryLatest records at once instead of N+1 queries
+    if devices:
+        device_ids = [device.id for device in devices]
+        latest_records = (
             db.query(TelemetryLatest)
-            .filter(TelemetryLatest.device_id == device.id)
-            .first()
+            .filter(TelemetryLatest.device_id.in_(device_ids))
+            .all()
         )
-        is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
-        live_map[device.id] = is_live
+        # Create a map of device_id -> latest record
+        latest_by_device_id = {record.device_id: record for record in latest_records}
         
-        # Check if device has a dashboard with widgets
-        has_dash = False
-        if device.dashboard and device.dashboard.config:
-            widgets = device.dashboard.config.get("widgets", [])
-            has_dash = len(widgets) > 0
-        dashboard_map[device.id] = has_dash
+        for device in devices:
+            latest = latest_by_device_id.get(device.id)
+            is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
+            live_map[device.id] = is_live
+            
+            # Check if device has a dashboard with widgets
+            has_dash = False
+            if device.dashboard and device.dashboard.config:
+                widgets = device.dashboard.config.get("widgets", [])
+                has_dash = len(widgets) > 0
+            dashboard_map[device.id] = has_dash
 
-    return [
+    # Serialize devices
+    serialized_devices = [
         _serialize_device(
             device, 
             is_live=live_map.get(device.id, False),
@@ -283,6 +350,41 @@ def list_devices(
         )
         for device in devices
     ]
+    
+    # Apply server-side status filter if requested (after determining live status)
+    if status:
+        is_active_filter = status.lower() == "active"
+        serialized_devices = [d for d in serialized_devices if d.is_active == is_active_filter]
+        # Recalculate total if status filter was applied
+        # Note: This is an approximation since we'd need to check live status for all devices
+        # For better accuracy, we could add a separate endpoint for stats
+        if status:
+            status_query = db.query(Device)
+            if current_user.role == UserRole.TENANT_ADMIN:
+                status_query = status_query.filter(Device.tenant_id == current_user.tenant_id)
+            if search:
+                search_term = f"%{search.lower()}%"
+                status_query = status_query.filter(
+                    or_(
+                        Device.device_id.ilike(search_term),
+                        Device.name.ilike(search_term)
+                    )
+                )
+            if protocol:
+                status_query = status_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
+            total_count = status_query.count()
+    
+    # Return paginated response with metadata
+    total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
+    return PaginatedDeviceResponse(
+        devices=serialized_devices,
+        total=total_count,
+        page=page,
+        limit=limit,
+        total_pages=total_pages,
+        total_active=total_active_count,
+        total_inactive=total_inactive_count
+    )
 
 
 @router.post("/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)

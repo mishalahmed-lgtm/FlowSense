@@ -8,6 +8,9 @@ export function createApiClient(token) {
     headers: {
       "Content-Type": "application/json",
     },
+    timeout: 60000, // 60 second timeout for large responses
+    maxContentLength: 50 * 1024 * 1024, // 50MB max response size
+    maxBodyLength: 50 * 1024 * 1024, // 50MB max request size
   });
 
   instance.interceptors.request.use((config) => {
@@ -16,6 +19,14 @@ export function createApiClient(token) {
     }
     return config;
   });
+
+  instance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      console.error("API Error:", error);
+      return Promise.reject(error);
+    }
+  );
 
   return instance;
 }

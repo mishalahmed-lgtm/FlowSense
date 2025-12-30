@@ -24,14 +24,70 @@ export default function DevicesPage() {
   const [filterProtocol, setFilterProtocol] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState("grid"); // 'grid' or 'list'
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(50); // Show 50 devices per page
+  const [totalDeviceCount, setTotalDeviceCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalActiveCount, setTotalActiveCount] = useState(0);
+  const [totalInactiveCount, setTotalInactiveCount] = useState(0);
 
-  const loadDevices = async () => {
+  const loadDevices = async (pageNum = currentPage) => {
     try {
-      const response = await api.get("/admin/devices");
-      setDevices(response.data);
+      console.log(`Loading devices (page ${pageNum})...`);
+      const params = {
+        page: pageNum,
+        limit: itemsPerPage,
+      };
+      
+      // Add server-side filters
+      if (searchQuery) {
+        params.search = searchQuery;
+      }
+      if (filterStatus !== "all") {
+        params.status = filterStatus === "active" ? "active" : "inactive";
+      }
+      if (filterProtocol !== "all") {
+        params.protocol = filterProtocol;
+      }
+      
+      const response = await api.get("/admin/devices", { params });
+      const data = response.data;
+      
+      // Handle both old format (array) and new format (paginated object)
+      if (Array.isArray(data)) {
+        // Old format - backward compatibility
+        setDevices(data);
+        setTotalDeviceCount(data.length);
+        setTotalPages(Math.ceil(data.length / itemsPerPage));
+        // Calculate active/inactive from current page
+        const active = data.filter((d) => d.is_active).length;
+        const inactive = data.filter((d) => !d.is_active).length;
+        setTotalActiveCount(active);
+        setTotalInactiveCount(inactive);
+      } else if (data && data.devices) {
+        // New paginated format
+        setDevices(data.devices || []);
+        setTotalDeviceCount(data.total || 0);
+        setTotalPages(data.total_pages || 1);
+        setTotalActiveCount(data.total_active ?? 0);
+        setTotalInactiveCount(data.total_inactive ?? 0);
+        if (data.page && data.page !== currentPage) {
+          setCurrentPage(data.page);
+        }
+      } else {
+        setDevices([]);
+        setTotalDeviceCount(0);
+        setTotalPages(1);
+        setTotalActiveCount(0);
+        setTotalInactiveCount(0);
+      }
+      
+      console.log(`Loaded ${data.devices?.length || data.length || 0} devices (page ${data.page || currentPage}, total: ${data.total || totalDeviceCount})`);
       setError(null);
     } catch (err) {
+      console.error("Error loading devices:", err);
       setError(err.response?.data?.detail || "Failed to load devices");
+      setDevices([]); // Clear devices on error
     }
   };
 
@@ -125,28 +181,30 @@ export default function DevicesPage() {
     }
   };
 
-  const filteredDevices = devices.filter((device) => {
-    if (searchQuery && !device.device_id.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !(device.name || "").toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
+  // With server-side pagination, devices are already filtered and paginated
+  // Calculate active/offline counts from current page (for display only)
+  // Note: For accurate totals across all pages, we'd need a separate stats endpoint
+  // Use total counts from API (for all devices) instead of just current page
+  // The API provides total_active and total_inactive counts
+  const activeCount = totalActiveCount; // Total active devices across all pages
+  const offlineCount = totalInactiveCount; // Total offline devices across all pages
+  
+  // Reset to page 1 when filters change and reload
+  useEffect(() => {
+    if (currentPage !== 1) {
+      setCurrentPage(1);
+    } else {
+      loadDevices(1);
     }
-    if (filterStatus !== "all" && device.is_active !== (filterStatus === "active")) {
-      return false;
-    }
-    if (filterProtocol !== "all") {
-      const deviceProtocol = device.protocol?.toLowerCase() || "";
-      const filterProtocolLower = filterProtocol.toLowerCase();
-      if (filterProtocolLower === "tcp") {
-        if (!deviceProtocol.includes("tcp")) return false;
-      } else if (deviceProtocol !== filterProtocolLower) {
-        return false;
-      }
-    }
-    return true;
-  });
-
-  const activeCount = devices.filter((d) => d.is_active).length;
-  const offlineCount = devices.length - activeCount;
+  }, [searchQuery, filterStatus, filterProtocol]);
+  
+  // Load devices when page changes
+  useEffect(() => {
+    loadDevices(currentPage);
+  }, [currentPage]);
+  
+  // For display, use devices directly (already paginated from server)
+  const displayDevices = devices;
 
   const protocols = [...new Set(devices.map(d => d.protocol).filter(Boolean))];
 
@@ -185,9 +243,9 @@ export default function DevicesPage() {
             </div>
           </div>
           <div className="metric-card__label">TOTAL DEVICES</div>
-          <div className="metric-card__value">{devices.length}</div>
+          <div className="metric-card__value">{totalDeviceCount || devices.length}</div>
           <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-2)" }}>
-            {devices.length} Active
+            Showing {devices.length} of {totalDeviceCount || devices.length}
           </div>
         </div>
 
@@ -199,8 +257,8 @@ export default function DevicesPage() {
           </div>
           <div className="metric-card__label">ONLINE</div>
           <div className="metric-card__value">{activeCount}</div>
-          <div className="metric-card__trend metric-card__trend--up">
-            <Icon name="trending" size={12} /> Active now
+          <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-2)" }}>
+            Active now
           </div>
         </div>
 
@@ -287,6 +345,36 @@ export default function DevicesPage() {
             </button>
           </div>
         </div>
+        
+        {/* Pagination - Moved to top */}
+        {totalPages > 1 && (
+          <div style={{ marginTop: "var(--space-4)", paddingTop: "var(--space-4)", borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "var(--space-4)" }}>
+            <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
+              Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalDeviceCount)} of {totalDeviceCount} devices
+            </div>
+            <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+              <button
+                className="btn btn--secondary btn--sm"
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+              >
+                <Icon name="chevron-left" size={16} />
+                Previous
+              </button>
+              <div style={{ padding: "0 var(--space-4)", fontSize: "var(--font-size-sm)" }}>
+                Page {currentPage} of {totalPages}
+              </div>
+              <button
+                className="btn btn--secondary btn--sm"
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+              >
+                Next
+                <Icon name="chevron-right" size={16} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Messages */}
@@ -307,12 +395,12 @@ export default function DevicesPage() {
           <div className="card__header">
             <h3 className="card__title">Device Locations</h3>
             <p className="text-muted" style={{ margin: "var(--space-2) 0 0 0", fontSize: "var(--font-size-sm)" }}>
-              Showing {filteredDevices.length} device{filteredDevices.length !== 1 ? "s" : ""} on map
+              Showing {devices.length} device{devices.length !== 1 ? "s" : ""} on map
             </p>
           </div>
           <div className="card__body" style={{ padding: 0 }}>
             <DeviceMapView 
-              deviceIds={filteredDevices.map(d => d.device_id)}
+              deviceIds={devices.map(d => d.device_id)}
               height="600px"
               showPopup={true}
             />
@@ -320,7 +408,7 @@ export default function DevicesPage() {
         </div>
       ) : viewMode === "grid" ? (
         <div className="grid grid--auto-fit">
-          {filteredDevices.map((device) => (
+          {displayDevices.map((device) => (
             <div
               key={device.id}
               className="card card--interactive"
@@ -399,7 +487,7 @@ export default function DevicesPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredDevices.map((device) => (
+              {displayDevices.map((device) => (
                 <tr
                   key={device.id}
                   onClick={() => navigate(`/devices/${device.device_id}/dashboard`)}
@@ -456,7 +544,7 @@ export default function DevicesPage() {
       )}
 
       {/* No Results */}
-      {filteredDevices.length === 0 && (
+      {devices.length === 0 && !error && (
         <div className="card" style={{ textAlign: "center", padding: "var(--space-12)" }}>
           <div style={{ marginBottom: "var(--space-4)", opacity: 0.3 }}>
             <Icon name="devices" size={64} />
