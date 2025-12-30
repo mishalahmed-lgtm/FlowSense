@@ -64,6 +64,36 @@ class User(Base):
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     
     tenant = relationship("Tenant", back_populates="users")
+    external_integrations = relationship("ExternalIntegration", back_populates="user", cascade="all, delete-orphan")
+
+
+class ExternalIntegration(Base):
+    """External integration API keys for tenant data access."""
+    __tablename__ = "external_integrations"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    api_key = Column(String(255), unique=True, nullable=False, index=True)  # Generated API key
+    name = Column(String(200), nullable=True)  # Friendly name for the integration
+    description = Column(Text, nullable=True)
+    
+    # Permissions: which endpoints can be accessed
+    # JSON array: ["health", "data", "devices"]
+    allowed_endpoints = Column(JSON, nullable=False, default=list)
+    
+    # Custom endpoint URLs for each type (optional)
+    # JSON object: {"health": "https://example.com/health", "data": "https://example.com/data", "devices": "https://example.com/devices"}
+    endpoint_urls = Column(JSON, nullable=True, default=dict)
+    
+    # Optional: webhook URL to receive data (deprecated, use endpoint_urls instead)
+    webhook_url = Column(String(500), nullable=True)
+    
+    is_active = Column(Boolean, default=True, index=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    user = relationship("User", back_populates="external_integrations")
 
 
 class Device(Base):

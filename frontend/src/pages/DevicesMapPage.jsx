@@ -253,13 +253,6 @@ export default function DevicesMapPage() {
                 <Icon name="map" size="lg" />
               </div>
               <div className="metric-card__value">{devicesWithLocation.length}</div>
-              <div className="metric-card__footer">
-                {devicesWithLocation.length > 0 && (
-                  <span style={{ color: "var(--color-success)" }}>
-                    {Math.round((devicesWithLocation.length / devices.length) * 100)}% with location
-                  </span>
-                )}
-              </div>
             </div>
             
             <div className="metric-card">

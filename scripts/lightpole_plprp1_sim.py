@@ -22,6 +22,9 @@ MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
 
+# Access token used for secure telemetry ingestion (must match device metadata)
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+
 # Location (Murabba, Riyadh coordinates) - PLP-RP-1
 LAT = float(os.environ.get("LAT", "24.6650"))
 LNG = float(os.environ.get("LNG", "46.7250"))
@@ -75,8 +78,12 @@ def build_payload() -> dict:
     payload = {
         "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
-        "latitude": LAT,
-        "longitude": LNG,
+        "location": {
+            "lat": LAT,
+            "lng": LNG
+        },
+        "latitude": LAT,  # Keep for backward compatibility
+        "longitude": LNG,  # Keep for backward compatibility
         "motion_detected": motion_detected,
         "crowd_density": crowd_density,
         "brightness_percent": brightness,
@@ -85,7 +92,9 @@ def build_payload() -> dict:
         "lamp_status": lamp_status,
         "fault_detected": fault_detected,
         "override_mode": override_mode,
-        "power_factor": power_factor
+        "power_factor": power_factor,
+        # Access token for backend authentication
+        "access_token": ACCESS_TOKEN
     }
     
     return payload

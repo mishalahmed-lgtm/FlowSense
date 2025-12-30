@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-Digital Kiosk MQTT telemetry simulator.
+Digital Kiosk MQTT telemetry simulator for DK-RP-2.
 
-- Publishes JSON telemetry for a digital kiosk device
-- Sends a message every 5 minutes to the configured MQTT topic
-- Intended to run inside the Docker backend container, talking to the
-  Mosquitto broker service on the internal Docker network.
+Publishes JSON telemetry for a digital kiosk device.
 """
 
 import json
@@ -17,31 +14,23 @@ from datetime import datetime, timedelta
 import paho.mqtt.client as mqtt
 
 
-# ---------------------------------------------------------------------------
-# Configuration (can be overridden via environment variables)
-# ---------------------------------------------------------------------------
-DEVICE_ID = os.environ.get("KIOSK_DEVICE_ID", "DK_MP-1")
-KIOSK_ID = os.environ.get("KIOSK_ID", "kiosk_01")
+# Configuration
+DEVICE_ID = os.environ.get("DEVICE_ID", "DK-RP-2")
+KIOSK_ID = os.environ.get("KIOSK_ID", "kiosk_02")
 
-# Inside Docker network, the broker service is "mqtt-broker:1883"
-# If you ever run this directly on your host, you can override via env:
-#   MQTT_HOST=localhost MQTT_PORT=1884
-MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
-
-# MQTT topic should match the Topic Pattern configured for the device
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1884"))
 MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
 
 # Access token used for secure telemetry ingestion (must match device metadata)
-ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murraba")
 
-# Default send interval: 5 minutes (can override via SEND_INTERVAL_SECONDS env)
-SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "300"))
+SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
 
-# Location (Murabba, Riyadh coordinates) - DK_MP-1
-LAT = float(os.environ.get("LAT", "24.6750"))
-LNG = float(os.environ.get("LNG", "46.7350"))
+# Location (Murabba, Riyadh coordinates) - DK-RP-2
+LAT = float(os.environ.get("LAT", "24.6800"))
+LNG = float(os.environ.get("LNG", "46.7500"))
 
 
 def build_payload() -> dict:
@@ -71,14 +60,14 @@ def build_payload() -> dict:
     weather_options = ["Sunny", "Partly Cloudy", "Cloudy", "Clear", "Hazy"]
     
     payload = {
-        "deviceId": KIOSK_ID,
+        "deviceId": DEVICE_ID,
         "timestamp": timestamp_ms,
+        "latitude": LAT,  # Top-level for map compatibility
+        "longitude": LNG,  # Top-level for map compatibility
         "location": {
             "lat": LAT,
             "lng": LNG
         },
-        "latitude": LAT,  # Keep for backward compatibility
-        "longitude": LNG,  # Keep for backward compatibility
         "environment": {
             "temperature": round(random.uniform(28.0, 38.0), 1),
             "humidity": random.randint(35, 65),
@@ -140,13 +129,11 @@ def main():
     print(f"Kiosk ID: {KIOSK_ID}")
     print(f"Broker: {MQTT_HOST}:{MQTT_PORT}")
     print(f"Topic:  {MQTT_TOPIC}")
-    print(f"QoS:    {MQTT_QOS}")
     print(f"Interval: {SEND_INTERVAL_SECONDS} seconds\n")
 
     client = mqtt.Client()
     client.on_connect = on_connect
 
-    # Connect and start network loop
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
 
@@ -161,7 +148,7 @@ def main():
             now = datetime.utcnow().isoformat() + "Z"
             if status == mqtt.MQTT_ERR_SUCCESS:
                 print(f"[{now}] Published to {MQTT_TOPIC}")
-                print(f"  Payload preview: deviceId={payload['deviceId']}, temp={payload['environment']['temperature']}°C, people={payload['visitorAnalytics']['peopleCount']}")
+                print(f"  People: {payload['visitorAnalytics']['peopleCount']}, Temp: {payload['environment']['temperature']}°C, Events: {len(payload['events'])}")
             else:
                 print(f"[{now}] FAILED to publish, status={status}")
 
@@ -175,4 +162,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
 

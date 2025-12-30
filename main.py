@@ -20,6 +20,7 @@ from routers import websocket as websocket_router
 from routers import export as export_router
 from routers import maps as maps_router
 from routers import oauth as oauth_router
+from routers import external_api as external_api_router
 from mqtt_client import mqtt_handler
 from tcp_server import tcp_ingestion_server
 from fota_service import fota_service
@@ -237,6 +238,10 @@ app.include_router(
 )
 app.include_router(
     maps_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    external_api_router.router,
     prefix=f"{settings.api_v1_prefix}",
 )
 

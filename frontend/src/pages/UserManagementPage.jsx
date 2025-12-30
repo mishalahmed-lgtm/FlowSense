@@ -26,7 +26,10 @@ export default function UserManagementPage() {
     tenant_id: "",
     enabled_modules: [],
     is_active: true,
+    external_integration: null, // null = no integration, object = integration config
   });
+
+  const [showExternalIntegration, setShowExternalIntegration] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -67,12 +70,15 @@ export default function UserManagementPage() {
       tenant_id: "",
       enabled_modules: [],
       is_active: true,
+      external_integration: null,
     });
+    setShowExternalIntegration(false);
     setShowModal(true);
   };
 
   const handleEdit = (user) => {
     setEditingUser(user);
+    const hasIntegration = user.external_integrations && user.external_integrations.length > 0;
     setFormData({
       email: user.email,
       password: "", // Don't pre-fill password
@@ -81,7 +87,15 @@ export default function UserManagementPage() {
       tenant_id: user.tenant_id || "",
       enabled_modules: user.enabled_modules || [],
       is_active: user.is_active,
+      external_integration: hasIntegration ? {
+        name: user.external_integrations[0].name || "",
+        description: user.external_integrations[0].description || "",
+        allowed_endpoints: user.external_integrations[0].allowed_endpoints || [],
+        endpoint_urls: user.external_integrations[0].endpoint_urls || {},
+        webhook_url: user.external_integrations[0].webhook_url || "",
+      } : null,
     });
+    setShowExternalIntegration(hasIntegration);
     setShowModal(true);
   };
 
@@ -97,6 +111,14 @@ export default function UserManagementPage() {
       return;
     }
 
+    // Validate external integration
+    if (showExternalIntegration && formData.external_integration) {
+      if (!formData.external_integration.allowed_endpoints || formData.external_integration.allowed_endpoints.length === 0) {
+        setError("Please select at least one allowed endpoint for external integration");
+        return;
+      }
+    }
+
     try {
       const payload = { ...formData };
       
@@ -106,6 +128,43 @@ export default function UserManagementPage() {
       // Don't send password if it's empty (when editing)
       if (editingUser && !payload.password) {
         delete payload.password;
+      }
+
+      // Handle external integration
+      if (showExternalIntegration && formData.external_integration) {
+        // Only include non-empty fields
+        const integration = {};
+        if (formData.external_integration.name) {
+          integration.name = formData.external_integration.name;
+        }
+        if (formData.external_integration.description) {
+          integration.description = formData.external_integration.description;
+        }
+        if (formData.external_integration.allowed_endpoints && formData.external_integration.allowed_endpoints.length > 0) {
+          integration.allowed_endpoints = formData.external_integration.allowed_endpoints;
+        }
+        if (formData.external_integration.endpoint_urls && Object.keys(formData.external_integration.endpoint_urls).length > 0) {
+          // Only include non-empty endpoint URLs
+          const endpointUrls = {};
+          Object.keys(formData.external_integration.endpoint_urls).forEach((key) => {
+            if (formData.external_integration.endpoint_urls[key] && formData.external_integration.endpoint_urls[key].trim()) {
+              endpointUrls[key] = formData.external_integration.endpoint_urls[key].trim();
+            }
+          });
+          if (Object.keys(endpointUrls).length > 0) {
+            integration.endpoint_urls = endpointUrls;
+          }
+        }
+        if (formData.external_integration.webhook_url) {
+          integration.webhook_url = formData.external_integration.webhook_url;
+        }
+        
+        if (Object.keys(integration).length > 0) {
+          payload.external_integration = integration;
+        }
+      } else {
+        // If external integration is disabled, don't send it
+        delete payload.external_integration;
       }
 
       if (editingUser) {
@@ -172,6 +231,38 @@ export default function UserManagementPage() {
     }));
   };
 
+  const toggleExternalEndpoint = (endpoint) => {
+    setFormData((prev) => {
+      const currentEndpoints = prev.external_integration?.allowed_endpoints || [];
+      const newEndpoints = currentEndpoints.includes(endpoint)
+        ? currentEndpoints.filter((e) => e !== endpoint)
+        : [...currentEndpoints, endpoint];
+      
+      return {
+        ...prev,
+        external_integration: {
+          ...prev.external_integration,
+          name: prev.external_integration?.name || "",
+          description: prev.external_integration?.description || "",
+          webhook_url: prev.external_integration?.webhook_url || "",
+          allowed_endpoints: newEndpoints,
+        },
+      };
+    });
+  };
+
+  const updateExternalIntegrationField = (field, value) => {
+    setFormData((prev) => ({
+      ...prev,
+      external_integration: {
+        ...prev.external_integration,
+        [field]: value,
+        allowed_endpoints: prev.external_integration?.allowed_endpoints || [],
+        endpoint_urls: prev.external_integration?.endpoint_urls || {},
+      },
+    }));
+  };
+
   if (!isAdmin) {
     return (
       <div className="page">
@@ -229,6 +320,7 @@ export default function UserManagementPage() {
                 <th>Role</th>
                 <th>Tenant</th>
                 <th>Modules</th>
+                <th>External API</th>
                 <th>Status</th>
                 <th>Last Login</th>
                 <th>Actions</th>
@@ -251,6 +343,15 @@ export default function UserManagementPage() {
                   <td>{user.tenant_name || "-"}</td>
                   <td>
                     <small>{user.enabled_modules.length} modules</small>
+                  </td>
+                  <td>
+                    {user.external_integrations && user.external_integrations.length > 0 ? (
+                      <span className="badge badge--success" title={`API Key: ${user.external_integrations[0].api_key}`}>
+                        Enabled
+                      </span>
+                    ) : (
+                      <span className="badge badge--secondary">Disabled</span>
+                    )}
                   </td>
                   <td>
                     <span
@@ -430,6 +531,161 @@ export default function UserManagementPage() {
               </label>
             </div>
 
+            {/* External Integration Section */}
+            <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: "var(--space-4)", marginTop: "var(--space-4)" }}>
+              <div className="form-group" style={{ flexDirection: "row", alignItems: "center", gap: "var(--space-2)" }}>
+                <input
+                  type="checkbox"
+                  id="enable_external_integration"
+                  checked={showExternalIntegration}
+                  onChange={(e) => {
+                    setShowExternalIntegration(e.target.checked);
+                    if (!e.target.checked) {
+                      setFormData((prev) => ({ ...prev, external_integration: null }));
+                    } else {
+                      setFormData((prev) => ({
+                        ...prev,
+                      external_integration: {
+                        name: "",
+                        description: "",
+                        allowed_endpoints: [],
+                        endpoint_urls: {},
+                        webhook_url: "",
+                      },
+                      }));
+                    }
+                  }}
+                  style={{ width: "auto" }}
+                />
+                <label htmlFor="enable_external_integration" className="form-label" style={{ margin: 0, cursor: "pointer", fontWeight: "600" }}>
+                  Enable External API Integration
+                </label>
+              </div>
+
+              {showExternalIntegration && (
+                <div style={{ marginTop: "var(--space-4)", paddingLeft: "var(--space-4)", borderLeft: "2px solid var(--color-primary)" }}>
+                  <div className="form-group">
+                    <label className="form-label">Integration Name</label>
+                    <input
+                      className="form-input"
+                      type="text"
+                      value={formData.external_integration?.name || ""}
+                      onChange={(e) => updateExternalIntegrationField("name", e.target.value)}
+                      placeholder="e.g., External System Integration"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Description</label>
+                    <textarea
+                      className="form-input"
+                      value={formData.external_integration?.description || ""}
+                      onChange={(e) => updateExternalIntegrationField("description", e.target.value)}
+                      placeholder="Optional description for this integration"
+                      rows={2}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Endpoint URLs *</label>
+                    <small className="form-help" style={{ display: "block", marginBottom: "var(--space-2)" }}>
+                      Specify custom endpoint URLs for each type. Leave empty to use default endpoints.
+                    </small>
+                    {["health", "data", "devices"].map((endpoint) => (
+                      <div key={endpoint} style={{ marginBottom: "var(--space-3)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-1)" }}>
+                          <input
+                            type="checkbox"
+                            id={`endpoint-${endpoint}`}
+                            checked={formData.external_integration?.allowed_endpoints?.includes(endpoint) || false}
+                            onChange={() => toggleExternalEndpoint(endpoint)}
+                            style={{ width: "auto" }}
+                          />
+                          <label
+                            htmlFor={`endpoint-${endpoint}`}
+                            style={{ margin: 0, cursor: "pointer", textTransform: "capitalize", fontWeight: "500", minWidth: "80px" }}
+                          >
+                            {endpoint}:
+                          </label>
+                        </div>
+                        {formData.external_integration?.allowed_endpoints?.includes(endpoint) && (
+                          <input
+                            className="form-input"
+                            type="url"
+                            value={formData.external_integration?.endpoint_urls?.[endpoint] || ""}
+                            onChange={(e) => {
+                              setFormData((prev) => ({
+                                ...prev,
+                                external_integration: {
+                                  ...prev.external_integration,
+                                  endpoint_urls: {
+                                    ...prev.external_integration?.endpoint_urls,
+                                    [endpoint]: e.target.value,
+                                  },
+                                },
+                              }));
+                            }}
+                            placeholder={
+                              endpoint === "health"
+                                ? "https://example.com/api/health (optional - uses default if empty)"
+                                : endpoint === "data"
+                                ? "https://example.com/api/data (optional - uses default if empty)"
+                                : "https://example.com/api/devices (optional - uses default if empty)"
+                            }
+                            style={{ marginLeft: "var(--space-6)" }}
+                          />
+                        )}
+                        <small className="form-help" style={{ display: "block", marginLeft: "var(--space-6)", marginTop: "var(--space-1)" }}>
+                          {endpoint === "health"
+                            ? "Endpoint for device health data"
+                            : endpoint === "data"
+                            ? "Endpoint for telemetry/payload data"
+                            : "Endpoint for device management"}
+                        </small>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Webhook URL</label>
+                    <input
+                      className="form-input"
+                      type="url"
+                      value={formData.external_integration?.webhook_url || ""}
+                      onChange={(e) => updateExternalIntegrationField("webhook_url", e.target.value)}
+                      placeholder="https://example.com/webhook"
+                    />
+                    <small className="form-help">Optional: URL to receive webhook notifications</small>
+                  </div>
+
+                  {editingUser && editingUser.external_integrations && editingUser.external_integrations.length > 0 && (
+                    <div className="form-group" style={{ padding: "var(--space-3)", backgroundColor: "var(--color-bg-secondary)", borderRadius: "var(--radius-sm)" }}>
+                      <label className="form-label" style={{ fontWeight: "600", marginBottom: "var(--space-2)" }}>
+                        API Key
+                      </label>
+                      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                        <code style={{ flex: 1, padding: "var(--space-2)", backgroundColor: "var(--color-bg)", borderRadius: "var(--radius-sm)", fontSize: "0.875rem" }}>
+                          {editingUser.external_integrations[0].api_key}
+                        </code>
+                        <button
+                          className="btn btn--ghost btn--sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(editingUser.external_integrations[0].api_key);
+                            alert("API key copied to clipboard!");
+                          }}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                      <small className="form-help" style={{ marginTop: "var(--space-2)", display: "block" }}>
+                        Use this API key in the X-API-Key header when calling external endpoints
+                      </small>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="form-actions">
               <button
                 className="btn btn--secondary"
@@ -443,7 +699,8 @@ export default function UserManagementPage() {
                 disabled={
                   !formData.email ||
                   (!editingUser && (!formData.password || formData.password.length < 6)) ||
-                  (formData.role === "tenant_admin" && !formData.tenant_id)
+                  (formData.role === "tenant_admin" && !formData.tenant_id) ||
+                  (showExternalIntegration && (!formData.external_integration?.allowed_endpoints || formData.external_integration.allowed_endpoints.length === 0))
                 }
               >
                 {editingUser ? "Update" : "Create"}

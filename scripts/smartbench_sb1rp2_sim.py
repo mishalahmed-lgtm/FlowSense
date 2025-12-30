@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-Smart Bench MQTT telemetry simulator.
+Smart Bench MQTT telemetry simulator for SB1-RP-2.
 
-- Publishes JSON telemetry for a single bench (e.g. BENCH-07)
-- Sends a message every minute to the configured MQTT topic
-- Intended to run inside the Docker backend container, talking to the
-  Mosquitto broker service on the internal Docker network.
+Publishes JSON telemetry for a smart bench device.
 """
 
 import json
@@ -17,43 +14,36 @@ from datetime import datetime
 import paho.mqtt.client as mqtt
 
 
-# ---------------------------------------------------------------------------
-# Configuration (can be overridden via environment variables)
-# ---------------------------------------------------------------------------
-BENCH_ID = os.environ.get("BENCH_ID", "BENCH-07")
-
-# Optional fixed location for this bench (can be overridden via env)
-# Example: 24.7136, 46.6753 (Riyadh)
-BENCH_LAT = float(os.environ.get("BENCH_LAT", "24.7136"))
-BENCH_LON = float(os.environ.get("BENCH_LON", "46.6753"))
-
-# Inside Docker network, the broker service is "mqtt-broker:1883"
-# If you ever run this directly on your host, you can override via env:
-#   MQTT_HOST=localhost MQTT_PORT=1884
-MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
-MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
-
-# MQTT topic should match the Topic Pattern configured for the device
-MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{BENCH_ID}/telemetry")
+# Configuration
+DEVICE_ID = os.environ.get("DEVICE_ID", "SB1-RP-2")
+MQTT_HOST = os.environ.get("MQTT_HOST", "localhost")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1884"))
+MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
 
 # Access token used for secure telemetry ingestion (must match device metadata)
-ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
+ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murraba")
 
-# Default send interval: 5 minutes (can override via SEND_INTERVAL_SECONDS env)
-SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "300"))
+SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
+
+# Location (Murabba, Riyadh coordinates) - SB1-RP-2
+LAT = float(os.environ.get("LAT", "24.6700"))
+LNG = float(os.environ.get("LNG", "46.7300"))
 
 
 def build_payload() -> dict:
-    """Build a telemetry payload similar to the example, with light variation."""
+    """Build a telemetry payload for smart bench."""
     payload = {
         "timestamp": datetime.utcnow().isoformat() + "Z",
-        "benchId": BENCH_ID,
+        "benchId": DEVICE_ID,
+        "deviceId": DEVICE_ID,
+        "latitude": LAT,  # Top-level for map compatibility
+        "longitude": LNG,  # Top-level for map compatibility
         "location": {
-            "lat": BENCH_LAT,
-            "lng": BENCH_LON,
-            "latitude": BENCH_LAT,  # Keep for backward compatibility
-            "longitude": BENCH_LON,  # Keep for backward compatibility
+            "lat": LAT,
+            "lng": LNG,
+            "latitude": LAT,  # Keep for backward compatibility
+            "longitude": LNG,  # Keep for backward compatibility
         },
         "battery": {
             "voltage": round(random.uniform(12.4, 12.8), 2),
@@ -86,6 +76,8 @@ def build_payload() -> dict:
             "network": random.choice(["LTE", "5G", "WiFi"]),
             "rssi": random.randint(-80, -60),
         },
+        # Instantaneous power draw in watts for Energy Management dashboard
+        "energy_consumption_w": round(random.uniform(50.0, 120.0), 1),
         # Access token for backend authentication
         "access_token": ACCESS_TOKEN
     }
@@ -103,16 +95,14 @@ def on_connect(client, userdata, flags, rc):
 
 
 def main():
-    print(f"Smart Bench simulator starting for bench: {BENCH_ID}")
+    print(f"Smart Bench simulator starting for device: {DEVICE_ID}")
     print(f"Broker: {MQTT_HOST}:{MQTT_PORT}")
     print(f"Topic:  {MQTT_TOPIC}")
-    print(f"QoS:    {MQTT_QOS}")
     print(f"Interval: {SEND_INTERVAL_SECONDS} seconds\n")
 
     client = mqtt.Client()
     client.on_connect = on_connect
 
-    # Connect and start network loop
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
 
@@ -126,7 +116,8 @@ def main():
 
             now = datetime.utcnow().isoformat() + "Z"
             if status == mqtt.MQTT_ERR_SUCCESS:
-                print(f"[{now}] Published to {MQTT_TOPIC}: {payload_str}")
+                print(f"[{now}] Published to {MQTT_TOPIC}")
+                print(f"  Occupancy: {payload['occupancy']['total']}/3, Temp: {payload['environment']['temperature']}°C, Battery: {payload['battery']['soc']}%")
             else:
                 print(f"[{now}] FAILED to publish, status={status}")
 
@@ -140,5 +131,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

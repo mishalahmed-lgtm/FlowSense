@@ -137,6 +137,125 @@ export default function AlertsPage() {
     }
   };
 
+  // Helper function to extract meaningful information from trigger data
+  const formatTriggerInfo = (triggerData) => {
+    if (!triggerData) return null;
+
+    const payload = triggerData.payload || triggerData;
+    const info = [];
+
+    // Common telemetry fields to extract
+    const commonFields = {
+      temperature: ['temperature', 'temp', 'temperature_c'],
+      humidity: ['humidity', 'humidity_percent'],
+      battery: ['battery', 'battery_level', 'battery_percent', 'battery_voltage'],
+      pressure: ['pressure'],
+      level: ['level', 'fill_level', 'fillLevel'],
+      occupancy: ['occupancy', 'occupied'],
+      speed: ['speed'],
+      voltage: ['voltage', 'voltage_l1', 'voltage_l2', 'voltage_l3'],
+      current: ['current', 'current_l1', 'current_l2', 'current_l3'],
+      power: ['power', 'active_power_total', 'energy_consumption_w'],
+      frequency: ['frequency', 'frequency_hz'],
+      location: ['latitude', 'longitude', 'location'],
+    };
+
+    // Helper to find nested values
+    const getNestedValue = (obj, keys) => {
+      for (const key of keys) {
+        if (obj[key] !== undefined) return obj[key];
+        // Check nested objects
+        for (const k in obj) {
+          if (typeof obj[k] === 'object' && obj[k] !== null && !Array.isArray(obj[k])) {
+            const val = getNestedValue(obj[k], [key]);
+            if (val !== undefined) return val;
+          }
+        }
+      }
+      return undefined;
+    };
+
+    // Extract temperature
+    const temp = getNestedValue(payload, commonFields.temperature);
+    if (temp !== undefined) {
+      info.push({ label: 'Temperature', value: `${typeof temp === 'number' ? temp.toFixed(1) : temp}°C` });
+    }
+
+    // Extract humidity
+    const humidity = getNestedValue(payload, commonFields.humidity);
+    if (humidity !== undefined) {
+      info.push({ label: 'Humidity', value: `${typeof humidity === 'number' ? humidity.toFixed(1) : humidity}%` });
+    }
+
+    // Extract battery
+    const battery = getNestedValue(payload, commonFields.battery);
+    if (battery !== undefined) {
+      if (typeof battery === 'object' && battery.voltage !== undefined) {
+        info.push({ label: 'Battery Voltage', value: `${battery.voltage.toFixed(2)}V` });
+      } else {
+        info.push({ label: 'Battery', value: `${typeof battery === 'number' ? battery.toFixed(1) : battery}${typeof battery === 'number' && battery <= 100 ? '%' : ''}` });
+      }
+    }
+
+    // Extract pressure
+    const pressure = getNestedValue(payload, commonFields.pressure);
+    if (pressure !== undefined) {
+      info.push({ label: 'Pressure', value: `${typeof pressure === 'number' ? pressure.toFixed(2) : pressure}${typeof pressure === 'number' ? ' bar' : ''}` });
+    }
+
+    // Extract level/fill level
+    const level = getNestedValue(payload, commonFields.level);
+    if (level !== undefined) {
+      info.push({ label: 'Level', value: `${typeof level === 'number' ? level.toFixed(1) : level}${typeof level === 'number' && level <= 100 ? '%' : ''}` });
+    }
+
+    // Extract occupancy
+    const occupancy = getNestedValue(payload, commonFields.occupancy);
+    if (occupancy !== undefined) {
+      info.push({ label: 'Occupancy', value: occupancy ? 'Occupied' : 'Vacant' });
+    }
+
+    // Extract speed
+    const speed = getNestedValue(payload, commonFields.speed);
+    if (speed !== undefined) {
+      info.push({ label: 'Speed', value: `${typeof speed === 'number' ? speed.toFixed(1) : speed} km/h` });
+    }
+
+    // Extract power/energy
+    const power = getNestedValue(payload, commonFields.power);
+    if (power !== undefined) {
+      info.push({ label: 'Power', value: `${typeof power === 'number' ? power.toFixed(1) : power} W` });
+    }
+
+    // Extract frequency
+    const frequency = getNestedValue(payload, commonFields.frequency);
+    if (frequency !== undefined) {
+      info.push({ label: 'Frequency', value: `${typeof frequency === 'number' ? frequency.toFixed(2) : frequency} Hz` });
+    }
+
+    // Extract location if available
+    const lat = getNestedValue(payload, ['latitude']);
+    const lng = getNestedValue(payload, ['longitude']);
+    if (lat !== undefined && lng !== undefined) {
+      info.push({ label: 'Location', value: `${typeof lat === 'number' ? lat.toFixed(4) : lat}, ${typeof lng === 'number' ? lng.toFixed(4) : lng}` });
+    }
+
+    // Extract timestamp if available
+    const timestamp = payload.timestamp || payload.ts || triggerData.timestamp;
+    if (timestamp) {
+      try {
+        const date = new Date(timestamp);
+        if (!isNaN(date.getTime())) {
+          info.push({ label: 'Reading Time', value: date.toLocaleString() });
+        }
+      } catch (e) {
+        // Ignore date parsing errors
+      }
+    }
+
+    return info;
+  };
+
   const filteredAlerts = Array.isArray(alerts) ? alerts : [];
 
   const openCount = filteredAlerts.filter(a => a.status === "open").length;
@@ -404,32 +523,56 @@ export default function AlertsPage() {
                         </div>
                       </div>
                       <div>
-                        <label className="form-label">Telemetry Payload</label>
+                        <label className="form-label" style={{ fontSize: "var(--font-size-lg)", fontWeight: "var(--font-weight-semibold)", marginBottom: "var(--space-3)" }}>Trigger Information</label>
                         {selectedAlert.trigger_data ? (
                           <>
-                            <p className="text-muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-2)" }}>
-                              The telemetry data that triggered this alert
+                            <p className="text-muted" style={{ fontSize: "var(--font-size-sm)", marginBottom: "var(--space-4)" }}>
+                              Key metrics from the telemetry data that triggered this alert
                             </p>
-                            <pre style={{ 
+                            {(() => {
+                              const triggerInfo = formatTriggerInfo(selectedAlert.trigger_data);
+                              if (triggerInfo && triggerInfo.length > 0) {
+                                return (
+                                  <div style={{
+                                    backgroundColor: "var(--color-bg-secondary)",
+                                    padding: "var(--space-4)",
+                                    borderRadius: "var(--radius-md)",
+                                    border: "1px solid var(--color-border-light)",
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                                    gap: "var(--space-4)"
+                                  }}>
+                                    {triggerInfo.map((item, idx) => (
+                                      <div key={idx}>
+                                        <div className="text-muted" style={{ fontSize: "var(--font-size-xs)", marginBottom: "var(--space-1)" }}>
+                                          {item.label}
+                                        </div>
+                                        <div style={{ fontSize: "var(--font-size-base)", fontWeight: "var(--font-weight-semibold)" }}>
+                                          {item.value}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              } else {
+                                return (
+                                  <div style={{
                               backgroundColor: "var(--color-bg-secondary)", 
                               padding: "var(--space-4)", 
                               borderRadius: "var(--radius-md)", 
-                              overflow: "auto",
-                              maxHeight: "400px",
-                              fontSize: "var(--font-size-sm)",
-                              lineHeight: "1.5",
                               border: "1px solid var(--color-border-light)"
                             }}>
-                              {JSON.stringify(
-                                selectedAlert.trigger_data.payload || selectedAlert.trigger_data, 
-                                null, 
-                                2
-                              )}
-                            </pre>
+                                    <p className="text-muted" style={{ fontSize: "var(--font-size-sm)", fontStyle: "italic", margin: 0 }}>
+                                      Unable to extract readable information from telemetry data
+                                    </p>
+                                  </div>
+                                );
+                              }
+                            })()}
                           </>
                         ) : (
                           <p className="text-muted" style={{ fontSize: "var(--font-size-sm)", fontStyle: "italic" }}>
-                            No telemetry payload data available for this alert
+                            No telemetry data available for this alert
                           </p>
                         )}
                       </div>

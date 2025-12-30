@@ -40,8 +40,18 @@ export default function DeviceForm({
     .map(dt => dt.protocol)
   )].sort();
 
-  // Map protocol to device type ID (use first device type for each protocol)
+  // Map protocol to device type ID (prefer generic device types like "MQTT", "HTTP", "TCP" over specific ones)
   const protocolToDeviceTypeId = {};
+  const genericDeviceTypeNames = ['MQTT', 'HTTP', 'TCP', 'LoRaWAN', 'DALI', 'Modbus_TCP'];
+  
+  // First pass: find generic device types
+  deviceTypes.forEach(dt => {
+    if (allowedProtocols.includes(dt.protocol) && genericDeviceTypeNames.includes(dt.name)) {
+      protocolToDeviceTypeId[dt.protocol] = dt.id;
+    }
+  });
+  
+  // Second pass: fill in any missing protocols with first available device type
   deviceTypes.forEach(dt => {
     if (allowedProtocols.includes(dt.protocol) && !protocolToDeviceTypeId[dt.protocol]) {
       protocolToDeviceTypeId[dt.protocol] = dt.id;

@@ -294,7 +294,7 @@ class TCPIngestionServer:
                     "message": "Provisioning key does not belong to device_id",
                     "error": "device_key_mismatch"
                 }
-            
+
             # Verify access token if configured
             provided_token = message.get("access_token") or message.get("token")
             from auth import verify_device_access_token

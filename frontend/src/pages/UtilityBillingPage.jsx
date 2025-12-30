@@ -147,15 +147,22 @@ export default function UtilityBillingPage() {
   };
 
   const getRelevantDevices = () => {
+    // For per-device reports, show all devices so users can select any device
+    // The backend will filter based on which devices have utility billing data
+    if (viewMode === "per-device") {
+      return devices;
+    }
+    
+    // For consolidated reports, filter by device type if needed
     return devices.filter((device) => {
-      const deviceTypeName = device.device_type || "";
+      const deviceTypeName = (device.device_type || "").toLowerCase();
       
       if (utilityKind === "electricity") {
-        return deviceTypeName.includes("Comcore AMI") || deviceTypeName.includes("Comcore DLMS");
+        return deviceTypeName.includes("comcore") || deviceTypeName.includes("ami") || deviceTypeName.includes("dlms") || deviceTypeName.includes("electricity") || deviceTypeName.includes("meter");
       } else if (utilityKind === "gas") {
-        return deviceTypeName.includes("LPG");
+        return deviceTypeName.includes("lpg") || deviceTypeName.includes("gas");
       } else if (utilityKind === "water") {
-        return deviceTypeName.includes("Water");
+        return deviceTypeName.includes("water") || deviceTypeName.includes("meter");
       }
       
       return false;

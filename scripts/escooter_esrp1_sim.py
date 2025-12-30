@@ -1,37 +1,59 @@
 #!/usr/bin/env python3
 """
-E-Scooter MQTT telemetry simulator for ES-RP-1.
+E-Scooter MQTT telemetry simulator for ES-RP-1 and ES-RP-2.
 
 Publishes JSON telemetry matching the emscooter_01 format.
+Supports multiple devices running concurrently.
 """
 
 import json
 import os
 import random
 import time
+import threading
 from datetime import datetime
 
 import paho.mqtt.client as mqtt
 
 
 # Configuration
-DEVICE_ID = os.environ.get("DEVICE_ID", "ES-RP-1")
 MQTT_HOST = os.environ.get("MQTT_HOST", "mqtt-broker")
 MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
-MQTT_TOPIC = os.environ.get("MQTT_TOPIC", f"device/{DEVICE_ID}/telemetry")
 MQTT_QOS = int(os.environ.get("MQTT_QOS", "0"))
-
-# Access token used for secure telemetry ingestion (must match device metadata)
-ACCESS_TOKEN = os.environ.get("ACCESS_TOKEN", "murabba-demo-token")
-
 SEND_INTERVAL_SECONDS = int(os.environ.get("SEND_INTERVAL_SECONDS", "60"))
 
-# Location (Murabba, Riyadh coordinates) - ES-RP-1
-LAT = float(os.environ.get("LAT", "24.6400"))
-LNG = float(os.environ.get("LNG", "46.7000"))
+# Device configurations
+DEVICES = [
+    {
+        "device_id": "ES-RP-1",
+        "access_token": os.environ.get("ES_RP_1_TOKEN", "murabba-demo-token"),
+        "lat": float(os.environ.get("ES_RP_1_LAT", "24.6400")),
+        "lng": float(os.environ.get("ES_RP_1_LNG", "46.7000")),
+    },
+    {
+        "device_id": "ES-RP-2",
+        "access_token": os.environ.get("ES_RP_2_TOKEN", "murraba"),
+        "lat": float(os.environ.get("ES_RP_2_LAT", "24.6450")),
+        "lng": float(os.environ.get("ES_RP_2_LNG", "46.7050")),
+    },
+]
+
+# Support single device mode via DEVICE_ID env var (for backward compatibility)
+SINGLE_DEVICE_ID = os.environ.get("DEVICE_ID")
+if SINGLE_DEVICE_ID:
+    # Filter to only the specified device
+    DEVICES = [d for d in DEVICES if d["device_id"] == SINGLE_DEVICE_ID]
+    if not DEVICES:
+        # If device not in list, create a single device config
+        DEVICES = [{
+            "device_id": SINGLE_DEVICE_ID,
+            "access_token": os.environ.get("ACCESS_TOKEN", "murabba-demo-token"),
+            "lat": float(os.environ.get("LAT", "24.6400")),
+            "lng": float(os.environ.get("LNG", "46.7000")),
+        }]
 
 
-def build_payload() -> dict:
+def build_payload(device_id: str, access_token: str, base_lat: float, base_lng: float) -> dict:
     """Build a telemetry payload matching emscooter_01 format."""
     now = datetime.utcnow()
     timestamp_ms = int(now.timestamp() * 1000)
@@ -80,11 +102,11 @@ def build_payload() -> dict:
         energy_consumption_w = 20.0 if not is_locked else 5.0
 
     payload = {
-        "deviceId": DEVICE_ID,
+        "deviceId": device_id,
         "timestamp": timestamp_ms,
         "location": {
-            "lat": round(LAT + lat_offset, 4),
-            "lng": round(LNG + lng_offset, 4)
+            "lat": round(base_lat + lat_offset, 4),
+            "lng": round(base_lng + lng_offset, 4)
         },
         "speed_kmph": speed,
         "battery_percent": round(battery),
@@ -99,52 +121,92 @@ def build_payload() -> dict:
         # Instantaneous power draw in watts for Energy Management dashboard
         "energy_consumption_w": round(energy_consumption_w, 1),
         # Access token for backend authentication
-        "access_token": ACCESS_TOKEN,
+        "access_token": access_token,
     }
     
     return payload
 
 
 def on_connect(client, userdata, flags, rc):
+    device_id = userdata.get("device_id", "Unknown")
     if rc == 0:
-        print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
+        print(f"[{device_id}] Connected to {MQTT_HOST}:{MQTT_PORT}")
     else:
-        print(f"[MQTT] Failed to connect, rc={rc}")
+        print(f"[{device_id}] Failed to connect, rc={rc}")
 
 
-def main():
-    print(f"E-Scooter simulator starting for device: {DEVICE_ID}")
-    print(f"Broker: {MQTT_HOST}:{MQTT_PORT}")
-    print(f"Topic:  {MQTT_TOPIC}")
-    print(f"Interval: {SEND_INTERVAL_SECONDS} seconds\n")
+def simulate_device(device_config: dict):
+    """Simulate a single e-scooter device."""
+    device_id = device_config["device_id"]
+    access_token = device_config["access_token"]
+    base_lat = device_config["lat"]
+    base_lng = device_config["lng"]
+    mqtt_topic = f"device/{device_id}/telemetry"
+    
+    print(f"[{device_id}] E-Scooter simulator starting")
+    print(f"[{device_id}] Broker: {MQTT_HOST}:{MQTT_PORT}")
+    print(f"[{device_id}] Topic:  {mqtt_topic}")
+    print(f"[{device_id}] Interval: {SEND_INTERVAL_SECONDS} seconds\n")
 
     client = mqtt.Client()
+    client.user_data_set({"device_id": device_id})
     client.on_connect = on_connect
 
+    try:
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
 
-    try:
         while True:
-            payload = build_payload()
+            payload = build_payload(device_id, access_token, base_lat, base_lng)
             payload_str = json.dumps(payload)
 
-            result = client.publish(MQTT_TOPIC, payload_str, qos=MQTT_QOS)
+            result = client.publish(mqtt_topic, payload_str, qos=MQTT_QOS)
             status = result[0]
 
             now = datetime.utcnow().isoformat() + "Z"
             if status == mqtt.MQTT_ERR_SUCCESS:
-                print(f"[{now}] Published to {MQTT_TOPIC}")
+                print(f"[{now}] [{device_id}] Published to {mqtt_topic}")
                 print(f"  Speed: {payload['speed_kmph']} kmph, Battery: {payload['battery_percent']}%, Trip: {'Active' if payload['trip_active'] else 'Inactive'}")
             else:
-                print(f"[{now}] FAILED to publish, status={status}")
+                print(f"[{now}] [{device_id}] FAILED to publish, status={status}")
 
             time.sleep(SEND_INTERVAL_SECONDS)
     except KeyboardInterrupt:
-        print("E-Scooter simulator interrupted, shutting down...")
+        print(f"[{device_id}] E-Scooter simulator interrupted, shutting down...")
     finally:
         client.loop_stop()
         client.disconnect()
+
+
+def main():
+    print("=" * 60)
+    print("E-Scooter Simulator - Multiple Devices")
+    print("=" * 60)
+    print(f"Broker: {MQTT_HOST}:{MQTT_PORT}")
+    print(f"Devices to simulate: {len(DEVICES)}")
+    for device in DEVICES:
+        print(f"  - {device['device_id']} (token: {device['access_token']})")
+    print(f"Interval: {SEND_INTERVAL_SECONDS} seconds")
+    print("=" * 60)
+    print()
+
+    threads = []
+    for device_config in DEVICES:
+        thread = threading.Thread(
+            target=simulate_device,
+            args=(device_config,),
+            daemon=True
+        )
+        thread.start()
+        threads.append(thread)
+
+    try:
+        # Keep main thread alive
+        for thread in threads:
+            thread.join()
+    except KeyboardInterrupt:
+        print("\nE-Scooter simulators interrupted, shutting down...")
+        print("Waiting for threads to finish...")
 
 
 if __name__ == "__main__":

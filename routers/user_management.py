@@ -1,15 +1,16 @@
 """User and tenant management API endpoints for admin portal."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
+import secrets
 from admin_auth import require_admin, get_current_user, hash_password
 from database import get_db
-from models import User, UserRole, Tenant
+from models import User, UserRole, Tenant, ExternalIntegration
 
 router = APIRouter(prefix="/admin", tags=["user-management"])
 
@@ -46,6 +47,15 @@ class TenantResponse(BaseModel):
         orm_mode = True
 
 
+class ExternalIntegrationConfig(BaseModel):
+    """Configuration for external integration."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    allowed_endpoints: List[str] = Field(default_factory=list)  # ["health", "data", "devices"]
+    endpoint_urls: Optional[Dict[str, str]] = Field(default_factory=dict)  # {"health": "url", "data": "url", "devices": "url"}
+    webhook_url: Optional[str] = None  # Deprecated, use endpoint_urls instead
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)
@@ -53,6 +63,7 @@ class UserCreate(BaseModel):
     role: UserRole = UserRole.TENANT_ADMIN
     tenant_id: Optional[int] = None
     enabled_modules: List[str] = Field(default_factory=list)
+    external_integration: Optional[ExternalIntegrationConfig] = None
 
 
 class UserUpdate(BaseModel):
@@ -63,6 +74,23 @@ class UserUpdate(BaseModel):
     tenant_id: Optional[int] = None
     enabled_modules: Optional[List[str]] = None
     is_active: Optional[bool] = None
+    external_integration: Optional[ExternalIntegrationConfig] = None
+
+
+class ExternalIntegrationResponse(BaseModel):
+    id: int
+    api_key: str
+    name: Optional[str]
+    description: Optional[str]
+    allowed_endpoints: List[str]
+    endpoint_urls: Optional[Dict[str, str]] = None
+    webhook_url: Optional[str]
+    is_active: bool
+    last_used_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
 
 
 class UserResponse(BaseModel):
@@ -76,6 +104,7 @@ class UserResponse(BaseModel):
     is_active: bool
     created_at: datetime
     last_login_at: Optional[datetime]
+    external_integrations: List[ExternalIntegrationResponse] = Field(default_factory=list)
 
     class Config:
         orm_mode = True
@@ -253,6 +282,26 @@ def list_users(
             tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
             tenant_name = tenant.name if tenant else None
         
+        # Get external integrations
+        integrations = db.query(ExternalIntegration).filter(
+            ExternalIntegration.user_id == user.id
+        ).all()
+        external_integrations = [
+            ExternalIntegrationResponse(
+                id=integration.id,
+                api_key=integration.api_key,
+                name=integration.name,
+                description=integration.description,
+                allowed_endpoints=integration.allowed_endpoints or [],
+                endpoint_urls=integration.endpoint_urls or {},
+                webhook_url=integration.webhook_url,
+                is_active=integration.is_active,
+                last_used_at=integration.last_used_at,
+                created_at=integration.created_at,
+            )
+            for integration in integrations
+        ]
+        
         result.append(UserResponse(
             id=user.id,
             email=user.email,
@@ -264,6 +313,7 @@ def list_users(
             is_active=user.is_active,
             created_at=user.created_at,
             last_login_at=user.last_login_at,
+            external_integrations=external_integrations,
         ))
     
     return result
@@ -316,6 +366,37 @@ def create_user(
     db.commit()
     db.refresh(user)
     
+    # Create external integration if configured
+    external_integrations = []
+    if payload.external_integration:
+        # Generate API key
+        api_key = f"ext_{secrets.token_urlsafe(32)}"
+        integration = ExternalIntegration(
+            user_id=user.id,
+            api_key=api_key,
+            name=payload.external_integration.name or f"Integration for {user.email}",
+            description=payload.external_integration.description,
+            allowed_endpoints=payload.external_integration.allowed_endpoints,
+            endpoint_urls=payload.external_integration.endpoint_urls or {},
+            webhook_url=payload.external_integration.webhook_url,
+            is_active=True,
+        )
+        db.add(integration)
+        db.commit()
+        db.refresh(integration)
+        external_integrations.append(ExternalIntegrationResponse(
+            id=integration.id,
+            api_key=integration.api_key,
+            name=integration.name,
+            description=integration.description,
+            allowed_endpoints=integration.allowed_endpoints or [],
+            endpoint_urls=integration.endpoint_urls or {},
+            webhook_url=integration.webhook_url,
+            is_active=integration.is_active,
+            last_used_at=integration.last_used_at,
+            created_at=integration.created_at,
+        ))
+    
     tenant_name = None
     if user.tenant_id:
         tenant = db.query(Tenant).filter(Tenant.id == user.tenant_id).first()
@@ -332,6 +413,7 @@ def create_user(
         is_active=user.is_active,
         created_at=user.created_at,
         last_login_at=user.last_login_at,
+        external_integrations=external_integrations,
     )
 
 
@@ -384,8 +466,61 @@ def update_user(
     if payload.is_active is not None:
         user.is_active = payload.is_active
     
+    # Handle external integration update
+    if payload.external_integration is not None:
+        # Check if integration already exists
+        existing_integration = db.query(ExternalIntegration).filter(
+            ExternalIntegration.user_id == user.id
+        ).first()
+        
+        if existing_integration:
+            # Update existing integration
+            if payload.external_integration.name is not None:
+                existing_integration.name = payload.external_integration.name
+            if payload.external_integration.description is not None:
+                existing_integration.description = payload.external_integration.description
+            if payload.external_integration.allowed_endpoints is not None:
+                existing_integration.allowed_endpoints = payload.external_integration.allowed_endpoints
+            if payload.external_integration.endpoint_urls is not None:
+                existing_integration.endpoint_urls = payload.external_integration.endpoint_urls
+            if payload.external_integration.webhook_url is not None:
+                existing_integration.webhook_url = payload.external_integration.webhook_url
+        else:
+            # Create new integration
+            api_key = f"ext_{secrets.token_urlsafe(32)}"
+            integration = ExternalIntegration(
+                user_id=user.id,
+                api_key=api_key,
+                name=payload.external_integration.name or f"Integration for {user.email}",
+                description=payload.external_integration.description,
+                allowed_endpoints=payload.external_integration.allowed_endpoints or [],
+                endpoint_urls=payload.external_integration.endpoint_urls or {},
+                webhook_url=payload.external_integration.webhook_url,
+                is_active=True,
+            )
+            db.add(integration)
+    
     db.commit()
     db.refresh(user)
+    
+    # Get external integrations
+    integrations = db.query(ExternalIntegration).filter(
+        ExternalIntegration.user_id == user.id
+    ).all()
+    external_integrations = [
+        ExternalIntegrationResponse(
+            id=integration.id,
+            api_key=integration.api_key,
+            name=integration.name,
+            description=integration.description,
+            allowed_endpoints=integration.allowed_endpoints or [],
+            webhook_url=integration.webhook_url,
+            is_active=integration.is_active,
+            last_used_at=integration.last_used_at,
+            created_at=integration.created_at,
+        )
+        for integration in integrations
+    ]
     
     tenant_name = None
     if user.tenant_id:
@@ -403,6 +538,7 @@ def update_user(
         is_active=user.is_active,
         created_at=user.created_at,
         last_login_at=user.last_login_at,
+        external_integrations=external_integrations,
     )
 
 
