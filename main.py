@@ -32,6 +32,7 @@ from mqtt_command_service import mqtt_command_service
 from modbus_handler import modbus_handler
 from dali_handler import dali_handler
 from metrics import metrics
+from external_api_sync_service import external_api_sync_service
 from admin_auth import get_current_user
 from database import get_db
 from sqlalchemy.orm import Session
@@ -65,13 +66,13 @@ async def lifespan(app: FastAPI):
         db = SessionLocal()
         try:
             # Check if admin user exists
-            admin_email = "admin@flowsense.com"
+            admin_email = "admin@flowsense.com".lower()  # Ensure lowercase
             existing_admin = db.query(User).filter(User.email == admin_email).first()
             
             if not existing_admin:
                 admin_password = "AdminFlow"
                 admin_user = User(
-                    email=admin_email,
+                    email=admin_email,  # Store in lowercase
                     hashed_password=hash_password(admin_password),
                     full_name="System Administrator",
                     role=UserRole.ADMIN,
@@ -81,9 +82,11 @@ async def lifespan(app: FastAPI):
                 )
                 db.add(admin_user)
                 db.commit()
+                db.refresh(admin_user)
                 logger.info(f"✅ Admin user created: {admin_email} / {admin_password}")
+                logger.info(f"   User ID: {admin_user.id}, Active: {admin_user.is_active}")
             else:
-                logger.info(f"✓ Admin user already exists: {admin_email}")
+                logger.info(f"✓ Admin user already exists: {admin_email} (ID: {existing_admin.id})")
             
             # Check if default tenant exists
             tenant_code = "DEFAULT"
@@ -170,6 +173,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to start DALI server: {e}. Continuing without DALI...")
     
+    # Start external API sync service (fetches data from external APIs automatically)
+    try:
+        external_api_sync_service.start()
+        logger.info("External API sync service started")
+    except Exception as e:
+        logger.warning(f"Failed to start external API sync service: {e}. Continuing without auto-sync...")
+    
     yield
     
     # Shutdown
@@ -192,6 +202,8 @@ async def lifespan(app: FastAPI):
     logger.info("DALI server stopped")
     mqtt_handler.disconnect()
     logger.info("MQTT handler stopped")
+    external_api_sync_service.stop()
+    logger.info("External API sync service stopped")
     await tcp_ingestion_server.stop()
 
 
@@ -327,6 +339,32 @@ async def health():
     return {
         "status": "healthy",
         "mqtt_connected": mqtt_handler.is_connected
+    }
+
+
+@app.get("/debug/admin-check")
+async def debug_admin_check(db: Session = Depends(get_db)):
+    """Debug endpoint to check if admin user exists (for troubleshooting)."""
+    admin_email = "admin@flowsense.com".lower()
+    user = db.query(User).filter(User.email == admin_email).first()
+    
+    if user:
+        return {
+            "exists": True,
+            "email": user.email,
+            "id": user.id,
+            "role": user.role.value,
+            "is_active": user.is_active,
+            "hashed_password_length": len(user.hashed_password) if user.hashed_password else 0,
+        }
+    else:
+        # Check if any users exist
+        all_users = db.query(User).all()
+        return {
+            "exists": False,
+            "admin_email_looking_for": admin_email,
+            "total_users_in_db": len(all_users),
+            "all_user_emails": [u.email for u in all_users],
     }
 
 

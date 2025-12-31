@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     # Application
     api_v1_prefix: str = "/api/v1"
     log_level: str = "INFO"
+    api_base_url: Optional[str] = None  # Base URL for the API (e.g., "https://flowsense-772d.onrender.com" for Render)
 
     # JasperReports Server integration (optional)
     jasper_base_url: Optional[str] = None  # e.g. "http://jasper:8080/jasperserver"
