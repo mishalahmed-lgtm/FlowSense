@@ -35,7 +35,9 @@ from metrics import metrics
 from admin_auth import get_current_user
 from database import get_db
 from sqlalchemy.orm import Session
-from models import Device, User, UserRole
+from models import Device, User, UserRole, Tenant
+from admin_auth import hash_password
+from database import SessionLocal
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +59,53 @@ async def lifespan(app: FastAPI):
         logger.info("Database tables created/verified")
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
+    
+    # Auto-initialize admin user and default tenant if they don't exist
+    try:
+        db = SessionLocal()
+        try:
+            # Check if admin user exists
+            admin_email = "admin@flowsense.com"
+            existing_admin = db.query(User).filter(User.email == admin_email).first()
+            
+            if not existing_admin:
+                admin_password = "AdminFlow"
+                admin_user = User(
+                    email=admin_email,
+                    hashed_password=hash_password(admin_password),
+                    full_name="System Administrator",
+                    role=UserRole.ADMIN,
+                    tenant_id=None,
+                    enabled_modules=[],
+                    is_active=True,
+                )
+                db.add(admin_user)
+                db.commit()
+                logger.info(f"✅ Admin user created: {admin_email} / {admin_password}")
+            else:
+                logger.info(f"✓ Admin user already exists: {admin_email}")
+            
+            # Check if default tenant exists
+            tenant_code = "DEFAULT"
+            existing_tenant = db.query(Tenant).filter(Tenant.code == tenant_code).first()
+            
+            if not existing_tenant:
+                default_tenant = Tenant(
+                    name="Default Tenant",
+                    code=tenant_code,
+                    is_active=True,
+                )
+                db.add(default_tenant)
+                db.commit()
+                db.refresh(default_tenant)
+                logger.info(f"✅ Default tenant created: {default_tenant.name}")
+            else:
+                logger.info(f"✓ Default tenant already exists: {existing_tenant.name}")
+            
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Failed to auto-initialize admin user: {e}. You may need to run init_admin.py manually.")
     
     # Connect to MQTT broker
     try:
