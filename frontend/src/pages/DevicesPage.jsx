@@ -202,7 +202,7 @@ export default function DevicesPage() {
   useEffect(() => {
     loadDevices(currentPage);
   }, [currentPage]);
-  
+
   // For display, use devices directly (already paginated from server)
   const displayDevices = devices;
 
