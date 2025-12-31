@@ -90,7 +90,8 @@ class ExternalAPISyncService:
     def _sync_integration(self, integration: ExternalIntegration, db: Session):
         """Sync data from a single external integration."""
         # Use source_urls if available, otherwise fall back to endpoint_urls (for backward compatibility)
-        source_urls = integration.source_urls or integration.endpoint_urls or {}
+        # Handle case where source_urls column doesn't exist yet in database
+        source_urls = getattr(integration, 'source_urls', None) or integration.endpoint_urls or {}
         
         if not source_urls:
             logger.debug(f"No source URLs configured for integration {integration.id} (endpoint_urls: {integration.endpoint_urls}, source_urls: {integration.source_urls})")
@@ -139,8 +140,11 @@ class ExternalAPISyncService:
                         is_external = False
             
             if not is_external:
-                logger.debug(f"Skipping {endpoint_type} endpoint - points to our own system: {external_url}")
+                logger.info(f"⚠️  Skipping {endpoint_type} endpoint - points to our own system: {external_url}")
+                logger.info(f"   Our base URL: {our_base_url}, External URL netloc: {parsed.netloc}")
                 continue
+            
+            logger.info(f"  ✓ Found external URL for {endpoint_type}: {external_url}")
             
             try:
                 self._fetch_and_sync_endpoint(integration, endpoint_type, external_url, our_base_url, db)
@@ -150,7 +154,7 @@ class ExternalAPISyncService:
     def _fetch_and_sync_endpoint(self, integration: ExternalIntegration, endpoint_type: str, 
                                   external_url: str, our_base_url: str, db: Session):
         """Fetch data from external endpoint and sync to our system."""
-        logger.info(f"Fetching {endpoint_type} data from {external_url}...")
+        logger.info(f"    🔄 Fetching {endpoint_type} data from {external_url}...")
         
         try:
             # Fetch from external API

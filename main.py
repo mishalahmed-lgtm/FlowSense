@@ -58,6 +58,24 @@ async def lifespan(app: FastAPI):
     try:
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables created/verified")
+        
+        # Add missing columns if needed (for schema updates)
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                # Check if source_urls column exists, if not add it
+                result = conn.execute(text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='external_integrations' AND column_name='source_urls'
+                """))
+                if not result.fetchone():
+                    logger.info("Adding source_urls column to external_integrations table...")
+                    conn.execute(text("ALTER TABLE external_integrations ADD COLUMN source_urls JSON DEFAULT '{}'::json"))
+                    conn.commit()
+                    logger.info("✓ source_urls column added successfully")
+        except Exception as e:
+            logger.warning(f"Could not add missing columns (may already exist): {e}")
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
     
@@ -365,6 +383,56 @@ async def debug_admin_check(db: Session = Depends(get_db)):
             "admin_email_looking_for": admin_email,
             "total_users_in_db": len(all_users),
             "all_user_emails": [u.email for u in all_users],
+        }
+
+
+@app.post("/debug/trigger-sync")
+async def trigger_sync_manually(db: Session = Depends(get_db)):
+    """Manually trigger external API sync (for testing/debugging)."""
+    try:
+        from external_api_sync_service import external_api_sync_service
+        external_api_sync_service._sync_all_integrations()
+        return {
+            "status": "success",
+            "message": "Sync triggered manually. Check logs for details."
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+@app.get("/debug/sync-status")
+async def get_sync_status(db: Session = Depends(get_db)):
+    """Get status of external API sync service."""
+    from external_api_sync_service import external_api_sync_service
+    from models import ExternalIntegration, User
+    
+    integrations = db.query(ExternalIntegration).filter(
+        ExternalIntegration.is_active == True
+    ).all()
+    
+    integration_details = []
+    for integration in integrations:
+        user = db.query(User).filter(User.id == integration.user_id).first()
+        source_urls = integration.source_urls or integration.endpoint_urls or {}
+        integration_details.append({
+            "id": integration.id,
+            "name": integration.name,
+            "user_email": user.email if user else None,
+            "tenant_id": user.tenant_id if user else None,
+            "source_urls": source_urls,
+            "endpoint_urls": integration.endpoint_urls,
+            "last_used_at": integration.last_used_at.isoformat() if integration.last_used_at else None,
+            "is_active": integration.is_active
+        })
+    
+    return {
+        "service_running": external_api_sync_service._running,
+        "sync_interval_seconds": external_api_sync_service._sync_interval,
+        "active_integrations": len(integrations),
+        "integrations": integration_details
     }
 
 
