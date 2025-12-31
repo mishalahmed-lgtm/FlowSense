@@ -73,10 +73,13 @@ class ExternalAPISyncService:
                 logger.debug("No active external integrations found")
                 return
             
-            logger.info(f"Syncing data from {len(integrations)} external integration(s)...")
+            logger.info(f"🔄 Syncing data from {len(integrations)} external integration(s)...")
             
             for integration in integrations:
                 try:
+                    user = db.query(User).filter(User.id == integration.user_id).first()
+                    user_email = user.email if user else f"user_{integration.user_id}"
+                    logger.info(f"  Checking integration {integration.id} ({integration.name}) for user {user_email}...")
                     self._sync_integration(integration, db)
                 except Exception as e:
                     logger.error(f"Error syncing integration {integration.id} ({integration.name}): {e}", exc_info=True)
@@ -86,8 +89,14 @@ class ExternalAPISyncService:
     
     def _sync_integration(self, integration: ExternalIntegration, db: Session):
         """Sync data from a single external integration."""
-        if not integration.endpoint_urls:
+        # Use source_urls if available, otherwise fall back to endpoint_urls (for backward compatibility)
+        source_urls = integration.source_urls or integration.endpoint_urls or {}
+        
+        if not source_urls:
+            logger.debug(f"No source URLs configured for integration {integration.id} (endpoint_urls: {integration.endpoint_urls}, source_urls: {integration.source_urls})")
             return
+        
+        logger.info(f"    Found {len(source_urls)} source URL(s) to check: {list(source_urls.keys())}")
         
         # Get our API base URL from config or environment
         import os
@@ -106,8 +115,8 @@ class ExternalAPISyncService:
             else:
                 our_base_url = "http://localhost:5000"  # Default for local
         
-        # Check each endpoint URL
-        for endpoint_type, external_url in integration.endpoint_urls.items():
+        # Check each source URL
+        for endpoint_type, external_url in source_urls.items():
             if not external_url:
                 continue
             

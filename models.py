@@ -85,6 +85,10 @@ class ExternalIntegration(Base):
     # JSON object: {"health": "https://example.com/health", "data": "https://example.com/data", "devices": "https://example.com/devices"}
     endpoint_urls = Column(JSON, nullable=True, default=dict)
     
+    # Source URLs for automatic fetching (where to fetch data FROM)
+    # JSON object: {"installations": "https://external-api.com/api/installations", "data": "https://external-api.com/api/data"}
+    source_urls = Column(JSON, nullable=True, default=dict)
+    
     # Optional: webhook URL to receive data (deprecated, use endpoint_urls instead)
     webhook_url = Column(String(500), nullable=True)
     
