@@ -370,6 +370,72 @@ async def debug_health():
     }
 
 
+@app.get("/debug/test-external-api")
+async def test_external_api(db: Session = Depends(get_db)):
+    """Test fetching data from external API to see what it returns."""
+    try:
+        import requests
+        from models import ExternalIntegration, Device
+        
+        integration = db.query(ExternalIntegration).filter(
+            ExternalIntegration.is_active == True
+        ).first()
+        
+        if not integration:
+            return {
+                "status": "error",
+                "message": "No active integration found"
+            }
+        
+        # Get source URL
+        source_urls = getattr(integration, 'source_urls', None) or integration.endpoint_urls or {}
+        if not source_urls:
+            return {
+                "status": "error",
+                "message": "No source URLs configured",
+                "integration_id": integration.id
+            }
+        
+        # Get first URL
+        external_url = list(source_urls.values())[0] if source_urls else None
+        if not external_url:
+            return {
+                "status": "error",
+                "message": "No external URL found",
+                "source_urls": source_urls
+            }
+        
+        # Fetch from external API
+        logger.info(f"Testing fetch from {external_url}...")
+        response = requests.get(external_url, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Count devices before
+        device_count_before = db.query(Device).filter(
+            Device.tenant_id == integration.user.tenant_id
+        ).count()
+        
+        return {
+            "status": "success",
+            "external_url": external_url,
+            "response_status": response.status_code,
+            "data_type": type(data).__name__,
+            "data_length": len(data) if isinstance(data, (list, dict)) else None,
+            "data_sample": data[:3] if isinstance(data, list) else (data if isinstance(data, dict) else str(data)[:500]),
+            "integration_id": integration.id,
+            "tenant_id": integration.user.tenant_id if integration.user else None,
+            "devices_in_tenant_before": device_count_before
+        }
+    except Exception as e:
+        logger.error(f"Error testing external API: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__
+        }
+
+
 @app.get("/debug/admin-check")
 async def debug_admin_check(db: Session = Depends(get_db)):
     """Debug endpoint to check if admin user exists (for troubleshooting)."""
@@ -412,11 +478,30 @@ async def trigger_sync_manually(db: Session = Depends(get_db)):
     """Manually trigger external API sync (for testing/debugging)."""
     try:
         from external_api_sync_service import external_api_sync_service
+        from models import ExternalIntegration, Device
+        
+        # Get integration details before sync
+        integration = db.query(ExternalIntegration).filter(
+            ExternalIntegration.is_active == True
+        ).first()
+        
+        device_count_before = db.query(Device).count()
+        
+        # Trigger sync
         external_api_sync_service._sync_all_integrations()
+        
+        # Check device count after sync
+        device_count_after = db.query(Device).count()
+        devices_created = device_count_after - device_count_before
+        
         return {
             "status": "success",
             "message": "Sync triggered manually. Check logs for details.",
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "devices_before": device_count_before,
+            "devices_after": device_count_after,
+            "devices_created": devices_created,
+            "integration_id": integration.id if integration else None
         }
     except Exception as e:
         logger.error(f"Error triggering manual sync: {e}", exc_info=True)
