@@ -360,6 +360,16 @@ async def health():
     }
 
 
+@app.get("/debug/health")
+async def debug_health():
+    """Simple health check for debug endpoints."""
+    return {
+        "status": "ok",
+        "message": "Debug endpoints are working",
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+
 @app.get("/debug/admin-check")
 async def debug_admin_check(db: Session = Depends(get_db)):
     """Debug endpoint to check if admin user exists (for troubleshooting)."""
@@ -410,34 +420,55 @@ async def trigger_sync_manually(db: Session = Depends(get_db)):
 @app.get("/debug/sync-status")
 async def get_sync_status(db: Session = Depends(get_db)):
     """Get status of external API sync service."""
-    from external_api_sync_service import external_api_sync_service
-    from models import ExternalIntegration, User
-    
-    integrations = db.query(ExternalIntegration).filter(
-        ExternalIntegration.is_active == True
-    ).all()
-    
-    integration_details = []
-    for integration in integrations:
-        user = db.query(User).filter(User.id == integration.user_id).first()
-        source_urls = integration.source_urls or integration.endpoint_urls or {}
-        integration_details.append({
-            "id": integration.id,
-            "name": integration.name,
-            "user_email": user.email if user else None,
-            "tenant_id": user.tenant_id if user else None,
-            "source_urls": source_urls,
-            "endpoint_urls": integration.endpoint_urls,
-            "last_used_at": integration.last_used_at.isoformat() if integration.last_used_at else None,
-            "is_active": integration.is_active
-        })
-    
-    return {
-        "service_running": external_api_sync_service._running,
-        "sync_interval_seconds": external_api_sync_service._sync_interval,
-        "active_integrations": len(integrations),
-        "integrations": integration_details
-    }
+    try:
+        from external_api_sync_service import external_api_sync_service
+        from models import ExternalIntegration, User
+        
+        integrations = db.query(ExternalIntegration).filter(
+            ExternalIntegration.is_active == True
+        ).all()
+        
+        integration_details = []
+        for integration in integrations:
+            try:
+                user = db.query(User).filter(User.id == integration.user_id).first()
+                # Handle source_urls gracefully - might not exist in older DBs
+                try:
+                    source_urls = integration.source_urls or integration.endpoint_urls or {}
+                except AttributeError:
+                    source_urls = integration.endpoint_urls or {}
+                
+                integration_details.append({
+                    "id": integration.id,
+                    "name": integration.name,
+                    "user_email": user.email if user else None,
+                    "tenant_id": user.tenant_id if user else None,
+                    "source_urls": source_urls,
+                    "endpoint_urls": integration.endpoint_urls,
+                    "last_used_at": integration.last_used_at.isoformat() if integration.last_used_at else None,
+                    "is_active": integration.is_active
+                })
+            except Exception as e:
+                logger.error(f"Error processing integration {integration.id}: {e}", exc_info=True)
+                integration_details.append({
+                    "id": integration.id,
+                    "error": str(e)
+                })
+        
+        return {
+            "status": "success",
+            "service_running": external_api_sync_service._running,
+            "sync_interval_seconds": external_api_sync_service._sync_interval,
+            "active_integrations": len(integrations),
+            "integrations": integration_details
+        }
+    except Exception as e:
+        logger.error(f"Error in sync-status endpoint: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__
+        }
 
 
 @app.get("/metrics")
