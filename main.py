@@ -386,6 +386,7 @@ async def debug_admin_check(db: Session = Depends(get_db)):
         }
 
 
+@app.get("/debug/trigger-sync")
 @app.post("/debug/trigger-sync")
 async def trigger_sync_manually(db: Session = Depends(get_db)):
     """Manually trigger external API sync (for testing/debugging)."""
@@ -394,12 +395,15 @@ async def trigger_sync_manually(db: Session = Depends(get_db)):
         external_api_sync_service._sync_all_integrations()
         return {
             "status": "success",
-            "message": "Sync triggered manually. Check logs for details."
+            "message": "Sync triggered manually. Check logs for details.",
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
+        logger.error(f"Error triggering manual sync: {e}", exc_info=True)
         return {
             "status": "error",
-            "message": str(e)
+            "message": str(e),
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
 
 
