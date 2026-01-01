@@ -116,6 +116,8 @@ class ExternalAPISyncService:
             else:
                 our_base_url = "http://localhost:5000"  # Default for local
         
+        logger.info(f"    Using API base URL: {our_base_url} (from settings.api_base_url={settings.api_base_url}, API_BASE_URL={os.getenv('API_BASE_URL')}, RENDER_EXTERNAL_URL={os.getenv('RENDER_EXTERNAL_URL')})")
+        
         # Check each source URL
         for endpoint_type, external_url in source_urls.items():
             if not external_url:
@@ -176,10 +178,12 @@ class ExternalAPISyncService:
                 items = []
             
             if not items:
-                logger.debug(f"No data found in {endpoint_type} response from {external_url}")
+                logger.warning(f"⚠️  No data found in {endpoint_type} response from {external_url}. Response type: {type(data).__name__}, Content: {str(data)[:200]}")
                 return
             
-            logger.info(f"Fetched {len(items)} items from {external_url}")
+            logger.info(f"    ✓ Fetched {len(items)} items from {external_url}")
+            if items:
+                logger.debug(f"    Sample item: {items[0]}")
             
             # Auto-detect installations endpoint if URL contains "installations"
             # This handles cases where endpoint_type is "data" but URL is for installations
@@ -287,14 +291,21 @@ class ExternalAPISyncService:
     def _send_batch(self, endpoint: str, headers: Dict[str, str], items: List[Dict[str, Any]], batch_size: int = 50):
         """Send items in batches."""
         total = len(items)
+        logger.info(f"    📤 Sending {total} items to {endpoint} in batches of {batch_size}")
         for i in range(0, total, batch_size):
             batch = items[i:i + batch_size]
             try:
+                logger.info(f"    Sending batch {i//batch_size + 1} ({len(batch)} items) to {endpoint}")
                 response = requests.post(endpoint, headers=headers, json=batch, timeout=60)
                 response.raise_for_status()
-                logger.debug(f"Sent batch {i//batch_size + 1} ({len(batch)} items)")
+                result = response.json() if response.content else {}
+                logger.info(f"    ✓ Batch {i//batch_size + 1} sent successfully. Response: created={result.get('created', 0)}, updated={result.get('updated', 0)}, errors={result.get('errors', 0)}")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"    ✗ Error sending batch {i//batch_size + 1}: {e}")
+                if hasattr(e, 'response') and e.response is not None:
+                    logger.error(f"    Response status: {e.response.status_code}, body: {e.response.text[:500]}")
             except Exception as e:
-                logger.error(f"Error sending batch {i//batch_size + 1}: {e}")
+                logger.error(f"    ✗ Unexpected error sending batch {i//batch_size + 1}: {e}", exc_info=True)
 
 
 # Global service instance
