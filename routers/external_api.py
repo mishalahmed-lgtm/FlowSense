@@ -553,7 +553,6 @@ async def receive_installations(
     allowed_raw = integration.allowed_endpoints or []
     # Handle both list and string formats
     if isinstance(allowed_raw, str):
-        import json
         try:
             allowed_raw = json.loads(allowed_raw)
         except:
