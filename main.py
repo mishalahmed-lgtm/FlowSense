@@ -123,10 +123,36 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info(f"✓ Default tenant already exists: {existing_tenant.name}")
             
+            # Auto-create HTTP and MQTT device types if they don't exist
+            from models import DeviceType
+            device_types_to_create = [
+                {"name": "HTTP", "protocol": "HTTP", "description": "Generic HTTP device"},
+                {"name": "MQTT", "protocol": "MQTT", "description": "Generic MQTT device"},
+            ]
+            
+            for dt_data in device_types_to_create:
+                existing_dt = db.query(DeviceType).filter(
+                    DeviceType.name == dt_data["name"],
+                    DeviceType.protocol == dt_data["protocol"]
+                ).first()
+                
+                if not existing_dt:
+                    device_type = DeviceType(
+                        name=dt_data["name"],
+                        protocol=dt_data["protocol"],
+                        description=dt_data["description"],
+                        schema_definition='{"type": "object", "additionalProperties": true}'
+                    )
+                    db.add(device_type)
+                    db.commit()
+                    logger.info(f"✅ Device type created: {dt_data['name']} ({dt_data['protocol']})")
+                else:
+                    logger.debug(f"✓ Device type already exists: {dt_data['name']} ({dt_data['protocol']})")
+            
         finally:
             db.close()
     except Exception as e:
-        logger.warning(f"Failed to auto-initialize admin user: {e}. You may need to run init_admin.py manually.")
+        logger.warning(f"Failed to auto-initialize admin user/device types: {e}. You may need to run init_admin.py manually.")
     
     # Connect to MQTT broker
     try:
