@@ -181,8 +181,15 @@ class ExternalAPISyncService:
             
             logger.info(f"Fetched {len(items)} items from {external_url}")
             
-            # Determine our internal endpoint based on endpoint_type
-            if endpoint_type == "installations":
+            # Auto-detect installations endpoint if URL contains "installations"
+            # This handles cases where endpoint_type is "data" but URL is for installations
+            actual_endpoint_type = endpoint_type
+            if "installations" in external_url.lower():
+                actual_endpoint_type = "installations"
+                logger.info(f"  Auto-detected installations endpoint from URL: {external_url}")
+            
+            # Determine our internal endpoint based on actual endpoint type
+            if actual_endpoint_type == "installations":
                 our_endpoint = f"{our_base_url}/api/v1/external/installations"
             elif endpoint_type == "data":
                 our_endpoint = f"{our_base_url}/api/v1/external/data"
@@ -200,13 +207,13 @@ class ExternalAPISyncService:
                 "Content-Type": "application/json"
             }
             
-            # Transform and send data based on endpoint type
-            if endpoint_type == "installations":
+            # Transform and send data based on actual endpoint type
+            if actual_endpoint_type == "installations":
                 # Transform installations format
                 transformed_items = [self._transform_installation(item) for item in items]
                 # Send in batches
                 self._send_batch(our_endpoint, headers, transformed_items, batch_size=50)
-            elif endpoint_type == "data":
+            elif actual_endpoint_type == "data":
                 # For telemetry data, send each item individually
                 for item in items:
                     try:
@@ -231,7 +238,7 @@ class ExternalAPISyncService:
                     except Exception as e:
                         logger.error(f"Error sending health item: {e}")
             
-            logger.info(f"✓ Successfully synced {len(items)} {endpoint_type} items")
+            logger.info(f"✓ Successfully synced {len(items)} {actual_endpoint_type} items")
             
         except requests.exceptions.RequestException as e:
             logger.error(f"HTTP error fetching from {external_url}: {e}")
