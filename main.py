@@ -373,26 +373,36 @@ async def debug_health():
 @app.get("/debug/admin-check")
 async def debug_admin_check(db: Session = Depends(get_db)):
     """Debug endpoint to check if admin user exists (for troubleshooting)."""
-    admin_email = "admin@flowsense.com".lower()
-    user = db.query(User).filter(User.email == admin_email).first()
-    
-    if user:
+    try:
+        admin_email = "admin@flowsense.com".lower()
+        user = db.query(User).filter(User.email == admin_email).first()
+        
+        if user:
+            return {
+                "status": "success",
+                "exists": True,
+                "email": user.email,
+                "id": user.id,
+                "role": user.role.value,
+                "is_active": user.is_active,
+                "hashed_password_length": len(user.hashed_password) if user.hashed_password else 0,
+            }
+        else:
+            # Check if any users exist
+            all_users = db.query(User).all()
+            return {
+                "status": "success",
+                "exists": False,
+                "admin_email_looking_for": admin_email,
+                "total_users_in_db": len(all_users),
+                "all_user_emails": [u.email for u in all_users],
+            }
+    except Exception as e:
+        logger.error(f"Error in admin-check endpoint: {e}", exc_info=True)
         return {
-            "exists": True,
-            "email": user.email,
-            "id": user.id,
-            "role": user.role.value,
-            "is_active": user.is_active,
-            "hashed_password_length": len(user.hashed_password) if user.hashed_password else 0,
-        }
-    else:
-        # Check if any users exist
-        all_users = db.query(User).all()
-        return {
-            "exists": False,
-            "admin_email_looking_for": admin_email,
-            "total_users_in_db": len(all_users),
-            "all_user_emails": [u.email for u in all_users],
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__
         }
 
 
