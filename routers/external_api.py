@@ -602,6 +602,7 @@ async def receive_installations(
                 installations_list = [body]
         
         if not installations_list:
+            logger.warning(f"[External API] No installations data provided. Body type: {type(body).__name__}, Body content: {str(body)[:500]}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No installations data provided"
@@ -633,9 +634,13 @@ async def receive_installations(
             ).first()
         
         if not http_device_type:
+            # Log all available device types for debugging
+            all_device_types = db.query(DeviceType).all()
+            device_types_info = [(dt.id, dt.name, dt.protocol) for dt in all_device_types]
+            logger.error(f"[External API] No HTTP or MQTT device type found. Available device types: {device_types_info}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="No HTTP or MQTT device type found in system"
+                detail=f"No HTTP or MQTT device type found in system. Available types: {device_types_info}"
             )
         
         created_devices = []
@@ -740,13 +745,20 @@ async def receive_installations(
             "error_details": errors if errors else None,
         }
     
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.error(f"[External API] JSON decode error in installations endpoint: {e}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid JSON payload"
         )
+    except HTTPException as e:
+        # Log HTTPException details before re-raising
+        logger.error(f"[External API] HTTPException in installations endpoint: status={e.status_code}, detail={e.detail}")
+        raise
     except Exception as e:
-        logger.error(f"Error processing installations data: {e}", exc_info=True)
+        logger.error(f"[External API] Error processing installations data: {e}", exc_info=True)
+        import traceback
+        logger.error(f"[External API] Full traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to process installations: {str(e)}"
