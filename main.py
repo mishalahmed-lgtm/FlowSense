@@ -388,7 +388,11 @@ async def test_external_api(db: Session = Depends(get_db)):
             }
         
         # Get source URL
-        source_urls = getattr(integration, 'source_urls', None) or integration.endpoint_urls or {}
+        try:
+            source_urls = integration.source_urls or integration.endpoint_urls or {}
+        except AttributeError:
+            source_urls = integration.endpoint_urls or {}
+        
         if not source_urls:
             return {
                 "status": "error",
@@ -405,6 +409,14 @@ async def test_external_api(db: Session = Depends(get_db)):
                 "source_urls": source_urls
             }
         
+        # Get user to access tenant_id
+        user = db.query(User).filter(User.id == integration.user_id).first()
+        if not user:
+            return {
+                "status": "error",
+                "message": f"User not found for integration {integration.id}"
+            }
+        
         # Fetch from external API
         logger.info(f"Testing fetch from {external_url}...")
         response = requests.get(external_url, timeout=30)
@@ -413,7 +425,7 @@ async def test_external_api(db: Session = Depends(get_db)):
         
         # Count devices before
         device_count_before = db.query(Device).filter(
-            Device.tenant_id == integration.user.tenant_id
+            Device.tenant_id == user.tenant_id
         ).count()
         
         return {
@@ -424,7 +436,7 @@ async def test_external_api(db: Session = Depends(get_db)):
             "data_length": len(data) if isinstance(data, (list, dict)) else None,
             "data_sample": data[:3] if isinstance(data, list) else (data if isinstance(data, dict) else str(data)[:500]),
             "integration_id": integration.id,
-            "tenant_id": integration.user.tenant_id if integration.user else None,
+            "tenant_id": user.tenant_id if user else None,
             "devices_in_tenant_before": device_count_before
         }
     except Exception as e:
