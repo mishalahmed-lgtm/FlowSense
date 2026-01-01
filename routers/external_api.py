@@ -547,7 +547,8 @@ async def receive_installations(
     
     Devices are automatically created with HTTP protocol since data comes via HTTP.
     """
-    # Check for either "installations" or "devices" permission (installations creates devices)
+    # Check for "installations", "devices", or "data" permission
+    # (installations creates devices, and installations are a type of data)
     # Make check case-insensitive
     allowed_raw = integration.allowed_endpoints or []
     # Handle both list and string formats
@@ -562,11 +563,11 @@ async def receive_installations(
     
     logger.info(f"Installations endpoint check - Integration ID: {integration.id}, Raw allowed_endpoints: {allowed_raw}, Normalized: {allowed}, Type: {type(allowed_raw)}")
     
-    if "installations" not in allowed and "devices" not in allowed:
+    if "installations" not in allowed and "devices" not in allowed and "data" not in allowed:
         logger.error(f"Permission denied for installations endpoint. Integration ID: {integration.id}, Allowed endpoints (raw): {allowed_raw}, Allowed endpoints (normalized): {allowed}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"API key does not have permission to access 'installations' or 'devices' endpoint. Allowed endpoints: {allowed_raw}",
+            detail=f"API key does not have permission to access 'installations', 'devices', or 'data' endpoint. Allowed endpoints: {allowed_raw}",
         )
     
     user = get_user_from_integration(integration, db)
