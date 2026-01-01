@@ -51,7 +51,7 @@ class ExternalIntegrationConfig(BaseModel):
     """Configuration for external integration."""
     name: Optional[str] = None
     description: Optional[str] = None
-    allowed_endpoints: List[str] = Field(default_factory=list)  # ["health", "data", "devices"]
+    allowed_endpoints: List[str] = Field(default_factory=list)  # ["health", "data", "devices", "installations"]
     endpoint_urls: Optional[Dict[str, str]] = Field(default_factory=dict)  # {"health": "url", "data": "url", "devices": "url"}
     webhook_url: Optional[str] = None  # Deprecated, use endpoint_urls instead
 

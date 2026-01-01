@@ -547,7 +547,13 @@ async def receive_installations(
     
     Devices are automatically created with HTTP protocol since data comes via HTTP.
     """
-    check_endpoint_permission(integration, "devices")
+    # Check for either "installations" or "devices" permission (installations creates devices)
+    allowed = integration.allowed_endpoints or []
+    if "installations" not in allowed and "devices" not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="API key does not have permission to access 'installations' or 'devices' endpoint",
+        )
     user = get_user_from_integration(integration, db)
     
     if not user.tenant_id:
