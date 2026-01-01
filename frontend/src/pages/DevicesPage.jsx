@@ -37,6 +37,7 @@ export default function DevicesPage() {
       const params = {
         page: pageNum,
         limit: itemsPerPage,
+        include_counts: false, // Skip counts on initial load for faster response
       };
       
       // Add server-side filters

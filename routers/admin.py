@@ -1,10 +1,13 @@
 """Admin API endpoints for device management."""
 
 import json
+import logging
 import math
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import text, or_
@@ -245,6 +248,7 @@ def list_devices(
     search: Optional[str] = Query(None, description="Search by device_id or name"),
     status: Optional[str] = Query(None, description="Filter by status: 'active' or 'inactive'"),
     protocol: Optional[str] = Query(None, description="Filter by protocol (e.g., 'HTTP', 'MQTT')"),
+    include_counts: bool = Query(True, description="Include total_active and total_inactive counts (slower)"),
 ):
     """Return devices (filtered by tenant for tenant admins) with pagination.
 
@@ -283,29 +287,52 @@ def list_devices(
         query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
     
     # Get total count before pagination (for metadata)
-    total_count = query.count()
-    
-    # Get total active/inactive counts based on live telemetry status
-    # A device is "active" if it has sent telemetry in the last 10 minutes
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=600)  # 10 minutes
-    
-    # Count devices with recent telemetry (active)
-    # Use a subquery to join with TelemetryLatest and filter by updated_at
-    from models import TelemetryLatest
-    from sqlalchemy import and_
-    
-    active_devices_query = query.join(
-        TelemetryLatest, 
-        and_(
-            TelemetryLatest.device_id == Device.id,
-            TelemetryLatest.updated_at >= cutoff
+    # Use a more efficient count by avoiding joins
+    base_query = db.query(Device)
+    if current_user.role == UserRole.TENANT_ADMIN:
+        base_query = base_query.filter(Device.tenant_id == current_user.tenant_id)
+    if search:
+        search_term = f"%{search.lower()}%"
+        base_query = base_query.filter(
+            or_(
+                Device.device_id.ilike(search_term),
+                Device.name.ilike(search_term)
+            )
         )
-    ).distinct()
-    total_active_count = active_devices_query.count()
+    if protocol:
+        base_query = base_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
     
-    # Inactive devices = total - active
-    total_inactive_count = total_count - total_active_count
+    total_count = base_query.count()
+    
+    # Get total active/inactive counts based on live telemetry status (optional, can be slow)
+    total_active_count = None
+    total_inactive_count = None
+    
+    if include_counts:
+        try:
+            # A device is "active" if it has sent telemetry in the last 10 minutes
+            # Optimize: Use EXISTS subquery instead of JOIN for better performance
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(seconds=600)  # 10 minutes
+            
+            from models import TelemetryLatest
+            from sqlalchemy import and_, exists
+            
+            # Count active devices using EXISTS (more efficient than JOIN)
+            active_subquery = exists().where(
+                and_(
+                    TelemetryLatest.device_id == Device.id,
+                    TelemetryLatest.updated_at >= cutoff
+                )
+            )
+            active_devices_query = base_query.filter(active_subquery)
+            total_active_count = active_devices_query.count()
+            
+            # Inactive devices = total - active
+            total_inactive_count = total_count - total_active_count
+        except Exception as e:
+            logger.warning(f"Error calculating active/inactive counts: {e}, skipping counts")
+            # Continue without counts if there's an error
     
     # Apply pagination
     offset = (page - 1) * limit
