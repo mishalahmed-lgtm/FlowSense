@@ -713,7 +713,7 @@ async def receive_installations(
                         db.commit()
                         db.refresh(existing_device)
                         updated_devices.append(device_id)
-                        logger.info(f"[External API] Updated device from installations: {device_id}")
+                        logger.info(f"[External API] ✅ Updated device from installations: {device_id} (device_db_id: {existing_device.id}, tenant: {user.tenant_id})")
                     else:
                         # Create new device
                         device = Device(
@@ -728,14 +728,14 @@ async def receive_installations(
                         db.commit()
                         db.refresh(device)
                         created_devices.append(device_id)
-                        logger.info(f"[External API] Created device from installations: {device_id} (name: {device_name}, tenant: {user.tenant_id})")
+                        logger.info(f"[External API] ✅ Created device from installations: {device_id} (name: {device_name}, tenant: {user.tenant_id}, device_db_id: {device.id})")
                 else:
                     errors.append(f"Invalid item format: {item}")
             except Exception as e:
                 logger.error(f"Error processing installation item {item}: {e}", exc_info=True)
                 errors.append(f"Error processing item: {str(e)}")
         
-        return {
+        result = {
             "status": "success",
             "created": len(created_devices),
             "updated": len(updated_devices),
@@ -744,6 +744,21 @@ async def receive_installations(
             "updated_devices": updated_devices,
             "error_details": errors if errors else None,
         }
+        logger.info(f"[External API] ✅ Installations processing complete: {result['created']} created, {result['updated']} updated, {result['errors']} errors")
+        
+        # Verify devices were actually saved to DB
+        if created_devices:
+            for device_id in created_devices[:5]:  # Check first 5
+                verify_device = db.query(Device).filter(
+                    Device.device_id == device_id,
+                    Device.tenant_id == user.tenant_id
+                ).first()
+                if verify_device:
+                    logger.info(f"[External API] ✅ Verified device in DB: {device_id} (DB ID: {verify_device.id})")
+                else:
+                    logger.error(f"[External API] ❌ Device NOT found in DB after creation: {device_id}")
+        
+        return result
     
     except json.JSONDecodeError as e:
         logger.error(f"[External API] JSON decode error in installations endpoint: {e}")
