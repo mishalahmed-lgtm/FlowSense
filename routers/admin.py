@@ -350,6 +350,21 @@ def list_devices(
             from models import TelemetryLatest
             from sqlalchemy import and_, exists
             
+            # Rebuild base_query for active/inactive counts
+            base_query_for_counts = db.query(Device.id)
+            if current_user.role == UserRole.TENANT_ADMIN:
+                base_query_for_counts = base_query_for_counts.filter(Device.tenant_id == current_user.tenant_id)
+            if search:
+                search_term = f"%{search.lower()}%"
+                base_query_for_counts = base_query_for_counts.filter(
+                    or_(
+                        Device.device_id.ilike(search_term),
+                        Device.name.ilike(search_term)
+                    )
+                )
+            if protocol:
+                base_query_for_counts = base_query_for_counts.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
+            
             # Count active devices using EXISTS (more efficient than JOIN)
             active_subquery = exists().where(
                 and_(
@@ -357,7 +372,7 @@ def list_devices(
                     TelemetryLatest.updated_at >= cutoff
                 )
             )
-            active_devices_query = base_query.filter(active_subquery)
+            active_devices_query = base_query_for_counts.filter(active_subquery)
             total_active_count = active_devices_query.count()
             
             # Inactive devices = total - active
