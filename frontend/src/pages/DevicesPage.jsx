@@ -285,7 +285,15 @@ export default function DevicesPage() {
           </p>
         </div>
         <div className="page-header__actions">
-          <button className="btn-icon" onClick={() => loadDevices()} title="Refresh">
+          <button className="btn-icon" onClick={() => {
+            // Clear all device caches and force refresh
+            Object.keys(localStorage).forEach(key => {
+              if (key.startsWith('devices_cache_')) {
+                localStorage.removeItem(key);
+              }
+            });
+            loadDevices(currentPage, true);
+          }} title="Refresh">
             <Icon name="refresh" size={18} />
           </button>
           <button className="btn btn--primary" onClick={() => openModal()}>
