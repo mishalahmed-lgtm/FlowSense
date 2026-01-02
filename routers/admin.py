@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import text, or_
+from sqlalchemy import text, or_, func
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -302,7 +302,13 @@ def list_devices(
     if protocol:
         base_query = base_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
     
-    total_count = base_query.count()
+    # Optimize count query: use statement.count() for better performance with indexes
+    # For large datasets, this is much faster than loading all records
+    try:
+        total_count = base_query.statement.with_only_columns([func.count()]).order_by(None).scalar()
+    except:
+        # Fallback to regular count if the optimized version fails
+        total_count = base_query.count()
     
     # Get total active/inactive counts based on live telemetry status (optional, can be slow)
     total_active_count = None
@@ -358,15 +364,15 @@ def list_devices(
         
         for device in devices:
             latest = latest_by_device_id.get(device.id)
-            is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
-            live_map[device.id] = is_live
-            
-            # Check if device has a dashboard with widgets
-            has_dash = False
-            if device.dashboard and device.dashboard.config:
-                widgets = device.dashboard.config.get("widgets", [])
-                has_dash = len(widgets) > 0
-            dashboard_map[device.id] = has_dash
+        is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
+        live_map[device.id] = is_live
+        
+        # Check if device has a dashboard with widgets
+        has_dash = False
+        if device.dashboard and device.dashboard.config:
+            widgets = device.dashboard.config.get("widgets", [])
+            has_dash = len(widgets) > 0
+        dashboard_map[device.id] = has_dash
 
     # Serialize devices
     serialized_devices = [
