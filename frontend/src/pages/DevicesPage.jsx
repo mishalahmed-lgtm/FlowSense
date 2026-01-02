@@ -41,8 +41,8 @@ export default function DevicesPage() {
           try {
             const { data, timestamp } = JSON.parse(cached);
             const cacheAge = Date.now() - timestamp;
-            // Use cache if less than 30 seconds old
-            if (cacheAge < 30000) {
+            // Use cache if less than 2 minutes old
+            if (cacheAge < 120000) {
               console.log(`Using cached devices (page ${pageNum}, age: ${Math.round(cacheAge/1000)}s)`);
               if (Array.isArray(data)) {
                 setDevices(data);
@@ -151,6 +151,42 @@ export default function DevicesPage() {
 
   useEffect(() => {
     if (!token) return;
+    
+    // Try to load from cache immediately (synchronously) to avoid flash of empty state
+    const cacheKey = `devices_cache_${currentPage}_${searchQuery}_${filterStatus}_${filterProtocol}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const { data, timestamp } = JSON.parse(cached);
+        const cacheAge = Date.now() - timestamp;
+        // Use cache if less than 2 minutes old (increased from 30 seconds)
+        if (cacheAge < 120000) {
+          console.log(`Loading from cache immediately (age: ${Math.round(cacheAge/1000)}s)`);
+          if (Array.isArray(data)) {
+            setDevices(data);
+            setTotalDeviceCount(data.length);
+            setTotalPages(Math.ceil(data.length / itemsPerPage));
+            const active = data.filter((d) => d.is_active).length;
+            const inactive = data.filter((d) => !d.is_active).length;
+            setTotalActiveCount(active);
+            setTotalInactiveCount(inactive);
+          } else if (data && data.devices) {
+            setDevices(data.devices || []);
+            setTotalDeviceCount(data.total || 0);
+            setTotalPages(data.total_pages || 1);
+            setTotalActiveCount(data.total_active ?? 0);
+            setTotalInactiveCount(data.total_inactive ?? 0);
+            if (data.page && data.page !== currentPage) {
+              setCurrentPage(data.page);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to parse cache on mount:", e);
+      }
+    }
+    
+    // Then load fresh data in background (will update if cache is stale)
     loadDevices();
     loadReferenceData();
   }, [token]);
