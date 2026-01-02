@@ -302,13 +302,8 @@ def list_devices(
     if protocol:
         base_query = base_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
     
-    # Optimize count query: use statement.count() for better performance with indexes
-    # For large datasets, this is much faster than loading all records
-    try:
-        total_count = base_query.statement.with_only_columns([func.count()]).order_by(None).scalar()
-    except:
-        # Fallback to regular count if the optimized version fails
-        total_count = base_query.count()
+    # Count query is now optimized with tenant_id index
+    total_count = base_query.count()
     
     # Get total active/inactive counts based on live telemetry status (optional, can be slow)
     total_active_count = None
