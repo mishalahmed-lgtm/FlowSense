@@ -59,12 +59,16 @@ class ExternalAPISyncService:
                 # Check if it's time to sync device external data (every 1 hour)
                 current_time = time.time()
                 if current_time - self._last_device_sync >= self._device_sync_interval:
+                    logger.info("⏰ Time to sync external device data (1 hour interval reached)")
                     db = SessionLocal()
                     try:
                         self._sync_all_devices_external_data(db)
                         self._last_device_sync = current_time
                     finally:
                         db.close()
+                else:
+                    time_until_sync = self._device_sync_interval - (current_time - self._last_device_sync)
+                    logger.debug(f"Next device data sync in {int(time_until_sync)} seconds")
                 
                 time.sleep(self._sync_interval)
             except Exception as e:
@@ -109,6 +113,7 @@ class ExternalAPISyncService:
         import json
         
         if not settings.external_device_api_base_url or not settings.external_device_api_key:
+            logger.debug("External device API not configured (EXTERNAL_DEVICE_API_BASE_URL or EXTERNAL_DEVICE_API_KEY not set) - skipping device data sync")
             return  # External API not configured
         
         try:
