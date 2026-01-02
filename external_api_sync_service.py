@@ -55,6 +55,17 @@ class ExternalAPISyncService:
         while self._running:
             try:
                 self._sync_all_integrations()
+                
+                # Check if it's time to sync device external data (every 1 hour)
+                current_time = time.time()
+                if current_time - self._last_device_sync >= self._device_sync_interval:
+                    db = SessionLocal()
+                    try:
+                        self._sync_all_devices_external_data(db)
+                        self._last_device_sync = current_time
+                    finally:
+                        db.close()
+                
                 time.sleep(self._sync_interval)
             except Exception as e:
                 logger.error(f"Error in external API sync worker loop: {e}", exc_info=True)
@@ -86,6 +97,107 @@ class ExternalAPISyncService:
         
         finally:
             db.close()
+    
+    def _sync_all_devices_external_data(self, db: Session):
+        """Sync external device data for all devices every hour.
+        
+        Only syncs devices that haven't been synced in the last hour to avoid
+        overwhelming the external API with too many requests.
+        """
+        from models import Device
+        from config import settings
+        import json
+        
+        if not settings.external_device_api_base_url or not settings.external_device_api_key:
+            return  # External API not configured
+        
+        try:
+            # Get all devices
+            devices = db.query(Device).all()
+            
+            if not devices:
+                return
+            
+            # Filter devices that need syncing (not synced in last hour)
+            devices_to_sync = []
+            for device in devices:
+                try:
+                    metadata = {}
+                    if device.device_metadata:
+                        metadata = json.loads(device.device_metadata)
+                    
+                    last_synced = metadata.get("external_data_synced_at")
+                    
+                    # If never synced, add to list
+                    if not last_synced:
+                        devices_to_sync.append(device)
+                        continue
+                    
+                    # Check if synced in last hour (skip if recently synced)
+                    last_synced_dt = datetime.fromisoformat(last_synced.replace('Z', '+00:00'))
+                    age_seconds = (datetime.now(timezone.utc) - last_synced_dt).total_seconds()
+                    if age_seconds >= 3600:  # 1 hour or older
+                        devices_to_sync.append(device)
+                    
+                except Exception as e:
+                    logger.debug(f"Error parsing metadata for device {device.device_id}: {e}")
+                    # Add to sync list if we can't parse (might be first time)
+                    devices_to_sync.append(device)
+                    continue
+            
+            if not devices_to_sync:
+                logger.debug("All devices are up-to-date (synced in last hour)")
+                return
+            
+            logger.info(f"🔄 Syncing external data for {len(devices_to_sync)} device(s) (out of {len(devices)} total)...")
+            
+            # Sync devices in batches to avoid overwhelming API
+            synced_count = 0
+            failed_count = 0
+            batch_size = 50  # Process 50 devices at a time
+            
+            for i in range(0, len(devices_to_sync), batch_size):
+                batch = devices_to_sync[i:i + batch_size]
+                logger.info(f"  Processing batch {i//batch_size + 1} ({len(batch)} devices)...")
+                
+                for device in batch:
+                    try:
+                        url = f"{settings.external_device_api_base_url}/device/{device.device_id.upper()}"
+                        headers = {"X-API-KEY": settings.external_device_api_key}
+                        
+                        response = requests.get(url, headers=headers, timeout=10)
+                        response.raise_for_status()
+                        external_data = response.json()
+                        
+                        # Update device metadata
+                        metadata = json.loads(device.device_metadata) if device.device_metadata else {}
+                        metadata["external_data"] = external_data
+                        metadata["external_data_synced_at"] = datetime.now(timezone.utc).isoformat()
+                        device.device_metadata = json.dumps(metadata)
+                        db.commit()
+                        
+                        synced_count += 1
+                        
+                    except requests.exceptions.RequestException as e:
+                        failed_count += 1
+                        logger.warning(f"  ⚠ Failed to sync device {device.device_id}: {e}")
+                        continue
+                    except Exception as e:
+                        failed_count += 1
+                        logger.error(f"  ✗ Error syncing device {device.device_id}: {e}")
+                        continue
+                
+                # Small delay between batches to avoid rate limiting
+                if i + batch_size < len(devices_to_sync):
+                    time.sleep(2)
+            
+            if synced_count > 0:
+                logger.info(f"  ✅ Successfully synced {synced_count} device(s)")
+            if failed_count > 0:
+                logger.warning(f"  ⚠ Failed to sync {failed_count} device(s)")
+        
+        except Exception as e:
+            logger.error(f"Error in _sync_all_devices_external_data: {e}", exc_info=True)
     
     def _sync_integration(self, integration: ExternalIntegration, db: Session):
         """Sync data from a single external integration."""

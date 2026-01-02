@@ -4,6 +4,7 @@ import json
 import logging
 import math
 import secrets
+import requests
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -19,7 +20,6 @@ from config import settings
 from database import get_db
 from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest, DeviceDashboard, User, UserRole
 from rule_engine import rule_engine
-import json
 from influx_client import influx_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -453,6 +453,111 @@ def delete_device(
     )
     db.commit()
     return None
+
+
+@router.get("/devices/{device_id}/external-data")
+def get_external_device_data(
+    device_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    force_refresh: bool = Query(False, description="Force refresh from external API"),
+):
+    """Fetch device data from external API (SmartTive) and store in device_metadata.
+    
+    This endpoint:
+    1. Fetches data from external API on-demand
+    2. Stores it in device_metadata
+    3. Tracks last_viewed_at for background sync
+    4. Returns cached data if available and not forcing refresh
+    """
+    import requests
+    import json
+    from datetime import datetime, timezone
+    
+    device = db.query(Device).filter(Device.device_id == device_id).first()
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Device not found",
+        )
+    
+    # Check tenant access
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not allowed to access this device",
+        )
+    
+    # Check if we have cached data and it's recent (less than 1 hour old)
+    device_metadata = {}
+    if device.device_metadata:
+        try:
+            device_metadata = json.loads(device.device_metadata)
+        except:
+            device_metadata = {}
+    
+    external_data = device_metadata.get("external_data")
+    last_synced = device_metadata.get("external_data_synced_at")
+    
+    # Return cached data if available and not forcing refresh
+    if not force_refresh and external_data and last_synced:
+        try:
+            last_synced_dt = datetime.fromisoformat(last_synced.replace('Z', '+00:00'))
+            age_seconds = (datetime.now(timezone.utc) - last_synced_dt).total_seconds()
+            if age_seconds < 3600:  # Less than 1 hour old
+                logger.info(f"Returning cached external data for device {device_id} (age: {age_seconds:.0f}s)")
+                # Update last_viewed_at for background sync
+                device_metadata["last_viewed_at"] = datetime.now(timezone.utc).isoformat()
+                device.device_metadata = json.dumps(device_metadata)
+                db.commit()
+                return {"data": external_data, "cached": True, "synced_at": last_synced}
+        except Exception as e:
+            logger.warning(f"Error parsing cached data: {e}")
+    
+    # Fetch from external API
+    if not settings.external_device_api_base_url or not settings.external_device_api_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="External device API not configured",
+        )
+    
+    try:
+        url = f"{settings.external_device_api_base_url}/device/{device_id.upper()}"
+        headers = {"X-API-KEY": settings.external_device_api_key}
+        
+        logger.info(f"Fetching external data for device {device_id} from {url}")
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        external_data = response.json()
+        
+        # Store in device_metadata
+        if not device_metadata:
+            device_metadata = {}
+        device_metadata["external_data"] = external_data
+        device_metadata["external_data_synced_at"] = datetime.now(timezone.utc).isoformat()
+        device_metadata["last_viewed_at"] = datetime.now(timezone.utc).isoformat()
+        device.device_metadata = json.dumps(device_metadata)
+        db.commit()
+        
+        logger.info(f"Successfully fetched and stored external data for device {device_id}")
+        return {"data": external_data, "cached": False, "synced_at": device_metadata["external_data_synced_at"]}
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error fetching external data for device {device_id}: {e}")
+        # Return cached data if available, even if stale
+        if external_data:
+            logger.info(f"Returning stale cached data due to API error")
+            return {"data": external_data, "cached": True, "synced_at": last_synced, "error": "API unavailable, using cached data"}
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Failed to fetch external device data: {str(e)}",
+        )
+    except Exception as e:
+        logger.error(f"Unexpected error fetching external data: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error processing external device data: {str(e)}",
+        )
 
 
 @router.post("/devices/{device_id}/rotate-key", response_model=ProvisioningKeyResponse)

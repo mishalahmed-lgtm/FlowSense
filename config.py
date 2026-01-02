@@ -69,6 +69,10 @@ class Settings(BaseSettings):
     sms_provider: Optional[str] = None
     sms_api_key: Optional[str] = None
     
+    # External device data API (SmartTive)
+    external_device_api_base_url: Optional[str] = None  # e.g. "https://op1.smarttive.com"
+    external_device_api_key: Optional[str] = None  # API key for external device data
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
