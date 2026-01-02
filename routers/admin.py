@@ -44,6 +44,8 @@ class DeviceMetadata(BaseModel):
     mqtt_settings: Optional[Dict[str, Any]] = None
     tcp_settings: Optional[Dict[str, Any]] = None
     extras: Optional[Dict[str, Any]] = None
+    external_data: Optional[Dict[str, Any]] = None  # External API data (e.g., from SmartTive)
+    external_data_synced_at: Optional[str] = None  # ISO timestamp of last sync
 
 
 class DeviceBase(BaseModel):
