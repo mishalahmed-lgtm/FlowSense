@@ -286,10 +286,42 @@ def list_devices(
     if protocol:
         query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
     
-    # Get total count before pagination (for metadata) - SKIP if not needed
+    # Get total count - optimize for speed
+    # Use raw SQL COUNT for better performance on large datasets
     total_count = 0
-    if include_counts or True:  # Always need total for pagination
-        base_query = db.query(Device)
+    
+    try:
+        # Build WHERE clause for raw SQL
+        where_clauses = []
+        params = {}
+        
+        if current_user.role == UserRole.TENANT_ADMIN:
+            where_clauses.append("tenant_id = :tenant_id")
+            params["tenant_id"] = current_user.tenant_id
+        
+        if search:
+            search_term = f"%{search.lower()}%"
+            where_clauses.append("(LOWER(device_id) LIKE :search OR LOWER(name) LIKE :search)")
+            params["search"] = search_term
+        
+        if protocol:
+            # Need to join with device_types for protocol filter
+            join_clause = "JOIN device_types ON devices.device_type_id = device_types.id"
+            where_clauses.append("LOWER(device_types.protocol) LIKE :protocol")
+            params["protocol"] = f"%{protocol.lower()}%"
+        else:
+            join_clause = ""
+        
+        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+        
+        # Use raw SQL COUNT for maximum speed
+        count_sql = f"SELECT COUNT(*) FROM devices {join_clause} WHERE {where_sql}"
+        result = db.execute(text(count_sql), params)
+        total_count = result.scalar()
+    except Exception as e:
+        logger.warning(f"Error in fast count query, falling back to ORM: {e}")
+        # Fallback to ORM count if raw SQL fails
+        base_query = db.query(Device.id)  # Only select ID for count
         if current_user.role == UserRole.TENANT_ADMIN:
             base_query = base_query.filter(Device.tenant_id == current_user.tenant_id)
         if search:
@@ -302,8 +334,6 @@ def list_devices(
             )
         if protocol:
             base_query = base_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-        
-        # Count query is now optimized with tenant_id index
         total_count = base_query.count()
     
     # Get total active/inactive counts based on live telemetry status (optional, can be slow)
@@ -337,8 +367,29 @@ def list_devices(
             # Continue without counts if there's an error
     
     # Apply pagination FIRST to reduce dataset size before expensive operations
+    # This ensures we only load 50 devices, not all 10,000+
     offset = (page - 1) * limit
-    devices = query.offset(offset).limit(limit).all()
+    
+    # Get device IDs first (very fast), then load relationships only for those IDs
+    device_ids_query = query.with_entities(Device.id).offset(offset).limit(limit)
+    device_ids = [row[0] for row in device_ids_query.all()]
+    
+    if device_ids:
+        # Now load only the devices we need with their relationships
+        devices = (
+            db.query(Device)
+            .options(
+                selectinload(Device.device_type),
+                selectinload(Device.tenant),
+            )
+            .filter(Device.id.in_(device_ids))
+            .all()
+        )
+        # Preserve original order
+        device_dict = {d.id: d for d in devices}
+        devices = [device_dict[did] for did in device_ids if did in device_dict]
+    else:
+        devices = []
 
     # Determine live status from latest telemetry timestamps
     # Increased to 10 minutes to accommodate devices with longer reporting intervals
