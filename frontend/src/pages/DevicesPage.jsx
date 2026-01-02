@@ -9,12 +9,55 @@ import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import DeviceMapView from "../components/DeviceMapView.jsx";
 
+// Helper function to load initial state from cache
+function getInitialStateFromCache(page, search, status, protocol) {
+  try {
+    const cacheKey = `devices_cache_${page}_${search}_${status}_${protocol}`;
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const { data, timestamp } = JSON.parse(cached);
+      const cacheAge = Date.now() - timestamp;
+      if (cacheAge < 120000) { // 2 minutes
+        if (Array.isArray(data)) {
+          return {
+            devices: data,
+            totalDeviceCount: data.length,
+            totalPages: Math.ceil(data.length / 50),
+            totalActiveCount: data.filter((d) => d.is_active).length,
+            totalInactiveCount: data.filter((d) => !d.is_active).length,
+          };
+        } else if (data && data.devices) {
+          return {
+            devices: data.devices || [],
+            totalDeviceCount: data.total || 0,
+            totalPages: data.total_pages || 1,
+            totalActiveCount: data.total_active ?? 0,
+            totalInactiveCount: data.total_inactive ?? 0,
+          };
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore cache errors
+  }
+  return {
+    devices: [],
+    totalDeviceCount: 0,
+    totalPages: 1,
+    totalActiveCount: 0,
+    totalInactiveCount: 0,
+  };
+}
+
 export default function DevicesPage() {
   const { token, isTenantAdmin, user } = useAuth();
   const navigate = useNavigate();
   const api = createApiClient(token);
   
-  const [devices, setDevices] = useState([]);
+  // Initialize state from cache if available
+  const initialCache = getInitialStateFromCache(1, "", "all", "all");
+  
+  const [devices, setDevices] = useState(initialCache.devices);
   const [deviceTypes, setDeviceTypes] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [error, setError] = useState(null);
@@ -26,10 +69,10 @@ export default function DevicesPage() {
   const [viewMode, setViewMode] = useState("grid"); // 'grid' or 'list'
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(50); // Show 50 devices per page
-  const [totalDeviceCount, setTotalDeviceCount] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalActiveCount, setTotalActiveCount] = useState(0);
-  const [totalInactiveCount, setTotalInactiveCount] = useState(0);
+  const [totalDeviceCount, setTotalDeviceCount] = useState(initialCache.totalDeviceCount);
+  const [totalPages, setTotalPages] = useState(initialCache.totalPages);
+  const [totalActiveCount, setTotalActiveCount] = useState(initialCache.totalActiveCount);
+  const [totalInactiveCount, setTotalInactiveCount] = useState(initialCache.totalInactiveCount);
 
   const loadDevices = async (pageNum = currentPage, forceRefresh = false) => {
     try {
