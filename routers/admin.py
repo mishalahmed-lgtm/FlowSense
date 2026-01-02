@@ -250,23 +250,11 @@ def list_devices(
     protocol: Optional[str] = Query(None, description="Filter by protocol (e.g., 'HTTP', 'MQTT')"),
     include_counts: bool = Query(True, description="Include total_active and total_inactive counts (slower)"),
 ):
-    """Return devices (filtered by tenant for tenant admins) with pagination.
-
-    The `is_active` flag in the response reflects *live* status based on
-    recent telemetry, not just the static DB flag:
-    - If the device has a `telemetry_latest` row updated in the last 600 seconds,
-      it is marked Active.
-    - Otherwise it is marked Inactive.
-    """
-    from sqlalchemy.orm import selectinload
+    """Return devices (filtered by tenant for tenant admins) with pagination."""
     from sqlalchemy import or_
     
-    # Start with a simple query - only load relationships we absolutely need
-    # Use selectinload instead of joinedload for better performance with large datasets
-    query = db.query(Device).options(
-        selectinload(Device.device_type),  # Always needed for protocol/name
-        selectinload(Device.tenant),  # Always needed for tenant name
-    )
+    # SIMPLE QUERY - just get devices from DB
+    query = db.query(Device)
     
     # Filter by tenant if user is tenant admin
     if current_user.role == UserRole.TENANT_ADMIN:
@@ -286,200 +274,20 @@ def list_devices(
     if protocol:
         query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
     
-    # Get total count - optimize for speed
-    # Use raw SQL COUNT for better performance on large datasets
-    total_count = 0
+    # Simple count - just count IDs
+    total_count = query.count()
     
-    try:
-        # Build WHERE clause for raw SQL
-        where_clauses = []
-        params = {}
-        
-        if current_user.role == UserRole.TENANT_ADMIN:
-            where_clauses.append("tenant_id = :tenant_id")
-            params["tenant_id"] = current_user.tenant_id
-        
-        if search:
-            search_term = f"%{search.lower()}%"
-            where_clauses.append("(LOWER(device_id) LIKE :search OR LOWER(name) LIKE :search)")
-            params["search"] = search_term
-        
-        if protocol:
-            # Need to join with device_types for protocol filter
-            join_clause = "JOIN device_types ON devices.device_type_id = device_types.id"
-            where_clauses.append("LOWER(device_types.protocol) LIKE :protocol")
-            params["protocol"] = f"%{protocol.lower()}%"
-        else:
-            join_clause = ""
-        
-        where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
-        
-        # Use raw SQL COUNT for maximum speed
-        count_sql = f"SELECT COUNT(*) FROM devices {join_clause} WHERE {where_sql}"
-        result = db.execute(text(count_sql), params)
-        total_count = result.scalar()
-    except Exception as e:
-        logger.warning(f"Error in fast count query, falling back to ORM: {e}")
-        # Fallback to ORM count if raw SQL fails
-        base_query = db.query(Device.id)  # Only select ID for count
-        if current_user.role == UserRole.TENANT_ADMIN:
-            base_query = base_query.filter(Device.tenant_id == current_user.tenant_id)
-        if search:
-            search_term = f"%{search.lower()}%"
-            base_query = base_query.filter(
-                or_(
-                    Device.device_id.ilike(search_term),
-                    Device.name.ilike(search_term)
-                )
-            )
-        if protocol:
-            base_query = base_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-        total_count = base_query.count()
-    
-    # Get total active/inactive counts based on live telemetry status (optional, can be slow)
+    # Skip active/inactive counts for now - they're slow
     total_active_count = None
     total_inactive_count = None
     
-    if include_counts:
-        try:
-            # A device is "active" if it has sent telemetry in the last 10 minutes
-            # Optimize: Use EXISTS subquery instead of JOIN for better performance
-            now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(seconds=600)  # 10 minutes
-            
-            from models import TelemetryLatest
-            from sqlalchemy import and_, exists
-            
-            # Rebuild base_query for active/inactive counts
-            base_query_for_counts = db.query(Device.id)
-            if current_user.role == UserRole.TENANT_ADMIN:
-                base_query_for_counts = base_query_for_counts.filter(Device.tenant_id == current_user.tenant_id)
-            if search:
-                search_term = f"%{search.lower()}%"
-                base_query_for_counts = base_query_for_counts.filter(
-                    or_(
-                        Device.device_id.ilike(search_term),
-                        Device.name.ilike(search_term)
-                    )
-                )
-            if protocol:
-                base_query_for_counts = base_query_for_counts.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-            
-            # Count active devices using EXISTS (more efficient than JOIN)
-            active_subquery = exists().where(
-                and_(
-                    TelemetryLatest.device_id == Device.id,
-                    TelemetryLatest.updated_at >= cutoff
-                )
-            )
-            active_devices_query = base_query_for_counts.filter(active_subquery)
-            total_active_count = active_devices_query.count()
-            
-            # Inactive devices = total - active
-            total_inactive_count = total_count - total_active_count
-        except Exception as e:
-            logger.warning(f"Error calculating active/inactive counts: {e}, skipping counts")
-            # Continue without counts if there's an error
-    
-    # Apply pagination FIRST to reduce dataset size before expensive operations
-    # This ensures we only load 50 devices, not all 10,000+
+    # Apply pagination and get devices
     offset = (page - 1) * limit
-    
-    # Get device IDs first (very fast), then load relationships only for those IDs
-    device_ids_query = query.with_entities(Device.id).offset(offset).limit(limit)
-    device_ids = [row[0] for row in device_ids_query.all()]
-    
-    if device_ids:
-        # Now load only the devices we need with their relationships
-        devices = (
-            db.query(Device)
-            .options(
-                selectinload(Device.device_type),
-                selectinload(Device.tenant),
-            )
-            .filter(Device.id.in_(device_ids))
-            .all()
-        )
-        # Preserve original order
-        device_dict = {d.id: d for d in devices}
-        devices = [device_dict[did] for did in device_ids if did in device_dict]
-    else:
-        devices = []
+    devices = query.offset(offset).limit(limit).all()
 
-    # Determine live status from latest telemetry timestamps
-    # Increased to 10 minutes to accommodate devices with longer reporting intervals
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=600)
-    live_map: Dict[int, bool] = {}
-    dashboard_map: Dict[int, bool] = {}
-
-    # Optimize: Batch query all related data at once instead of N+1 queries
-    # Only query for devices on current page (much faster)
-    if devices:
-        device_ids = [device.id for device in devices]
-        
-        # Batch load TelemetryLatest records
-        latest_records = (
-            db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
-            .filter(TelemetryLatest.device_id.in_(device_ids))
-            .all()
-        )
-        latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
-        
-        # Batch load dashboards
-        from models import DeviceDashboard
-        dashboards = (
-            db.query(DeviceDashboard.device_id, DeviceDashboard.config)
-            .filter(DeviceDashboard.device_id.in_(device_ids))
-            .all()
-        )
-        dashboard_configs = {d.device_id: d.config for d in dashboards}
-        
-        # Batch load provisioning keys
-        from models import ProvisioningKey
-        provisioning_keys = (
-            db.query(ProvisioningKey.device_id, ProvisioningKey.key, ProvisioningKey.is_active)
-            .filter(ProvisioningKey.device_id.in_(device_ids))
-            .all()
-        )
-        provisioning_map = {
-            pk.device_id: {"key": pk.key, "is_active": pk.is_active}
-            for pk in provisioning_keys
-        }
-        
-        for device in devices:
-            # Check live status
-            updated_at = latest_by_device_id.get(device.id)
-            is_live = bool(updated_at and updated_at >= cutoff)
-            live_map[device.id] = is_live
-            
-            # Check dashboard
-            dashboard_config = dashboard_configs.get(device.id)
-            has_dash = bool(
-                dashboard_config 
-                and dashboard_config.get("widgets")
-                and len(dashboard_config.get("widgets", [])) > 0
-            )
-            dashboard_map[device.id] = has_dash
-            
-            # Attach provisioning key if exists (for serialization)
-            if device.id in provisioning_map:
-                pk_data = provisioning_map[device.id]
-                # Create a simple object to mimic the relationship
-                class SimpleProvisioningKey:
-                    def __init__(self, key, is_active):
-                        self.key = key
-                        self.is_active = is_active
-                device.provisioning_key = SimpleProvisioningKey(pk_data["key"], pk_data["is_active"])
-
-    # Serialize devices
+    # Simple serialization - just use DB is_active flag for now
     serialized_devices = [
-        _serialize_device(
-            device, 
-            is_live=live_map.get(device.id, False),
-            has_dashboard=dashboard_map.get(device.id, False)
-        )
-        for device in devices
+        _serialize_device(device) for device in devices
     ]
     
     # Apply server-side status filter if requested (after determining live status)
