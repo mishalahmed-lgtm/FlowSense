@@ -335,7 +335,7 @@ def list_devices(
             logger.warning(f"Error calculating active/inactive counts: {e}, skipping counts")
             # Continue without counts if there's an error
     
-    # Apply pagination
+    # Apply pagination FIRST to reduce dataset size before expensive operations
     offset = (page - 1) * limit
     devices = query.offset(offset).limit(limit).all()
 
@@ -347,27 +347,29 @@ def list_devices(
     dashboard_map: Dict[int, bool] = {}
 
     # Optimize: Batch query all TelemetryLatest records at once instead of N+1 queries
+    # Only query for devices on current page (much faster)
     if devices:
         device_ids = [device.id for device in devices]
+        # Use a more efficient query with index on device_id
         latest_records = (
-            db.query(TelemetryLatest)
+            db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
             .filter(TelemetryLatest.device_id.in_(device_ids))
             .all()
         )
-        # Create a map of device_id -> latest record
-        latest_by_device_id = {record.device_id: record for record in latest_records}
+        # Create a map of device_id -> updated_at timestamp
+        latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
         
         for device in devices:
-            latest = latest_by_device_id.get(device.id)
-        is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
-        live_map[device.id] = is_live
-        
-        # Check if device has a dashboard with widgets
-        has_dash = False
-        if device.dashboard and device.dashboard.config:
-            widgets = device.dashboard.config.get("widgets", [])
-            has_dash = len(widgets) > 0
-        dashboard_map[device.id] = has_dash
+            updated_at = latest_by_device_id.get(device.id)
+            is_live = bool(updated_at and updated_at >= cutoff)
+            live_map[device.id] = is_live
+            
+            # Check if device has a dashboard with widgets
+            has_dash = False
+            if device.dashboard and device.dashboard.config:
+                widgets = device.dashboard.config.get("widgets", [])
+                has_dash = len(widgets) > 0
+            dashboard_map[device.id] = has_dash
 
     # Serialize devices
     serialized_devices = [

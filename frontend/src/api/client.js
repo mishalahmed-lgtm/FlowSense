@@ -24,6 +24,18 @@ export function createApiClient(token) {
     (response) => response,
     (error) => {
       console.error("API Error:", error);
+      
+      // Handle 401 Unauthorized - token expired or invalid
+      if (error.response?.status === 401) {
+        // Clear token and redirect to login
+        localStorage.removeItem("iot_admin_token");
+        localStorage.removeItem("iot_user_data");
+        // Only redirect if we're not already on the login page
+        if (window.location.pathname !== "/login") {
+          window.location.href = "/login";
+        }
+      }
+      
       return Promise.reject(error);
     }
   );
