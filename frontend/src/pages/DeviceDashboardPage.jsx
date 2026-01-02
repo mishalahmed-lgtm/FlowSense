@@ -237,8 +237,14 @@ export default function DeviceDashboardPage() {
           api.get("/admin/devices"),
           api.get(`/dashboard/devices/${deviceId}/dashboard`),
         ]);
-        console.log("Dashboard API responses:", { devices: devicesResp.data.length, dashboard: dashResp.data });
-        const found = devicesResp.data.find((d) => d.device_id === deviceId);
+        console.log("Dashboard API responses:", { devices: devicesResp.data, dashboard: dashResp.data });
+        
+        // Handle paginated response format
+        const devices = Array.isArray(devicesResp.data) 
+          ? devicesResp.data 
+          : (devicesResp.data?.devices || []);
+        
+        const found = devices.find((d) => d.device_id === deviceId);
         if (!found) {
           setError("Device not found");
           setLoading(false);

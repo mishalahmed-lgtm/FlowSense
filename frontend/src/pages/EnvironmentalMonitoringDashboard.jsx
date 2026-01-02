@@ -86,8 +86,11 @@ export default function EnvironmentalMonitoringDashboard() {
     setError(null);
     try {
       // Get all devices for the tenant
-      const devicesResp = await api.get("/admin/devices");
-      const devices = devicesResp.data || [];
+      const devicesResp = await api.get("/admin/devices", { params: { limit: 1000 } });
+      // Handle paginated response format
+      const devices = Array.isArray(devicesResp.data) 
+        ? devicesResp.data 
+        : (devicesResp.data?.devices || []);
 
       // Filter environmental sensors by device name patterns and telemetry fields
       // Since Murabba devices all use generic "MQTT" device type, we detect by name/fields

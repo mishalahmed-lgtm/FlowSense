@@ -27,7 +27,12 @@ export default function DeviceRulesPage() {
           api.get("/admin/devices"),
           api.get("/admin/device-types"),
         ]);
-        const found = devicesResp.data.find((d) => d.device_id === deviceId);
+        // Handle paginated response format
+        const devices = Array.isArray(devicesResp.data) 
+          ? devicesResp.data 
+          : (devicesResp.data?.devices || []);
+        
+        const found = devices.find((d) => d.device_id === deviceId);
         if (!found) {
           setError("Device not found");
           return;
