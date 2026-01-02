@@ -184,6 +184,9 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None, has_das
             and device.dashboard.config 
             and len(device.dashboard.config.get("widgets", [])) > 0
         )
+    
+    # Parse device metadata - external_data will be included in metadata
+    device_metadata = _serialize_metadata(device.device_metadata)
 
     return DeviceResponse(
         id=device.id,
@@ -195,7 +198,7 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None, has_das
         tenant=device.tenant.name if device.tenant else "Unknown",
         tenant_id=device.tenant_id,
         is_active=effective_active,
-        metadata=_serialize_metadata(device.device_metadata),
+        metadata=device_metadata,
         provisioning_key=provisioning,
         has_dashboard=dashboard_exists,
     )
