@@ -31,8 +31,46 @@ export default function DevicesPage() {
   const [totalActiveCount, setTotalActiveCount] = useState(0);
   const [totalInactiveCount, setTotalInactiveCount] = useState(0);
 
-  const loadDevices = async (pageNum = currentPage) => {
+  const loadDevices = async (pageNum = currentPage, forceRefresh = false) => {
     try {
+      // Check cache first (unless force refresh)
+      const cacheKey = `devices_cache_${pageNum}_${searchQuery}_${filterStatus}_${filterProtocol}`;
+      if (!forceRefresh) {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          try {
+            const { data, timestamp } = JSON.parse(cached);
+            const cacheAge = Date.now() - timestamp;
+            // Use cache if less than 30 seconds old
+            if (cacheAge < 30000) {
+              console.log(`Using cached devices (page ${pageNum}, age: ${Math.round(cacheAge/1000)}s)`);
+              if (Array.isArray(data)) {
+                setDevices(data);
+                setTotalDeviceCount(data.length);
+                setTotalPages(Math.ceil(data.length / itemsPerPage));
+                const active = data.filter((d) => d.is_active).length;
+                const inactive = data.filter((d) => !d.is_active).length;
+                setTotalActiveCount(active);
+                setTotalInactiveCount(inactive);
+              } else if (data && data.devices) {
+                setDevices(data.devices || []);
+                setTotalDeviceCount(data.total || 0);
+                setTotalPages(data.total_pages || 1);
+                setTotalActiveCount(data.total_active ?? 0);
+                setTotalInactiveCount(data.total_inactive ?? 0);
+                if (data.page && data.page !== currentPage) {
+                  setCurrentPage(data.page);
+                }
+              }
+              setError(null);
+              return; // Return early, using cached data
+            }
+          } catch (e) {
+            console.warn("Failed to parse cache, fetching fresh data");
+          }
+        }
+      }
+      
       console.log(`Loading devices (page ${pageNum})...`);
       const params = {
         page: pageNum,
@@ -53,6 +91,16 @@ export default function DevicesPage() {
       
       const response = await api.get("/admin/devices", { params });
       const data = response.data;
+      
+      // Cache the response
+      try {
+        localStorage.setItem(cacheKey, JSON.stringify({
+          data: data,
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        console.warn("Failed to cache devices:", e);
+      }
       
       // Handle both old format (array) and new format (paginated object)
       if (Array.isArray(data)) {
@@ -141,7 +189,10 @@ export default function DevicesPage() {
       await api.post("/admin/devices", payload);
       setSuccessMessage("Device created successfully");
       setError(null);
-      loadDevices();
+      // Clear cache and force refresh
+      const cacheKey = `devices_cache_${currentPage}_${searchQuery}_${filterStatus}_${filterProtocol}`;
+      localStorage.removeItem(cacheKey);
+      loadDevices(currentPage, true);
       setTimeout(() => closeModal(), 1500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to create device");
@@ -153,7 +204,10 @@ export default function DevicesPage() {
       await api.put(`/admin/devices/${formValues.device_id}`, formValues);
       setSuccessMessage("Device updated successfully");
       setError(null);
-      loadDevices();
+      // Clear cache and force refresh
+      const cacheKey = `devices_cache_${currentPage}_${searchQuery}_${filterStatus}_${filterProtocol}`;
+      localStorage.removeItem(cacheKey);
+      loadDevices(currentPage, true);
       setTimeout(() => closeModal(), 1500);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to update device");
@@ -165,7 +219,10 @@ export default function DevicesPage() {
     try {
       await api.delete(`/admin/devices/${deviceId}`);
       setSuccessMessage("Device deleted");
-      loadDevices();
+      // Clear cache and force refresh
+      const cacheKey = `devices_cache_${currentPage}_${searchQuery}_${filterStatus}_${filterProtocol}`;
+      localStorage.removeItem(cacheKey);
+      loadDevices(currentPage, true);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to delete device");
     }
@@ -176,7 +233,10 @@ export default function DevicesPage() {
     try {
       await api.post(`/admin/devices/${deviceId}/rotate-key`);
       setSuccessMessage("Key rotated successfully");
-      loadDevices();
+      // Clear cache and force refresh
+      const cacheKey = `devices_cache_${currentPage}_${searchQuery}_${filterStatus}_${filterProtocol}`;
+      localStorage.removeItem(cacheKey);
+      loadDevices(currentPage, true);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to rotate key");
     }
