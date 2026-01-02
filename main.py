@@ -601,7 +601,7 @@ async def get_sync_status(db: Session = Depends(get_db)):
             "status": "error",
             "message": str(e),
             "error_type": type(e).__name__
-        }
+    }
 
 
 @app.get("/metrics")
@@ -624,26 +624,32 @@ async def get_tenant_metrics(
     # Platform admins get global view
     if current_user.role != UserRole.TENANT_ADMIN or not current_user.tenant_id:
         base_stats = metrics.get_stats()
-        # Add database-sourced protocol counts for admins too
+        # Add database-sourced protocol counts for admins too - use efficient query
         from models import DeviceType
-        protocol_counts = {}
-        devices_all = db.query(Device).all()
-        for device in devices_all:
-            if device.device_type:
-                protocol = device.device_type.protocol or "unknown"
-                protocol_counts[protocol] = protocol_counts.get(protocol, 0) + 1
+        from sqlalchemy import func
+        protocol_counts_query = (
+            db.query(DeviceType.protocol, func.count(Device.id).label("count"))
+            .join(Device, Device.device_type_id == DeviceType.id)
+            .group_by(DeviceType.protocol)
+            .all()
+        )
+        protocol_counts = {row.protocol or "unknown": row.count for row in protocol_counts_query}
         
         # Override sources with database counts
         base_stats["sources"] = protocol_counts
         return base_stats
 
-    # Fetch devices for this tenant
-    devices = (
-        db.query(Device)
+    # OPTIMIZED: Don't load all devices into memory - use efficient queries instead
+    # Get device IDs only (much faster)
+    device_ids_result = (
+        db.query(Device.device_id)
         .filter(Device.tenant_id == current_user.tenant_id)
         .all()
     )
-    device_ids = [d.device_id for d in devices]
+    device_ids = [row[0] for row in device_ids_result]
+    
+    # Get device count (for stats)
+    total_device_count = len(device_ids)
 
     # Get message counts from database (TelemetryTimeseries) instead of in-memory metrics
     from models import TelemetryTimeseries
@@ -673,11 +679,19 @@ async def get_tenant_metrics(
         .scalar() or 0
     )
     
-    # Build device stats from database
+    # Build device stats from database - OPTIMIZED: only include devices with messages
+    # Limit to top 100 devices by message count to avoid huge response
     tenant_device_stats = {}
-    for device_id in device_ids:
-        # Find message count for this device
-        msg_count = next((mc.message_count for mc in message_counts if mc.device_id == device_id), 0)
+    message_counts_dict = {mc.device_id: mc.message_count for mc in message_counts}
+    
+    # Sort by message count and take top 100
+    sorted_devices = sorted(
+        message_counts_dict.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:100]
+    
+    for device_id, msg_count in sorted_devices:
         tenant_device_stats[device_id] = {
             "received": msg_count,
             "published": msg_count,  # Assume all received messages were published
@@ -694,28 +708,33 @@ async def get_tenant_metrics(
 
     # Count active devices based on live telemetry (consistent with /devices endpoint)
     # A device is active if it has sent telemetry in the last 10 minutes
+    # OPTIMIZED: Use a single query instead of N+1 queries
     from models import TelemetryLatest
+    from sqlalchemy import func
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=600)  # 10 minutes
     
-    active_devices = 0
-    for device in devices:
-        latest = (
-            db.query(TelemetryLatest)
-            .filter(TelemetryLatest.device_id == device.id)
-            .first()
+    # Single query to count active devices
+    active_devices = (
+        db.query(func.count(func.distinct(TelemetryLatest.device_id)))
+        .join(Device, Device.id == TelemetryLatest.device_id)
+        .filter(
+            Device.tenant_id == current_user.tenant_id,
+            TelemetryLatest.updated_at >= cutoff
         )
-        is_live = bool(latest and latest.updated_at and latest.updated_at >= cutoff)
-        if is_live:
-            active_devices += 1
+        .scalar() or 0
+    )
 
-    # Get protocol distribution from database instead of in-memory metrics
+    # Get protocol distribution from database - OPTIMIZED: single query
     from models import DeviceType
-    protocol_counts = {}
-    for device in devices:
-        if device.device_type:
-            protocol = device.device_type.protocol or "unknown"
-            protocol_counts[protocol] = protocol_counts.get(protocol, 0) + 1
+    protocol_counts_query = (
+        db.query(DeviceType.protocol, func.count(Device.id).label("count"))
+        .join(Device, Device.device_type_id == DeviceType.id)
+        .filter(Device.tenant_id == current_user.tenant_id)
+        .group_by(DeviceType.protocol)
+        .all()
+    )
+    protocol_counts = {row.protocol or "unknown": row.count for row in protocol_counts_query}
 
     success_rate = (
         total_published / total_received * 100
