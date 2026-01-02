@@ -57,9 +57,21 @@ class ExternalAPISyncService:
                 self._sync_all_integrations()
                 
                 # Check if it's time to sync device external data (every 1 hour)
+                # Do initial sync on first run, then every hour
                 current_time = time.time()
-                if current_time - self._last_device_sync >= self._device_sync_interval:
+                should_sync = False
+                
+                if not self._initial_sync_done:
+                    # Do initial sync immediately on startup
+                    logger.info("🚀 Performing initial external device data sync...")
+                    should_sync = True
+                    self._initial_sync_done = True
+                elif current_time - self._last_device_sync >= self._device_sync_interval:
+                    # Regular hourly sync
                     logger.info("⏰ Time to sync external device data (1 hour interval reached)")
+                    should_sync = True
+                
+                if should_sync:
                     db = SessionLocal()
                     try:
                         self._sync_all_devices_external_data(db)
