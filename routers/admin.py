@@ -258,14 +258,14 @@ def list_devices(
       it is marked Active.
     - Otherwise it is marked Inactive.
     """
-    from sqlalchemy.orm import joinedload
+    from sqlalchemy.orm import selectinload
     from sqlalchemy import or_
     
+    # Start with a simple query - only load relationships we absolutely need
+    # Use selectinload instead of joinedload for better performance with large datasets
     query = db.query(Device).options(
-        joinedload(Device.dashboard),
-        joinedload(Device.device_type),
-        joinedload(Device.tenant),
-        joinedload(Device.provisioning_key)
+        selectinload(Device.device_type),  # Always needed for protocol/name
+        selectinload(Device.tenant),  # Always needed for tenant name
     )
     
     # Filter by tenant if user is tenant admin
@@ -286,24 +286,25 @@ def list_devices(
     if protocol:
         query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
     
-    # Get total count before pagination (for metadata)
-    # Use a more efficient count by avoiding joins
-    base_query = db.query(Device)
-    if current_user.role == UserRole.TENANT_ADMIN:
-        base_query = base_query.filter(Device.tenant_id == current_user.tenant_id)
-    if search:
-        search_term = f"%{search.lower()}%"
-        base_query = base_query.filter(
-            or_(
-                Device.device_id.ilike(search_term),
-                Device.name.ilike(search_term)
+    # Get total count before pagination (for metadata) - SKIP if not needed
+    total_count = 0
+    if include_counts or True:  # Always need total for pagination
+        base_query = db.query(Device)
+        if current_user.role == UserRole.TENANT_ADMIN:
+            base_query = base_query.filter(Device.tenant_id == current_user.tenant_id)
+        if search:
+            search_term = f"%{search.lower()}%"
+            base_query = base_query.filter(
+                or_(
+                    Device.device_id.ilike(search_term),
+                    Device.name.ilike(search_term)
+                )
             )
-        )
-    if protocol:
-        base_query = base_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-    
-    # Count query is now optimized with tenant_id index
-    total_count = base_query.count()
+        if protocol:
+            base_query = base_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
+        
+        # Count query is now optimized with tenant_id index
+        total_count = base_query.count()
     
     # Get total active/inactive counts based on live telemetry status (optional, can be slow)
     total_active_count = None
@@ -346,30 +347,64 @@ def list_devices(
     live_map: Dict[int, bool] = {}
     dashboard_map: Dict[int, bool] = {}
 
-    # Optimize: Batch query all TelemetryLatest records at once instead of N+1 queries
+    # Optimize: Batch query all related data at once instead of N+1 queries
     # Only query for devices on current page (much faster)
     if devices:
         device_ids = [device.id for device in devices]
-        # Use a more efficient query with index on device_id
+        
+        # Batch load TelemetryLatest records
         latest_records = (
             db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
             .filter(TelemetryLatest.device_id.in_(device_ids))
             .all()
         )
-        # Create a map of device_id -> updated_at timestamp
         latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
         
+        # Batch load dashboards
+        from models import DeviceDashboard
+        dashboards = (
+            db.query(DeviceDashboard.device_id, DeviceDashboard.config)
+            .filter(DeviceDashboard.device_id.in_(device_ids))
+            .all()
+        )
+        dashboard_configs = {d.device_id: d.config for d in dashboards}
+        
+        # Batch load provisioning keys
+        from models import ProvisioningKey
+        provisioning_keys = (
+            db.query(ProvisioningKey.device_id, ProvisioningKey.key, ProvisioningKey.is_active)
+            .filter(ProvisioningKey.device_id.in_(device_ids))
+            .all()
+        )
+        provisioning_map = {
+            pk.device_id: {"key": pk.key, "is_active": pk.is_active}
+            for pk in provisioning_keys
+        }
+        
         for device in devices:
+            # Check live status
             updated_at = latest_by_device_id.get(device.id)
             is_live = bool(updated_at and updated_at >= cutoff)
             live_map[device.id] = is_live
             
-            # Check if device has a dashboard with widgets
-            has_dash = False
-            if device.dashboard and device.dashboard.config:
-                widgets = device.dashboard.config.get("widgets", [])
-                has_dash = len(widgets) > 0
+            # Check dashboard
+            dashboard_config = dashboard_configs.get(device.id)
+            has_dash = bool(
+                dashboard_config 
+                and dashboard_config.get("widgets")
+                and len(dashboard_config.get("widgets", [])) > 0
+            )
             dashboard_map[device.id] = has_dash
+            
+            # Attach provisioning key if exists (for serialization)
+            if device.id in provisioning_map:
+                pk_data = provisioning_map[device.id]
+                # Create a simple object to mimic the relationship
+                class SimpleProvisioningKey:
+                    def __init__(self, key, is_active):
+                        self.key = key
+                        self.is_active = is_active
+                device.provisioning_key = SimpleProvisioningKey(pk_data["key"], pk_data["is_active"])
 
     # Serialize devices
     serialized_devices = [
