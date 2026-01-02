@@ -285,9 +285,29 @@ def list_devices(
     offset = (page - 1) * limit
     devices = query.offset(offset).limit(limit).all()
 
-    # Simple serialization - just use DB is_active flag for now
+    # Check live status from telemetry - device is online if it sent data in last 10 minutes
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=600)  # 10 minutes
+    live_map: Dict[int, bool] = {}
+    
+    if devices:
+        device_ids = [device.id for device in devices]
+        # Batch query telemetry latest records
+        latest_records = (
+            db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
+            .filter(TelemetryLatest.device_id.in_(device_ids))
+            .all()
+        )
+        latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
+        
+        for device in devices:
+            updated_at = latest_by_device_id.get(device.id)
+            is_live = bool(updated_at and updated_at >= cutoff)
+            live_map[device.id] = is_live
+
+    # Serialize devices with live status
     serialized_devices = [
-        _serialize_device(device) for device in devices
+        _serialize_device(device, is_live=live_map.get(device.id, False)) for device in devices
     ]
     
     # Apply server-side status filter if requested
