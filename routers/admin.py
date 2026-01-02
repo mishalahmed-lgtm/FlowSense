@@ -290,28 +290,10 @@ def list_devices(
         _serialize_device(device) for device in devices
     ]
     
-    # Apply server-side status filter if requested (after determining live status)
+    # Apply server-side status filter if requested
     if status:
         is_active_filter = status.lower() == "active"
         serialized_devices = [d for d in serialized_devices if d.is_active == is_active_filter]
-        # Recalculate total if status filter was applied
-        # Note: This is an approximation since we'd need to check live status for all devices
-        # For better accuracy, we could add a separate endpoint for stats
-        if status:
-            status_query = db.query(Device)
-            if current_user.role == UserRole.TENANT_ADMIN:
-                status_query = status_query.filter(Device.tenant_id == current_user.tenant_id)
-            if search:
-                search_term = f"%{search.lower()}%"
-                status_query = status_query.filter(
-                    or_(
-                        Device.device_id.ilike(search_term),
-                        Device.name.ilike(search_term)
-                    )
-                )
-            if protocol:
-                status_query = status_query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-            total_count = status_query.count()
     
     # Return paginated response with metadata
     total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
