@@ -292,6 +292,40 @@ export default function DeviceDashboardPage() {
     load();
   }, [token, api, deviceId]);
 
+  // Transform external data records into readings format
+  const transformExternalDataToReadings = useCallback((externalData) => {
+    if (!externalData || !externalData.records || !Array.isArray(externalData.records)) {
+      return [];
+    }
+
+    const readings = [];
+    externalData.records.forEach((record) => {
+      // Convert each field in the record to a reading
+      Object.keys(record).forEach((key) => {
+        if (key !== 'timestamp' && record[key] !== null && record[key] !== undefined) {
+          // Parse timestamp - format: "2026-01-03 13:38:42"
+          let timestamp;
+          try {
+            timestamp = new Date(record.timestamp.replace(' ', 'T')).toISOString();
+          } catch {
+            timestamp = new Date().toISOString();
+          }
+
+          readings.push({
+            timestamp: timestamp,
+            key: key,
+            value: record[key],
+            is_anomaly: false,
+            source: 'external'
+          });
+        }
+      });
+    });
+
+    // Sort by timestamp descending (newest first)
+    return readings.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }, []);
+
   // Load external device data
   useEffect(() => {
     if (!deviceId || !token) return;
@@ -301,7 +335,32 @@ export default function DeviceDashboardPage() {
       setExternalDataError(null);
       try {
         const resp = await api.get(`/admin/devices/${deviceId}/external-data`);
-        setExternalData(resp.data.data);
+        const data = resp.data.data;
+        setExternalData(data);
+        
+        // Transform external data records to readings format
+        const externalReadings = transformExternalDataToReadings(data);
+        
+        // Update telemetry data with latest external data values
+        if (data && data.records && data.records.length > 0) {
+          const latestRecord = data.records[0]; // Most recent record
+          const updatedTelemetry = { ...telemetryData };
+          Object.keys(latestRecord).forEach((key) => {
+            if (key !== 'timestamp') {
+              updatedTelemetry[key] = latestRecord[key];
+            }
+          });
+          setTelemetryData(updatedTelemetry);
+        }
+        
+        // Update available keys to include external data fields
+        if (externalReadings.length > 0) {
+          const externalKeys = [...new Set(externalReadings.map(r => r.key))];
+          setAvailableKeys((prev) => {
+            const combined = [...new Set([...prev, ...externalKeys])];
+            return combined.sort();
+          });
+        }
       } catch (err) {
         // Only show error if it's not a 503 (service unavailable) - that's expected if API not configured
         if (err.response?.status !== 503) {
@@ -314,12 +373,38 @@ export default function DeviceDashboardPage() {
     };
 
     loadExternalData();
-  }, [deviceId, token, api]);
+  }, [deviceId, token, api, transformExternalDataToReadings]);
 
   // Load history data for chart widgets
   const loadHistory = useCallback(
     async (field) => {
       if (!deviceId) return;
+      
+      // First, try to get history from external data
+      if (externalData && externalData.records && Array.isArray(externalData.records)) {
+        const externalHistory = externalData.records
+          .filter(record => record[field] !== null && record[field] !== undefined)
+          .map(record => {
+            let timestamp;
+            try {
+              timestamp = new Date(record.timestamp.replace(' ', 'T')).getTime();
+            } catch {
+              timestamp = new Date().getTime();
+            }
+            return {
+              timestamp: timestamp,
+              value: record[field]
+            };
+          })
+          .sort((a, b) => a.timestamp - b.timestamp);
+        
+        if (externalHistory.length > 0) {
+          setHistoryData((prev) => ({ ...prev, [field]: externalHistory }));
+          return; // Use external data history
+        }
+      }
+      
+      // Fallback to InfluxDB if external data doesn't have this field
       try {
         const resp = await api.get(`/dashboard/devices/${deviceId}/history`, {
           params: { key: field, minutes: 60 },
@@ -329,7 +414,7 @@ export default function DeviceDashboardPage() {
         console.error(`Failed to load history for ${field}:`, err);
       }
     },
-    [api, deviceId]
+    [api, deviceId, externalData]
   );
 
   // Load history for all chart widgets
@@ -379,22 +464,56 @@ export default function DeviceDashboardPage() {
       setReadingsLoading(true);
       setReadingsError(null);
       try {
-        const params = {
-          limit: readingsFilter.limit,
-          detect_anomalies: readingsFilter.detectAnomalies,
-        };
-        if (readingsFilter.key) {
-          params.key = readingsFilter.key;
-        }
-        if (readingsFilter.fromDate) {
-          params.from_date = readingsFilter.fromDate;
-        }
-        if (readingsFilter.toDate) {
-          params.to_date = readingsFilter.toDate;
+        // Get external data readings
+        const externalReadings = externalData ? transformExternalDataToReadings(externalData) : [];
+        
+        // Try to get InfluxDB readings (optional - may fail if InfluxDB unavailable)
+        let influxReadings = [];
+        try {
+          const params = {
+            limit: readingsFilter.limit,
+            detect_anomalies: readingsFilter.detectAnomalies,
+          };
+          if (readingsFilter.key) {
+            params.key = readingsFilter.key;
+          }
+          if (readingsFilter.fromDate) {
+            params.from_date = readingsFilter.fromDate;
+          }
+          if (readingsFilter.toDate) {
+            params.to_date = readingsFilter.toDate;
+          }
+          
+          const resp = await api.get(`/dashboard/devices/${deviceId}/readings`, { params });
+          influxReadings = resp.data || [];
+        } catch (err) {
+          // InfluxDB unavailable - that's okay, we'll use external data only
+          console.log("InfluxDB readings unavailable, using external data only");
         }
         
-        const resp = await api.get(`/dashboard/devices/${deviceId}/readings`, { params });
-        setReadings(resp.data);
+        // Merge external and InfluxDB readings
+        const allReadings = [...externalReadings, ...influxReadings];
+        
+        // Apply filters
+        let filteredReadings = allReadings;
+        if (readingsFilter.key) {
+          filteredReadings = filteredReadings.filter(r => r.key === readingsFilter.key);
+        }
+        if (readingsFilter.fromDate) {
+          const fromDate = new Date(readingsFilter.fromDate);
+          filteredReadings = filteredReadings.filter(r => new Date(r.timestamp) >= fromDate);
+        }
+        if (readingsFilter.toDate) {
+          const toDate = new Date(readingsFilter.toDate);
+          toDate.setHours(23, 59, 59, 999); // End of day
+          filteredReadings = filteredReadings.filter(r => new Date(r.timestamp) <= toDate);
+        }
+        
+        // Sort by timestamp descending and limit
+        filteredReadings.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+        filteredReadings = filteredReadings.slice(0, readingsFilter.limit);
+        
+        setReadings(filteredReadings);
       } catch (err) {
         setReadingsError(err.response?.data?.detail || "Failed to load readings");
       } finally {
@@ -403,7 +522,7 @@ export default function DeviceDashboardPage() {
     };
     
     loadReadings();
-  }, [deviceId, readingsFilter, api]);
+  }, [deviceId, readingsFilter, api, externalData, transformExternalDataToReadings]);
 
   const handleAddWidget = (libraryWidget) => {
     const newId = `widget-${Date.now()}`;
@@ -973,9 +1092,16 @@ export default function DeviceDashboardPage() {
                             >
                               <td style={{ whiteSpace: "nowrap" }}>{new Date(reading.timestamp).toLocaleString()}</td>
                               <td>
-                                <code style={{ fontSize: "var(--font-size-xs)", backgroundColor: "var(--color-bg-secondary)", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-sm)" }}>
-                                  {reading.key}
-                                </code>
+                                <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                                  <code style={{ fontSize: "var(--font-size-xs)", backgroundColor: "var(--color-bg-secondary)", padding: "var(--space-1) var(--space-2)", borderRadius: "var(--radius-sm)" }}>
+                                    {reading.key}
+                                  </code>
+                                  {reading.source === 'external' && (
+                                    <span className="badge badge--info" style={{ fontSize: "var(--font-size-xs)" }} title="From SmartTive API">
+                                      External
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td style={{ fontWeight: reading.is_anomaly ? "var(--font-weight-semibold)" : "var(--font-weight-normal)", fontFamily: "var(--font-family-mono)" }}>
                                 {reading.value !== null && reading.value !== undefined
