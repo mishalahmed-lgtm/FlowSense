@@ -423,18 +423,26 @@ export default function DeviceDashboardPage() {
         const externalHistory = externalData.records
           .filter(record => record[field] !== null && record[field] !== undefined)
           .map(record => {
-            let timestamp;
+            let ts;
             try {
-              timestamp = new Date(record.timestamp.replace(' ', 'T')).getTime();
+              // Parse timestamp format: "2026-01-03 13:38:42" -> ISO string
+              const dateStr = record.timestamp.replace(' ', 'T');
+              const date = new Date(dateStr);
+              // Check if date is valid
+              if (isNaN(date.getTime())) {
+                ts = new Date().toISOString();
+              } else {
+                ts = date.toISOString();
+              }
             } catch {
-              timestamp = new Date().getTime();
+              ts = new Date().toISOString();
             }
             return {
-              timestamp: timestamp,
-              value: record[field]
+              ts: ts,
+              value: typeof record[field] === 'number' ? record[field] : parseFloat(record[field]) || 0
             };
           })
-          .sort((a, b) => a.timestamp - b.timestamp);
+          .sort((a, b) => new Date(a.ts) - new Date(b.ts));
         
         if (externalHistory.length > 0) {
           setHistoryData((prev) => ({ ...prev, [field]: externalHistory }));
