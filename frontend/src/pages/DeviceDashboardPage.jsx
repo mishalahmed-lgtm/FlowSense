@@ -211,6 +211,10 @@ export default function DeviceDashboardPage() {
   const [readingsLoading, setReadingsLoading] = useState(false);
   const [readingsError, setReadingsError] = useState(null);
   const [showMap, setShowMap] = useState(false);
+  const [showExternalData, setShowExternalData] = useState(false);
+  const [externalData, setExternalData] = useState(null);
+  const [externalDataLoading, setExternalDataLoading] = useState(false);
+  const [externalDataError, setExternalDataError] = useState(null);
   const [readingsFilter, setReadingsFilter] = useState({
     key: "",
     limit: 10,
@@ -288,6 +292,29 @@ export default function DeviceDashboardPage() {
     load();
   }, [token, api, deviceId]);
 
+  // Load external device data
+  useEffect(() => {
+    if (!deviceId || !token) return;
+
+    const loadExternalData = async () => {
+      setExternalDataLoading(true);
+      setExternalDataError(null);
+      try {
+        const resp = await api.get(`/admin/devices/${deviceId}/external-data`);
+        setExternalData(resp.data.data);
+      } catch (err) {
+        // Only show error if it's not a 503 (service unavailable) - that's expected if API not configured
+        if (err.response?.status !== 503) {
+          setExternalDataError(err.response?.data?.detail || "Failed to load external data");
+        }
+        setExternalData(null);
+      } finally {
+        setExternalDataLoading(false);
+      }
+    };
+
+    loadExternalData();
+  }, [deviceId, token, api]);
 
   // Load history data for chart widgets
   const loadHistory = useCallback(
@@ -706,6 +733,14 @@ export default function DeviceDashboardPage() {
             <Icon name="inbox" size={16} />
             <span>{readingsExpanded ? "Hide readings" : "Show readings"}</span>
           </button>
+          <button
+            className="btn btn--secondary"
+            type="button"
+            onClick={() => setShowExternalData(!showExternalData)}
+          >
+            <Icon name="database" size={16} />
+            <span>{showExternalData ? "Hide external data" : "Show external data"}</span>
+          </button>
           {!editMode && (
             <button className="btn btn--secondary" type="button" onClick={() => setEditMode(true)}>
               <Icon name="settings" size={16} />
@@ -739,6 +774,88 @@ export default function DeviceDashboardPage() {
               height="400px"
               showPopup={true}
             />
+          </div>
+        </div>
+      )}
+
+      {/* External Device Data Section */}
+      {showExternalData && (
+        <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+          <div className="card__header">
+            <h3 className="card__title">External Device Data</h3>
+            <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+              {externalDataLoading && (
+                <span className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>Loading...</span>
+              )}
+              <button
+                className="btn btn--sm btn--ghost"
+                type="button"
+                onClick={async () => {
+                  setExternalDataLoading(true);
+                  setExternalDataError(null);
+                  try {
+                    const resp = await api.get(`/admin/devices/${deviceId}/external-data?force_refresh=true`);
+                    setExternalData(resp.data.data);
+                  } catch (err) {
+                    if (err.response?.status !== 503) {
+                      setExternalDataError(err.response?.data?.detail || "Failed to refresh external data");
+                    }
+                  } finally {
+                    setExternalDataLoading(false);
+                  }
+                }}
+                disabled={externalDataLoading}
+              >
+                <Icon name="refresh-cw" size={14} />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+          <div className="card__body">
+            {externalDataLoading && !externalData && (
+              <div style={{ textAlign: "center", padding: "var(--space-8)" }}>
+                <p className="text-muted">Loading external device data...</p>
+              </div>
+            )}
+            {externalDataError && (
+              <div style={{ padding: "var(--space-4)", backgroundColor: "var(--color-error-bg)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-error-bright)" }}>
+                <p className="text-error" style={{ margin: 0 }}>{externalDataError}</p>
+              </div>
+            )}
+            {!externalDataLoading && !externalData && !externalDataError && (
+              <div style={{ textAlign: "center", padding: "var(--space-8)", backgroundColor: "var(--color-bg-secondary)", borderRadius: "var(--radius-md)" }}>
+                <p className="text-muted" style={{ margin: 0 }}>No external data available for this device.</p>
+                <p className="text-muted" style={{ marginTop: "var(--space-2)", fontSize: "var(--font-size-sm)" }}>
+                  External data is synced hourly from the SmartTive API.
+                </p>
+              </div>
+            )}
+            {externalData && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
+                <div style={{ padding: "var(--space-3)", backgroundColor: "var(--color-bg-secondary)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-light)" }}>
+                  <p className="text-muted" style={{ margin: 0, fontSize: "var(--font-size-sm)" }}>
+                    Data from SmartTive API (synced hourly)
+                  </p>
+                </div>
+                <div style={{ 
+                  padding: "var(--space-4)", 
+                  backgroundColor: "var(--color-bg-primary)", 
+                  borderRadius: "var(--radius-md)",
+                  border: "1px solid var(--color-border)",
+                  fontFamily: "var(--font-family-mono)",
+                  fontSize: "var(--font-size-sm)",
+                  overflowX: "auto"
+                }}>
+                  <pre style={{ 
+                    margin: 0, 
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-word"
+                  }}>
+                    {JSON.stringify(externalData, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
