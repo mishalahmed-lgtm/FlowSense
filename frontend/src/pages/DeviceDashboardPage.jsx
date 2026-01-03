@@ -361,6 +361,43 @@ export default function DeviceDashboardPage() {
             const combined = [...new Set([...prev, ...externalKeys])];
             return combined.sort();
           });
+          
+          // Also add external data fields to discoveredFields for widget library
+          if (data && data.records && data.records.length > 0) {
+            const latestRecord = data.records[0];
+            const externalFields = [];
+            
+            Object.keys(latestRecord).forEach((key) => {
+              if (key !== 'timestamp' && latestRecord[key] !== null && latestRecord[key] !== undefined) {
+                const value = latestRecord[key];
+                const isNumeric = typeof value === 'number';
+                
+                // Get all values for this field from all records to calculate min/max
+                const allValues = data.records
+                  .map(r => r[key])
+                  .filter(v => v !== null && v !== undefined && typeof v === 'number');
+                
+                const fieldMetadata = {
+                  key: key,
+                  display_name: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                  field_type: isNumeric ? 'number' : 'string',
+                  unit: '',
+                  min_value: allValues.length > 0 ? Math.min(...allValues) : null,
+                  max_value: allValues.length > 0 ? Math.max(...allValues) : null,
+                  sample_value: value,
+                };
+                
+                externalFields.push(fieldMetadata);
+              }
+            });
+            
+            // Merge external fields with discovered fields
+            setDiscoveredFields((prev) => {
+              const existingKeys = new Set(prev.map(f => f.key));
+              const newFields = externalFields.filter(f => !existingKeys.has(f.key));
+              return [...prev, ...newFields];
+            });
+          }
         }
       } catch (err) {
         // Only show error if it's not a 503 (service unavailable) - that's expected if API not configured
