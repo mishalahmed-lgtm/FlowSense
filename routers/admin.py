@@ -290,22 +290,13 @@ def list_devices(
     offset = (page - 1) * limit
     devices = query.offset(offset).limit(limit).all()
 
-    # Check live status from health metrics - device is online if it sent data within 5 hours 5 minutes
-    # Use health status which is updated immediately when telemetry is received
-    from models import DeviceHealthMetrics
+    # Check live status directly from telemetry - device is active if it sent data within 5 hours 5 minutes
+    # This checks TelemetryLatest directly, so devices show as active immediately without waiting for health service
     live_map: Dict[int, bool] = {}
     
     if devices:
         device_ids = [device.id for device in devices]
-        # Batch query health metrics to get current status
-        health_records = (
-            db.query(DeviceHealthMetrics.device_id, DeviceHealthMetrics.current_status, DeviceHealthMetrics.last_seen_at)
-            .filter(DeviceHealthMetrics.device_id.in_(device_ids))
-            .all()
-        )
-        health_by_device_id = {record.device_id: record for record in health_records}
-        
-        # Also check telemetry latest as fallback for devices without health metrics
+        # Check telemetry latest records directly - most reliable source
         latest_records = (
             db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
             .filter(TelemetryLatest.device_id.in_(device_ids))
@@ -314,17 +305,12 @@ def list_devices(
         latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
         
         now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
+        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
         
         for device in devices:
-            health = health_by_device_id.get(device.id)
-            if health:
-                # Use health status: online means active, offline/degraded/unknown means inactive
-                is_live = health.current_status == "online"
-            else:
-                # Fallback: check telemetry latest if no health metrics
-                updated_at = latest_by_device_id.get(device.id)
-                is_live = bool(updated_at and updated_at >= cutoff)
+            # Device is active if it has sent ANY data in the past 5 hours 5 minutes
+            updated_at = latest_by_device_id.get(device.id)
+            is_live = bool(updated_at and updated_at >= cutoff)
             live_map[device.id] = is_live
 
     # Serialize devices with live status
