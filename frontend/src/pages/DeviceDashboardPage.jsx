@@ -375,7 +375,7 @@ export default function DeviceDashboardPage() {
     };
 
     loadExternalData();
-  }, [deviceId, token, api, transformExternalDataToReadings, telemetryData]);
+  }, [deviceId, token, api, transformExternalDataToReadings]);
 
   // Load history data for chart widgets
   const loadHistory = useCallback(
