@@ -784,10 +784,23 @@ export default function DeviceDashboardPage() {
   }, [dynamicWidgets, discoveredFields]);
 
   const renderWidget = (widget) => {
-    // Try to get value from telemetryData first, then check externalData as fallback
-    let value = getValueByField(telemetryData, widget.field);
+    // Get the latest value directly from readings (most reliable source)
+    let value = undefined;
+    if (readings && readings.length > 0) {
+      // Find the most recent reading for this field
+      const fieldReadings = readings.filter(r => r.key === widget.field);
+      if (fieldReadings.length > 0) {
+        // Readings are already sorted by timestamp descending, so first one is latest
+        value = fieldReadings[0].value;
+      }
+    }
     
-    // If not found in telemetryData, try externalData directly
+    // Fallback to telemetryData if not found in readings
+    if ((value === undefined || value === null) && telemetryData) {
+      value = getValueByField(telemetryData, widget.field);
+    }
+    
+    // Final fallback to externalData
     if ((value === undefined || value === null) && externalData && externalData.records && externalData.records.length > 0) {
       const latestRecord = externalData.records[0];
       if (latestRecord[widget.field] !== undefined && latestRecord[widget.field] !== null) {
