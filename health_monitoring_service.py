@@ -104,12 +104,12 @@ class HealthMonitoringService:
                 health.first_seen_at = latest.updated_at
         
         # Determine current status
+        # Devices that haven't sent data in 5 hours 5 minutes (18300 seconds) should be offline
+        # All devices that have sent data within 5 hours 5 minutes should be online
         if health.last_seen_at:
             time_since_last_seen = (now - health.last_seen_at).total_seconds()
-            if time_since_last_seen < 600:  # 10 minutes
+            if time_since_last_seen < 18300:  # 5 hours 5 minutes (305 minutes)
                 health.current_status = "online"
-            elif time_since_last_seen < 3600:  # 1 hour
-                health.current_status = "degraded"
             else:
                 health.current_status = "offline"
         else:

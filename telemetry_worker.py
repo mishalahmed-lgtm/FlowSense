@@ -134,6 +134,21 @@ def process_message(device_id: str, payload: Dict[str, Any], metadata: Dict[str,
             from datetime import datetime, timezone
             latest.updated_at = datetime.now(timezone.utc)
         
+        # Immediately update device health status to online when telemetry is received
+        from models import DeviceHealthMetrics
+        health = db.query(DeviceHealthMetrics).filter(DeviceHealthMetrics.device_id == device.id).first()
+        if not health:
+            health = DeviceHealthMetrics(device_id=device.id)
+            db.add(health)
+        
+        # Update last_seen_at and set status to online immediately
+        now = datetime.now(timezone.utc)
+        health.last_seen_at = latest.updated_at if latest.updated_at else now
+        health.current_status = "online"  # Instantly go online when telemetry is received
+        health.calculated_at = now
+        if not health.first_seen_at:
+            health.first_seen_at = health.last_seen_at
+        
         # Append time-series points for numeric fields
         for item in _flatten_payload(payload):
             ts_row = TelemetryTimeseries(

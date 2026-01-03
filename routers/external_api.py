@@ -990,18 +990,34 @@ async def send_telemetry_data_internal(
             logger.error(f"Error publishing telemetry via external API: {e}", exc_info=True)
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to process telemetry: {str(e)}")
     else:
-        from models import TelemetryLatest
+        from models import TelemetryLatest, DeviceHealthMetrics
         latest = db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
+        event_ts = datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if timestamp else datetime.now(timezone.utc)
         if latest:
-            latest.payload = json.dumps(payload.data)
-            latest.timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if timestamp else datetime.now(timezone.utc)
+            latest.data = payload.data
+            latest.event_timestamp = event_ts
+            latest.updated_at = datetime.now(timezone.utc)
         else:
             latest = TelemetryLatest(
                 device_id=device.id,
-                payload=json.dumps(payload.data),
-                timestamp=datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if timestamp else datetime.now(timezone.utc),
+                data=payload.data,
+                event_timestamp=event_ts,
             )
             db.add(latest)
+        
+        # Immediately update device health status to online when telemetry is received
+        health = db.query(DeviceHealthMetrics).filter(DeviceHealthMetrics.device_id == device.id).first()
+        if not health:
+            health = DeviceHealthMetrics(device_id=device.id)
+            db.add(health)
+        
+        now = datetime.now(timezone.utc)
+        health.last_seen_at = latest.updated_at if latest.updated_at else now
+        health.current_status = "online"  # Instantly go online when telemetry is received
+        health.calculated_at = now
+        if not health.first_seen_at:
+            health.first_seen_at = health.last_seen_at
+        
         db.commit()
         logger.info(f"[External API] Telemetry stored (Kafka unavailable) for device: {device.device_id}")
     
