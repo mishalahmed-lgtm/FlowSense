@@ -787,10 +787,12 @@ export default function DeviceDashboardPage() {
     // Try to get value from telemetryData first, then check externalData as fallback
     let value = getValueByField(telemetryData, widget.field);
     
-    // If not found in telemetryData, try externalData
+    // If not found in telemetryData, try externalData directly
     if ((value === undefined || value === null) && externalData && externalData.records && externalData.records.length > 0) {
       const latestRecord = externalData.records[0];
-      value = latestRecord[widget.field];
+      if (latestRecord[widget.field] !== undefined && latestRecord[widget.field] !== null) {
+        value = latestRecord[widget.field];
+      }
     }
     
     const history = historyData[widget.field];
