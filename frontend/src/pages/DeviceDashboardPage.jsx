@@ -344,13 +344,15 @@ export default function DeviceDashboardPage() {
         // Update telemetry data with latest external data values
         if (data && data.records && data.records.length > 0) {
           const latestRecord = data.records[0]; // Most recent record
-          const updatedTelemetry = { ...telemetryData };
-          Object.keys(latestRecord).forEach((key) => {
-            if (key !== 'timestamp') {
-              updatedTelemetry[key] = latestRecord[key];
-            }
+          setTelemetryData((prevTelemetry) => {
+            const updatedTelemetry = { ...prevTelemetry };
+            Object.keys(latestRecord).forEach((key) => {
+              if (key !== 'timestamp') {
+                updatedTelemetry[key] = latestRecord[key];
+              }
+            });
+            return updatedTelemetry;
           });
-          setTelemetryData(updatedTelemetry);
         }
         
         // Update available keys to include external data fields
@@ -373,7 +375,7 @@ export default function DeviceDashboardPage() {
     };
 
     loadExternalData();
-  }, [deviceId, token, api, transformExternalDataToReadings]);
+  }, [deviceId, token, api, transformExternalDataToReadings, telemetryData]);
 
   // Load history data for chart widgets
   const loadHistory = useCallback(
