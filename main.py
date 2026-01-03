@@ -601,7 +601,157 @@ async def get_sync_status(db: Session = Depends(get_db)):
             "status": "error",
             "message": str(e),
             "error_type": type(e).__name__
-    }
+        }
+
+
+@app.get("/debug/external-device-data-status")
+async def get_external_device_data_status(db: Session = Depends(get_db)):
+    """Debug endpoint to check external device data sync status and configuration."""
+    import json
+    from models import Device
+    
+    try:
+        from external_api_sync_service import external_api_sync_service
+        from config import settings
+        
+        # Check API configuration
+        api_configured = bool(settings.external_device_api_base_url and settings.external_device_api_key)
+        api_base_url = settings.external_device_api_base_url or "NOT SET"
+        api_key_set = bool(settings.external_device_api_key)
+        api_key_preview = settings.external_device_api_key[:10] + "..." if settings.external_device_api_key else "NOT SET"
+        
+        # Check service status
+        service_running = external_api_sync_service._running
+        device_sync_interval = getattr(external_api_sync_service, '_device_sync_interval', 3600)
+        last_device_sync = getattr(external_api_sync_service, '_last_device_sync', 0)
+        initial_sync_done = getattr(external_api_sync_service, '_initial_sync_done', False)
+        
+        # Calculate time until next sync
+        import time
+        current_time = time.time()
+        if last_device_sync == 0:
+            time_until_sync = "Not started yet" if not initial_sync_done else "Initial sync pending"
+        else:
+            time_since_sync = current_time - last_device_sync
+            time_until_sync_seconds = device_sync_interval - time_since_sync
+            if time_until_sync_seconds <= 0:
+                time_until_sync = "Due now (should sync on next cycle)"
+            else:
+                minutes = int(time_until_sync_seconds / 60)
+                seconds = int(time_until_sync_seconds % 60)
+                time_until_sync = f"{minutes}m {seconds}s"
+        
+        # Get device statistics
+        total_devices = db.query(Device).count()
+        devices_with_external_data = 0
+        devices_synced_recently = 0  # Synced in last hour
+        devices_never_synced = 0
+        sample_devices = []
+        
+        now = datetime.now(timezone.utc)
+        cutoff_recent = now - timedelta(hours=1)
+        
+        # Sample up to 10 devices to show sync status
+        devices = db.query(Device).limit(100).all()
+        for device in devices:
+            metadata = {}
+            if device.device_metadata:
+                try:
+                    metadata = json.loads(device.device_metadata)
+                except:
+                    pass
+            
+            external_data = metadata.get("external_data")
+            synced_at_str = metadata.get("external_data_synced_at")
+            
+            if external_data:
+                devices_with_external_data += 1
+            
+            if synced_at_str:
+                try:
+                    synced_at = datetime.fromisoformat(synced_at_str.replace('Z', '+00:00'))
+                    if synced_at >= cutoff_recent:
+                        devices_synced_recently += 1
+                except:
+                    pass
+            else:
+                devices_never_synced += 1
+            
+            # Collect sample devices (first 5 with data, first 5 without)
+            if len(sample_devices) < 10:
+                sample_devices.append({
+                    "device_id": device.device_id,
+                    "has_external_data": bool(external_data),
+                    "synced_at": synced_at_str,
+                    "data_keys": list(external_data.keys()) if external_data and isinstance(external_data, dict) else None
+                })
+        
+        # Get full statistics (query all devices)
+        all_devices = db.query(Device).all()
+        total_with_data = 0
+        total_recent = 0
+        total_never = 0
+        
+        for device in all_devices:
+            metadata = {}
+            if device.device_metadata:
+                try:
+                    metadata = json.loads(device.device_metadata)
+                except:
+                    pass
+            
+            external_data = metadata.get("external_data")
+            synced_at_str = metadata.get("external_data_synced_at")
+            
+            if external_data:
+                total_with_data += 1
+            
+            if synced_at_str:
+                try:
+                    synced_at = datetime.fromisoformat(synced_at_str.replace('Z', '+00:00'))
+                    if synced_at >= cutoff_recent:
+                        total_recent += 1
+                except:
+                    pass
+            else:
+                total_never += 1
+        
+        return {
+            "status": "success",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "api_configuration": {
+                "configured": api_configured,
+                "base_url": api_base_url,
+                "api_key_set": api_key_set,
+                "api_key_preview": api_key_preview
+            },
+            "service_status": {
+                "running": service_running,
+                "device_sync_interval_seconds": device_sync_interval,
+                "device_sync_interval_hours": device_sync_interval / 3600,
+                "last_device_sync_timestamp": last_device_sync,
+                "last_device_sync_datetime": datetime.fromtimestamp(last_device_sync, tz=timezone.utc).isoformat() if last_device_sync > 0 else None,
+                "initial_sync_done": initial_sync_done,
+                "time_until_next_sync": time_until_sync
+            },
+            "device_statistics": {
+                "total_devices": total_devices,
+                "devices_with_external_data": total_with_data,
+                "devices_synced_in_last_hour": total_recent,
+                "devices_never_synced": total_never,
+                "sync_coverage_percent": round((total_with_data / total_devices * 100) if total_devices > 0 else 0, 2)
+            },
+            "sample_devices": sample_devices,
+            "recommendations": []
+        }
+    except Exception as e:
+        logger.error(f"Error in external-device-data-status endpoint: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": str(e),
+            "error_type": type(e).__name__,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
 
 
 @app.get("/metrics")
