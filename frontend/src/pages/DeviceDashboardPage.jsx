@@ -486,7 +486,14 @@ export default function DeviceDashboardPage() {
     const loadFields = async () => {
       try {
         const resp = await api.get(`/dashboard/devices/${deviceId}/fields`);
-        setDiscoveredFields(resp.data || []);
+        const backendFields = resp.data || [];
+        
+        // Merge with existing discoveredFields to preserve external data fields
+        setDiscoveredFields((prev) => {
+          const existingKeys = new Set(backendFields.map(f => f.key));
+          const externalFields = prev.filter(f => !existingKeys.has(f.key));
+          return [...backendFields, ...externalFields];
+        });
       } catch (err) {
         console.error("Failed to load discovered fields:", err);
       }
