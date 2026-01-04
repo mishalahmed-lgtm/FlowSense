@@ -16,11 +16,10 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 @router.get("/sync-service/status")
 def get_sync_service_status():
     """Get status of ExternalAPISyncService. Public endpoint for debugging - no auth required."""
+    status = external_api_sync_service.get_sync_status()
     return {
         "service_running": external_api_sync_service.is_running(),
-        "initial_sync_done": getattr(external_api_sync_service, "_initial_sync_done", False),
-        "last_device_sync": getattr(external_api_sync_service, "_last_device_sync", 0),
-        "device_sync_interval": getattr(external_api_sync_service, "_device_sync_interval", 3600),
+        **status
     }
 
 

@@ -29,6 +29,8 @@ class ExternalAPISyncService:
         self._device_sync_interval = 3600  # Sync device external data every 1 hour (3600 seconds)
         self._last_device_sync = time.time()  # Set to current time (so we can track startup delay)
         self._initial_sync_done = False  # Flag to do initial sync on startup
+        self._sync_in_progress = False  # Flag to track if sync is currently running
+        self._sync_progress = {"current": 0, "total": 0, "status": "idle"}  # Progress tracking
     
     def start(self):
         """Start the external API sync service."""
@@ -55,6 +57,16 @@ class ExternalAPISyncService:
         
         logger.info("External API sync service stopped")
     
+    def get_sync_status(self):
+        """Get current sync status for frontend monitoring."""
+        return {
+            "sync_in_progress": self._sync_in_progress,
+            "initial_sync_done": self._initial_sync_done,
+            "progress": self._sync_progress,
+            "last_sync": self._last_device_sync,
+            "next_sync_in": max(0, int(self._device_sync_interval - (time.time() - self._last_device_sync)))
+        }
+    
     def _worker_loop(self):
         """Background worker loop that syncs data from external APIs.
         
@@ -70,9 +82,9 @@ class ExternalAPISyncService:
                 should_sync = False
                 
                 if not self._initial_sync_done:
-                    # DEFER initial sync by 60 seconds to let server fully start
+                    # DEFER initial sync by 5 minutes to let server fully start and API stabilize
                     time_since_start = current_time - (self._last_device_sync if self._last_device_sync > 0 else current_time)
-                    if time_since_start >= 60:  # Wait 60 seconds after startup
+                    if time_since_start >= 300:  # Wait 5 minutes (300s) after startup
                         logger.info("🚀 Performing initial complete device sync (installations + telemetry)...")
                         should_sync = True
                         self._initial_sync_done = True
@@ -86,8 +98,16 @@ class ExternalAPISyncService:
                 if should_sync:
                     db = SessionLocal()
                     try:
+                        self._sync_in_progress = True
+                        self._sync_progress = {"current": 0, "total": 0, "status": "running"}
                         self._sync_complete_devices(db)
                         self._last_device_sync = current_time
+                        self._sync_in_progress = False
+                        self._sync_progress = {"current": 0, "total": 0, "status": "completed"}
+                    except Exception as e:
+                        self._sync_in_progress = False
+                        self._sync_progress = {"current": 0, "total": 0, "status": "failed", "error": str(e)}
+                        raise
                     finally:
                         db.close()
                 else:
@@ -154,7 +174,8 @@ class ExternalAPISyncService:
         import string
         from datetime import timedelta
         
-        CONCURRENCY = 200
+        CONCURRENCY = 10  # Leaves 10 DB connections free for frontend/API
+        BATCH_SIZE = 1000  # Process devices in batches
         sem = asyncio.Semaphore(CONCURRENCY)
         synced_count = 0
         failed_count = 0
@@ -397,41 +418,9 @@ class ExternalAPISyncService:
                     )
                     write_db.add(telemetry_latest)
                 
-                # Store history (timeseries)
-                history = {
-                    "level": random_history(level),
-                    "temperature": random_history(temperature),
-                    "battery": random_history(battery),
-                    "pressure": random_history(pressure),
-                    "dis_cm": random_history(dis_cm)
-                }
-                
-                for field_key, points in history.items():
-                    if not isinstance(points, list):
-                        continue
-                    for point in points:
-                        if not isinstance(point, dict) or "timestamp" not in point or "value" not in point:
-                            continue
-                        try:
-                            ts = datetime.fromisoformat(point["timestamp"].replace('Z', '+00:00'))
-                            value = point["value"]
-                            if value is None:
-                                continue
-                            try:
-                                float_value = float(value)
-                            except (ValueError, TypeError):
-                                continue
-                            
-                            timeseries = TelemetryTimeseries(
-                                device_id=device.id,
-                                ts=ts,
-                                key=field_key,
-                                value=float_value
-                            )
-                            write_db.add(timeseries)
-                        except Exception as e:
-                            logger.debug(f"Error storing timeseries {field_key}: {e}")
-                            continue
+                # SKIP history/timeseries storage to save memory during initial sync
+                # Can be added later via background job after initial sync completes
+                # This reduces memory usage significantly (15 DB writes per device -> 4-5 writes)
                 
                 # Dashboard config
                 dashboard_config = {
@@ -553,26 +542,39 @@ class ExternalAPISyncService:
                             logger.debug(f"  Error processing {device.device_id}: {e}")
                             return "failed"
                 
-                # Execute all tasks
-                tasks = [process_single_device(session, device) for device in devices]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                # Count results
+                # Execute tasks in batches to prevent memory overload
                 online_count = 0
                 offline_count = 0
-                for result in results:
-                    if isinstance(result, Exception):
-                        failed_count += 1
-                    elif result == "online":
-                        synced_count += 1
-                        online_count += 1
-                    elif result == "offline":
-                        synced_count += 1
-                        offline_count += 1
-                    else:
-                        failed_count += 1
+                total_devices = len(devices)
                 
-                logger.info(f"  📊 Results: {online_count} online, {offline_count} offline (no telemetry), {failed_count} failed")
+                for batch_start in range(0, total_devices, BATCH_SIZE):
+                    batch_end = min(batch_start + BATCH_SIZE, total_devices)
+                    batch = devices[batch_start:batch_end]
+                    batch_num = (batch_start // BATCH_SIZE) + 1
+                    total_batches = (total_devices + BATCH_SIZE - 1) // BATCH_SIZE
+                    
+                    logger.info(f"  📦 Processing batch {batch_num}/{total_batches} ({len(batch)} devices)...")
+                    
+                    # Process batch
+                    tasks = [process_single_device(session, device) for device in batch]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    
+                    # Count results
+                    for result in results:
+                        if isinstance(result, Exception):
+                            failed_count += 1
+                        elif result == "online":
+                            synced_count += 1
+                            online_count += 1
+                        elif result == "offline":
+                            synced_count += 1
+                            offline_count += 1
+                        else:
+                            failed_count += 1
+                    
+                    logger.info(f"  ✅ Batch {batch_num} complete: {synced_count} synced so far ({online_count} online, {offline_count} offline), {failed_count} failed")
+                
+                logger.info(f"  📊 Final Results: {online_count} online, {offline_count} offline (no telemetry), {failed_count} failed")
         
         except Exception as e:
             logger.error(f"  ✗ Sync failed: {e}", exc_info=True)
@@ -649,7 +651,7 @@ class ExternalAPISyncService:
         from database import SessionLocal
         import json
         
-        CONCURRENCY = 200
+        CONCURRENCY = 10  # Leaves 10 DB connections free for frontend/API
         sem = asyncio.Semaphore(CONCURRENCY)
         synced_count = 0
         failed_count = 0
