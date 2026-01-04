@@ -85,3 +85,5 @@ __tests__/
 coverage/
 .nyc_output/
 
+test_external_api_service.py
+test_*.py

@@ -127,16 +127,19 @@ class ExternalAPISyncService:
         
         try:
             logger.info(f"🔄 Starting complete device sync (installations + telemetry)...")
+            logger.debug(f"  Installations API: {installations_api}")
+            logger.debug(f"  SmartTive API Base: {smarttive_api_base}")
+            logger.debug(f"  SmartTive API Key: {'*' * 20}...{smarttive_api_key[-4:] if smarttive_api_key else 'NONE'}")
             
             # Run async sync
             synced_count, failed_count = asyncio.run(self._async_sync_complete_devices(
                 installations_api, smarttive_api_base, smarttive_api_key, db
             ))
             
-            if synced_count > 0:
-                logger.info(f"  ✅ Successfully synced {synced_count} device(s)")
+            logger.info(f"  ✅ Successfully synced {synced_count} device(s)")
             if failed_count > 0:
                 logger.warning(f"  ⚠ Failed to sync {failed_count} device(s)")
+            logger.debug(f"  Sync completed: {synced_count} success, {failed_count} failed")
         
         except Exception as e:
             logger.error(f"Error in _sync_complete_devices: {e}", exc_info=True)
@@ -350,14 +353,18 @@ class ExternalAPISyncService:
             """Process a single device: fetch telemetry, build complete data, send to FlowSense."""
             device_id = install.get("deviceId") or install.get("device_id")
             if not device_id:
+                logger.debug(f"  ⚠ Skipping installation - no device_id: {install.get('id', 'unknown')}")
                 return "skipped"
             
             try:
+                logger.debug(f"  Processing device: {device_id}")
                 # Fetch telemetry
                 telemetry = await fetch_telemetry(session, device_id)
+                logger.debug(f"  Device {device_id}: fetched {len(telemetry)} telemetry fields")
                 
                 # Build complete device
                 device_data = build_device(install, telemetry)
+                logger.debug(f"  Device {device_id}: built device data, is_active={device_data.get('is_active')}")
                 
                 # If no telemetry (device returned None), mark offline
                 if device_data is None:
@@ -381,12 +388,28 @@ class ExternalAPISyncService:
                     "Content-Type": "application/json"
                 }
                 
+                logger.debug(f"  Device {device_id}: Sending to {url}")
+                logger.debug(f"  Device {device_id}: Payload keys: {list(device_data.keys())}")
+                if device_data.get("telemetry"):
+                    logger.debug(f"  Device {device_id}: Telemetry fields: {len(device_data['telemetry'].get('data', {}))}")
+                if device_data.get("history"):
+                    logger.debug(f"  Device {device_id}: History fields: {list(device_data['history'].keys())}")
+                if device_data.get("dashboard"):
+                    logger.debug(f"  Device {device_id}: Dashboard widgets: {len(device_data['dashboard'].get('widgets', []))}")
+                
                 async with session.post(url, json=device_data, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                    response_text = await r.text()
                     if r.status in [200, 201]:
+                        logger.debug(f"  Device {device_id}: ✓ Successfully sent (HTTP {r.status})")
+                        try:
+                            response_json = await r.json() if response_text else {}
+                            logger.debug(f"  Device {device_id}: Response: {response_json}")
+                        except:
+                            pass
                         return "online" if device_data.get("is_active") else "offline"
                     else:
-                        text = await r.text()
                         logger.warning(f"  ⚠ Failed to send {device_id}: HTTP {r.status}")
+                        logger.debug(f"  Device {device_id}: Response body: {response_text[:500]}")
                         return "failed"
             except Exception as e:
                 logger.warning(f"  ⚠ Error processing device {device_id}: {e}")
@@ -400,22 +423,51 @@ class ExternalAPISyncService:
             async with aiohttp.ClientSession() as session:
                 # Step 1: Fetch installations
                 logger.info(f"  📥 Fetching installations from {installations_api}...")
+                logger.debug(f"  Request URL: {installations_api}")
                 try:
                     async with session.get(installations_api, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                        logger.debug(f"  Response status: {r.status}")
                         if r.status != 200:
+                            text = await r.text()
                             logger.error(f"  ✗ Failed to fetch installations: HTTP {r.status}")
+                            logger.debug(f"  Response body: {text[:200]}")
                             return 0, 0
                         installations = await r.json()
+                        logger.debug(f"  Raw response type: {type(installations)}")
                 except Exception as e:
                     logger.error(f"  ✗ Error fetching installations: {e}")
+                    logger.debug(f"  Exception details: {type(e).__name__}: {str(e)}", exc_info=True)
                     return 0, 0
                 
-                logger.info(f"  ✅ Found {len(installations)} installations")
+                # Handle different response formats
+                if isinstance(installations, list):
+                    installations_list = installations
+                elif isinstance(installations, dict):
+                    if 'data' in installations:
+                        installations_list = installations['data']
+                    elif 'installations' in installations:
+                        installations_list = installations['installations']
+                    else:
+                        installations_list = [installations] if installations else []
+                else:
+                    installations_list = []
+                
+                logger.info(f"  ✅ Found {len(installations_list)} installations")
+                logger.debug(f"  Response format: {type(installations).__name__}")
+                if installations_list:
+                    sample = installations_list[0]
+                    logger.debug(f"  Sample installation keys: {list(sample.keys())[:5]}...")
                 
                 # Step 2: Process all devices in parallel
-                logger.info(f"  🔄 Processing {len(installations)} devices (concurrency: {CONCURRENCY})...")
-                tasks = [process_device(session, install) for install in installations]
+                logger.info(f"  🔄 Processing {len(installations_list)} devices (concurrency: {CONCURRENCY})...")
+                logger.debug(f"  Creating {len(installations_list)} async tasks")
+                tasks = [process_device(session, install) for install in installations_list]
+                logger.debug(f"  Executing tasks with concurrency limit: {CONCURRENCY}")
                 results = await asyncio.gather(*tasks, return_exceptions=True)
+                logger.debug(f"  Completed {len(results)} tasks")
+                
+                # Store installations_list for use in results counting
+                installations = installations_list
                 
                 # Count results
                 online_count = 0
