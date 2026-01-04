@@ -27,7 +27,7 @@ class ExternalAPISyncService:
         self._lock = threading.Lock()
         self._sync_interval = 300  # Sync every 5 minutes (300 seconds)
         self._device_sync_interval = 3600  # Sync device external data every 1 hour (3600 seconds)
-        self._last_device_sync = 0  # Timestamp of last device sync
+        self._last_device_sync = time.time()  # Set to current time (so we can track startup delay)
         self._initial_sync_done = False  # Flag to do initial sync on startup
     
     def start(self):
