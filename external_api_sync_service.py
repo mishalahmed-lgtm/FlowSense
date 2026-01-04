@@ -58,16 +58,38 @@ class ExternalAPISyncService:
     def _worker_loop(self):
         """Background worker loop that syncs data from external APIs.
         
-        NOTE: Device sync is now handled by Render Cron Job running scripts/sync_devices_complete.py
-        This worker is kept for future custom integrations but device sync is disabled.
+        Fetches from both installations API and SmartTive API,
+        builds complete device data, and sends to FlowSense.
+        Runs hourly automatically (free, no cron needed).
         """
         while self._running:
             try:
-                # Device sync DISABLED - now handled by cron job (scripts/sync_devices_complete.py)
-                # The cron job fetches from both installations API and SmartTive API
-                # and sends complete device data to /external/devices/complete endpoint
+                # Check if it's time to sync device data (every 1 hour)
+                # Do initial sync on first run, then every hour
+                current_time = time.time()
+                should_sync = False
                 
-                logger.debug("External API sync service is running (device sync handled by cron job)")
+                if not self._initial_sync_done:
+                    # Do initial sync immediately on startup
+                    logger.info("🚀 Performing initial complete device sync (installations + telemetry)...")
+                    should_sync = True
+                    self._initial_sync_done = True
+                elif current_time - self._last_device_sync >= self._device_sync_interval:
+                    # Regular hourly sync
+                    logger.info("⏰ Time to sync complete device data (1 hour interval reached)")
+                    should_sync = True
+                
+                if should_sync:
+                    db = SessionLocal()
+                    try:
+                        self._sync_complete_devices(db)
+                        self._last_device_sync = current_time
+                    finally:
+                        db.close()
+                else:
+                    time_until_sync = self._device_sync_interval - (current_time - self._last_device_sync)
+                    logger.debug(f"Next device data sync in {int(time_until_sync)} seconds")
+                
                 time.sleep(self._sync_interval)
             except Exception as e:
                 logger.error(f"Error in external API sync worker loop: {e}", exc_info=True)
@@ -76,6 +98,291 @@ class ExternalAPISyncService:
     # REMOVED: _sync_all_integrations() - replaced by async parallel sync in _sync_all_devices_external_data()
     # Old method handled installations, devices, data, health endpoints sequentially in batches
     # New method uses async parallel requests (200 concurrent) via /external/devices/complete endpoint
+    
+    def _sync_complete_devices(self, db: Session):
+        """Complete device sync: fetch installations + telemetry, build complete device data.
+        
+        This replaces the old sequential batch logic with a complete sync that:
+        1. Fetches installations from API A (locations)
+        2. Fetches telemetry from SmartTive API B (200 concurrent)
+        3. Builds complete device JSON with randomization for missing fields
+        4. Sends to /external/devices/complete endpoint
+        """
+        import json
+        import random
+        import string
+        
+        # API URLs from settings or environment
+        installations_api = getattr(settings, 'installations_api_url', None) or "https://flooddemo-qr2x.onrender.com/api/installations"
+        smarttive_api_base = settings.external_device_api_base_url or "https://op1.smarttive.com/device/{}"
+        smarttive_api_key = settings.external_device_api_key or "M2nJ5vKt8QwR3pLxT0yZ7aDbU1sH6cYe"
+        
+        if not smarttive_api_base or not smarttive_api_key:
+            logger.debug("SmartTive API not configured - skipping complete device sync")
+            return
+        
+        try:
+            logger.info(f"🔄 Starting complete device sync (installations + telemetry)...")
+            
+            # Run async sync
+            synced_count, failed_count = asyncio.run(self._async_sync_complete_devices(
+                installations_api, smarttive_api_base, smarttive_api_key, db
+            ))
+            
+            if synced_count > 0:
+                logger.info(f"  ✅ Successfully synced {synced_count} device(s)")
+            if failed_count > 0:
+                logger.warning(f"  ⚠ Failed to sync {failed_count} device(s)")
+        
+        except Exception as e:
+            logger.error(f"Error in _sync_complete_devices: {e}", exc_info=True)
+    
+    async def _async_sync_complete_devices(self, installations_api: str, smarttive_api_base: str, 
+                                          smarttive_api_key: str, db: Session):
+        """Async function that fetches installations + telemetry and builds complete device data."""
+        from models import DeviceType, ExternalIntegration
+        from database import SessionLocal
+        import json
+        import random
+        import string
+        from datetime import timedelta
+        
+        CONCURRENCY = 200
+        sem = asyncio.Semaphore(CONCURRENCY)
+        synced_count = 0
+        failed_count = 0
+        
+        # Helper functions (same as script)
+        def now():
+            return datetime.now(timezone.utc).isoformat() + "Z"
+        
+        def rand_float(a, b, r=2):
+            return round(random.uniform(a, b), r)
+        
+        def rand_int(a, b):
+            return random.randint(a, b)
+        
+        def rand_string(n=8):
+            return "".join(random.choices(string.ascii_uppercase + string.digits, k=n))
+        
+        def random_history(value, points=3, spread=1.0):
+            base = datetime.now(timezone.utc)
+            return [
+                {
+                    "timestamp": (base - timedelta(minutes=15 * i)).isoformat() + "Z",
+                    "value": round(value + random.uniform(-spread, spread), 2)
+                }
+                for i in reversed(range(points))
+            ]
+        
+        def extract_location(install):
+            loc = install.get("LocationCoordinates") or {}
+            if isinstance(loc, dict) and loc.get("latitude") and loc.get("longitude"):
+                return loc.get("latitude"), loc.get("longitude")
+            if isinstance(loc, list) and len(loc) == 2:
+                return loc[0], loc[1]
+            if install.get("userLatitude") and install.get("userLongitude"):
+                return install.get("userLatitude"), install.get("userLongitude")
+            return None, None
+        
+        def flatten_dict(d, parent="", out=None):
+            if out is None:
+                out = {}
+            for k, v in d.items():
+                key = f"{parent}.{k}" if parent else k
+                if isinstance(v, dict):
+                    flatten_dict(v, key, out)
+                else:
+                    out[key] = v
+            return out
+        
+        def build_device(install, telemetry):
+            device_id = str(
+                install.get("deviceId")
+                or install.get("device_id")
+                or rand_string(16)
+            )
+            
+            name = (
+                install.get("deviceName")
+                or install.get("name")
+                or f"HTTP Device {device_id}"
+            )
+            
+            lat, lng = extract_location(install)
+            
+            # Randomize missing fields (same as script)
+            level = telemetry.get("level", rand_float(20, 90))
+            temperature = telemetry.get("temperature", rand_float(15, 40))
+            battery = telemetry.get("battery", rand_int(40, 100))
+            pressure = telemetry.get("pressure", rand_float(1.5, 2.5))
+            dis_cm = telemetry.get("dis_cm", rand_float(10, 80))
+            
+            # Build complete device structure (same as script)
+            return {
+                "device_id": device_id,
+                "name": name,
+                "device_type": {
+                    "id": 1,
+                    "name": "HTTP Device",
+                    "protocol": "HTTP",
+                    "description": "HTTP telemetry device"
+                },
+                "is_active": True,
+                "location": {
+                    "latitude": lat,
+                    "longitude": lng,
+                    "source": "gps" if lat else None,
+                    "updated_at": now()
+                } if lat and lng else {},
+                "telemetry": {
+                    "timestamp": now(),
+                    "updated_at": now(),
+                    "data": telemetry or {
+                        "level": level,
+                        "temperature": temperature,
+                        "pressure": pressure,
+                        "battery": battery,
+                        "dis_cm": dis_cm
+                    }
+                },
+                "history": {
+                    "level": random_history(level),
+                    "temperature": random_history(temperature),
+                    "battery": random_history(battery),
+                    "pressure": random_history(pressure),
+                    "dis_cm": random_history(dis_cm)
+                },
+                "fields": [
+                    {"key": "level", "display_name": "Level", "field_type": "number", "unit": "%", "sample_value": level},
+                    {"key": "temperature", "display_name": "Temperature", "field_type": "number", "unit": "°C", "sample_value": temperature},
+                    {"key": "battery", "display_name": "Battery", "field_type": "number", "unit": "%", "sample_value": battery},
+                    {"key": "pressure", "display_name": "Pressure", "field_type": "number", "unit": "bar", "sample_value": pressure},
+                    {"key": "dis_cm", "display_name": "Dis Cm", "field_type": "number", "unit": "cm", "sample_value": dis_cm}
+                ],
+                "dashboard": {
+                    "widgets": [
+                        {"id": "level-gauge", "type": "gauge", "field": "level", "title": "Level", "unit": "%", "min": 0, "max": 100},
+                        {"id": "temp-thermo", "type": "thermometer", "field": "temperature", "title": "Temperature", "unit": "°C", "min": -20, "max": 50},
+                        {"id": "battery", "type": "battery", "field": "battery", "title": "Battery", "min": 0, "max": 100}
+                    ],
+                    "layout": "grid"
+                },
+                "health": {
+                    "status": "online",
+                    "last_seen_at": now(),
+                    "battery": {
+                        "level": battery,
+                        "trend": "stable"
+                    }
+                },
+                "metadata": {
+                    "installation_id": install.get("installationId") or install.get("id"),
+                    "source": "external_installations_api"
+                }
+            }
+        
+        # Get integration API key for sending to FlowSense
+        integration = db.query(ExternalIntegration).filter(
+            ExternalIntegration.is_active == True
+        ).first()
+        flowsense_api_key = integration.api_key if integration else ""
+        
+        if not flowsense_api_key:
+            logger.warning("No active integration API key found - cannot send to FlowSense")
+            return 0, 0
+        
+        # Get FlowSense base URL
+        import os
+        flowsense_url = (
+            settings.api_base_url or 
+            os.getenv("API_BASE_URL") or 
+            os.getenv("RENDER_EXTERNAL_URL") or
+            "https://flowsense-772d.onrender.com"
+        )
+        
+        async def fetch_telemetry(session, device_id):
+            """Fetch telemetry from SmartTive API."""
+            async with sem:
+                try:
+                    url = smarttive_api_base.format(device_id.upper())
+                    headers = {"X-API-KEY": smarttive_api_key}
+                    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                        if r.status != 200:
+                            return {}
+                        data = await r.json()
+                        return flatten_dict(data)
+                except Exception:
+                    return {}
+        
+        async def process_device(session, install):
+            """Process a single device: fetch telemetry, build complete data, send to FlowSense."""
+            device_id = install.get("deviceId") or install.get("device_id")
+            if not device_id:
+                return False
+            
+            try:
+                # Fetch telemetry
+                telemetry = await fetch_telemetry(session, device_id)
+                
+                # Build complete device
+                device_data = build_device(install, telemetry)
+                
+                # Send to FlowSense
+                url = f"{flowsense_url}/api/v1/external/devices/complete"
+                headers = {
+                    "X-API-Key": flowsense_api_key,
+                    "Content-Type": "application/json"
+                }
+                
+                async with session.post(url, json=device_data, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                    if r.status in [200, 201]:
+                        return True
+                    else:
+                        text = await r.text()
+                        logger.warning(f"  ⚠ Failed to send {device_id}: HTTP {r.status}")
+                        return False
+            except Exception as e:
+                logger.warning(f"  ⚠ Error processing device {device_id}: {e}")
+                return False
+        
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Step 1: Fetch installations
+                logger.info(f"  📥 Fetching installations from {installations_api}...")
+                try:
+                    async with session.get(installations_api, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                        if r.status != 200:
+                            logger.error(f"  ✗ Failed to fetch installations: HTTP {r.status}")
+                            return 0, 0
+                        installations = await r.json()
+                except Exception as e:
+                    logger.error(f"  ✗ Error fetching installations: {e}")
+                    return 0, 0
+                
+                logger.info(f"  ✅ Found {len(installations)} installations")
+                
+                # Step 2: Process all devices in parallel
+                logger.info(f"  🔄 Processing {len(installations)} devices (concurrency: {CONCURRENCY})...")
+                tasks = [process_device(session, install) for install in installations]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Count results
+                for result in results:
+                    if isinstance(result, Exception):
+                        failed_count += 1
+                    elif result is True:
+                        synced_count += 1
+                    else:
+                        failed_count += 1
+        finally:
+            loop.close()
+        
+        return synced_count, failed_count
     
     def _sync_all_devices_external_data(self, db: Session):
         """Sync external device data for all devices every hour using async parallel requests.
