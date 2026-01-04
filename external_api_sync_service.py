@@ -3,13 +3,15 @@ import logging
 import threading
 import time
 import requests
+import asyncio
+import aiohttp
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import ExternalIntegration, User
+from models import ExternalIntegration, User, Device
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -118,13 +120,11 @@ class ExternalAPISyncService:
             db.close()
     
     def _sync_all_devices_external_data(self, db: Session):
-        """Sync external device data for all devices every hour.
+        """Sync external device data for all devices every hour using async parallel requests.
         
-        Only syncs devices that haven't been synced in the last hour to avoid
-        overwhelming the external API with too many requests.
+        Uses the new /external/devices/complete endpoint which populates all tables.
+        Only syncs devices that haven't been synced in the last hour.
         """
-        from models import Device
-        from config import settings
         import json
         
         if not settings.external_device_api_base_url or not settings.external_device_api_key:
@@ -169,67 +169,10 @@ class ExternalAPISyncService:
                 logger.debug("All devices are up-to-date (synced in last hour)")
                 return
             
-            logger.info(f"🔄 Syncing external data for {len(devices_to_sync)} device(s) (out of {len(devices)} total)...")
+            logger.info(f"🔄 Syncing external data for {len(devices_to_sync)} device(s) (out of {len(devices)} total) using async parallel requests...")
             
-            # Sync devices in batches to avoid overwhelming API
-            synced_count = 0
-            failed_count = 0
-            batch_size = 50  # Process 50 devices at a time
-            
-            for i in range(0, len(devices_to_sync), batch_size):
-                batch = devices_to_sync[i:i + batch_size]
-                logger.info(f"  Processing batch {i//batch_size + 1} ({len(batch)} devices)...")
-                
-                for device in batch:
-                    try:
-                        url = f"{settings.external_device_api_base_url}/device/{device.device_id.upper()}"
-                        headers = {"X-API-KEY": settings.external_device_api_key}
-                        
-                        response = requests.get(url, headers=headers, timeout=10)
-                        response.raise_for_status()
-                        external_data = response.json()
-                        
-                        # Update device metadata
-                        metadata = json.loads(device.device_metadata) if device.device_metadata else {}
-                        metadata["external_data"] = external_data
-                        metadata["external_data_synced_at"] = datetime.now(timezone.utc).isoformat()
-                        device.device_metadata = json.dumps(metadata)
-                        
-                        # Also update TelemetryLatest so device shows as active
-                        # This ensures devices with only external data (no direct telemetry) show as online
-                        from models import TelemetryLatest
-                        telemetry = db.query(TelemetryLatest).filter(
-                            TelemetryLatest.device_id == device.id
-                        ).first()
-                        
-                        if telemetry:
-                            # Update existing record
-                            telemetry.updated_at = datetime.now(timezone.utc)
-                        else:
-                            # Create new record (device has external data but never sent direct telemetry)
-                            telemetry = TelemetryLatest(
-                                device_id=device.id,
-                                payload="{}",  # Empty payload, data is in device_metadata
-                                timestamp=datetime.now(timezone.utc),
-                                updated_at=datetime.now(timezone.utc)
-                            )
-                            db.add(telemetry)
-                        
-                        db.commit()
-                        synced_count += 1
-                        
-                    except requests.exceptions.RequestException as e:
-                        failed_count += 1
-                        logger.warning(f"  ⚠ Failed to sync device {device.device_id}: {e}")
-                        continue
-                    except Exception as e:
-                        failed_count += 1
-                        logger.error(f"  ✗ Error syncing device {device.device_id}: {e}")
-                        continue
-                
-                # Small delay between batches to avoid rate limiting
-                if i + batch_size < len(devices_to_sync):
-                    time.sleep(2)
+            # Run async sync
+            synced_count, failed_count = asyncio.run(self._async_sync_devices(devices_to_sync))
             
             if synced_count > 0:
                 logger.info(f"  ✅ Successfully synced {synced_count} device(s)")
@@ -238,6 +181,153 @@ class ExternalAPISyncService:
         
         except Exception as e:
             logger.error(f"Error in _sync_all_devices_external_data: {e}", exc_info=True)
+    
+    async def _async_sync_devices(self, devices: List[Device]):
+        """Async function to sync devices in parallel using the complete endpoint."""
+        from models import DeviceType
+        from database import SessionLocal
+        import json
+        
+        CONCURRENCY = 200
+        sem = asyncio.Semaphore(CONCURRENCY)
+        synced_count = 0
+        failed_count = 0
+        
+        # Pre-fetch device types to avoid DB queries in async loop
+        db = SessionLocal()
+        try:
+            device_types = {dt.id: dt for dt in db.query(DeviceType).all()}
+            # Get integration API key for sending to FlowSense
+            integration = db.query(ExternalIntegration).filter(
+                ExternalIntegration.is_active == True
+            ).first()
+            flowsense_api_key = integration.api_key if integration else ""
+        finally:
+            db.close()
+        
+        async def fetch_and_send(session, device):
+            async with sem:
+                try:
+                    # Fetch from external API
+                    url = f"{settings.external_device_api_base_url}/device/{device.device_id.upper()}"
+                    headers = {"X-API-KEY": settings.external_device_api_key}
+                    
+                    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                        if r.status != 200:
+                            return False
+                        external_data = await r.json()
+                    
+                    # Flatten nested data
+                    def flatten_dict(d, parent="", out=None):
+                        if out is None:
+                            out = {}
+                        for k, v in d.items():
+                            key = f"{parent}.{k}" if parent else k
+                            if isinstance(v, dict):
+                                flatten_dict(v, key, out)
+                            else:
+                                out[key] = v
+                        return out
+                    
+                    telemetry_data = flatten_dict(external_data)
+                    
+                    # Build complete device structure
+                    now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+                    
+                    # Extract location from device metadata if available
+                    location = {}
+                    metadata = {}
+                    if device.device_metadata:
+                        try:
+                            metadata = json.loads(device.device_metadata)
+                            if metadata.get("latitude") and metadata.get("longitude"):
+                                location = {
+                                    "latitude": metadata["latitude"],
+                                    "longitude": metadata["longitude"],
+                                    "source": metadata.get("location_source", "gps"),
+                                    "updated_at": now_iso
+                                }
+                        except:
+                            pass
+                    
+                    # Get device type info from pre-fetched dict
+                    device_type = device_types.get(device.device_type_id)
+                    device_type_info = {
+                        "id": device_type.id if device_type else 1,
+                        "name": device_type.name if device_type else "HTTP Device",
+                        "protocol": device_type.protocol if device_type else "HTTP",
+                        "description": device_type.description if device_type else "HTTP telemetry device"
+                    }
+                    
+                    # Build complete device payload
+                    complete_device = {
+                        "device_id": device.device_id,
+                        "name": device.name or device.device_id,
+                        "device_type": device_type_info,
+                        "tenant_id": device.tenant_id,
+                        "is_active": device.is_active,
+                        "location": location,
+                        "telemetry": {
+                            "timestamp": now_iso,
+                            "updated_at": now_iso,
+                            "data": telemetry_data
+                        },
+                        "health": {
+                            "status": "online",
+                            "last_seen_at": now_iso
+                        },
+                        "metadata": {
+                            **metadata,
+                            "external_data": external_data,
+                            "external_data_synced_at": now_iso
+                        }
+                    }
+                    
+                    # Send to FlowSense complete endpoint (internal call, no HTTP needed)
+                    # Instead of HTTP call, we'll use the internal function directly
+                    # But for now, let's use HTTP to keep it simple
+                    flowsense_url = f"{settings.base_url or 'http://localhost:5000'}/api/v1/external/devices/complete"
+                    flowsense_headers = {
+                        "X-API-Key": flowsense_api_key,
+                        "Content-Type": "application/json"
+                    }
+                    
+                    if not flowsense_api_key:
+                        logger.warning(f"  ⚠ No API key available, skipping FlowSense update for {device.device_id}")
+                        return False
+                    
+                    async with session.post(flowsense_url, json=complete_device, headers=flowsense_headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
+                        if r.status in [200, 201]:
+                            return True
+                        else:
+                            text = await r.text()
+                            logger.warning(f"  ⚠ Failed to send {device.device_id} to FlowSense: HTTP {r.status}")
+                            return False
+                    
+                except Exception as e:
+                    logger.warning(f"  ⚠ Error syncing device {device.device_id}: {e}")
+                    return False
+        
+        # Create new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                tasks = [fetch_and_send(session, device) for device in devices]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                for result in results:
+                    if isinstance(result, Exception):
+                        failed_count += 1
+                    elif result is True:
+                        synced_count += 1
+                    else:
+                        failed_count += 1
+        finally:
+            loop.close()
+        
+        return synced_count, failed_count
     
     def _sync_integration(self, integration: ExternalIntegration, db: Session):
         """Sync data from a single external integration."""
