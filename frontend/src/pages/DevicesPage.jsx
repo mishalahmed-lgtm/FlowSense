@@ -17,7 +17,9 @@ function getInitialStateFromCache(page, search, status, protocol) {
     if (cached) {
       const { data, timestamp } = JSON.parse(cached);
       const cacheAge = Date.now() - timestamp;
-      if (cacheAge < 120000) { // 2 minutes
+      // Use cache even if up to 10 minutes old (increased from 2 minutes)
+      // This prevents showing 0 devices when returning to the page
+      if (cacheAge < 600000) {
         if (Array.isArray(data)) {
           return {
             devices: data,
@@ -84,8 +86,8 @@ export default function DevicesPage() {
           try {
             const { data, timestamp } = JSON.parse(cached);
             const cacheAge = Date.now() - timestamp;
-            // Use cache if less than 2 minutes old
-            if (cacheAge < 120000) {
+            // Use cache if less than 10 minutes old (increased from 2 minutes)
+            if (cacheAge < 600000) {
               console.log(`Using cached devices (page ${pageNum}, age: ${Math.round(cacheAge/1000)}s)`);
               if (Array.isArray(data)) {
                 setDevices(data);
@@ -112,6 +114,19 @@ export default function DevicesPage() {
             console.warn("Failed to parse cache, fetching fresh data");
           }
         }
+      }
+      
+      // Also check for any cached data for this page (even if expired) to show while loading
+      // This prevents showing 0 devices while fetching
+      let staleCacheData = null;
+      try {
+        const staleCache = localStorage.getItem(cacheKey);
+        if (staleCache) {
+          const { data } = JSON.parse(staleCache);
+          staleCacheData = data;
+        }
+      } catch (e) {
+        // Ignore stale cache errors
       }
       
       console.log(`Loading devices (page ${pageNum})...`);
@@ -167,11 +182,14 @@ export default function DevicesPage() {
           setCurrentPage(data.page);
         }
       } else {
-        setDevices([]);
-        setTotalDeviceCount(0);
-        setTotalPages(1);
-        setTotalActiveCount(0);
-        setTotalInactiveCount(0);
+        // Only clear if we don't have stale cache data to show
+        if (!staleCacheData) {
+          setDevices([]);
+          setTotalDeviceCount(0);
+          setTotalPages(1);
+          setTotalActiveCount(0);
+          setTotalInactiveCount(0);
+        }
       }
       
       console.log(`Loaded ${data.devices?.length || data.length || 0} devices (page ${data.page || currentPage}, total: ${data.total || totalDeviceCount})`);
@@ -179,7 +197,15 @@ export default function DevicesPage() {
     } catch (err) {
       console.error("Error loading devices:", err);
       setError(err.response?.data?.detail || "Failed to load devices");
-      setDevices([]); // Clear devices on error
+      // Don't clear devices on error - keep showing existing data
+      // Only clear if we truly have no data
+      if (devices.length === 0) {
+        setDevices([]);
+        setTotalDeviceCount(0);
+        setTotalPages(1);
+        setTotalActiveCount(0);
+        setTotalInactiveCount(0);
+      }
     }
   };
 

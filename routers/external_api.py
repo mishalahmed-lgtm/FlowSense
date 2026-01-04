@@ -696,6 +696,57 @@ async def receive_installations(
                     if created_at:
                         device_metadata["created_at"] = created_at
                     
+                    # Extract location coordinates (priority: locationcoordinates > usercoordinates/userlatitude/userlongitude)
+                    latitude = None
+                    longitude = None
+                    
+                    # Priority 1: Check locationcoordinates (could be array [lat, lon] or object {lat, lon} or {latitude, longitude})
+                    location_coords = item.get("locationcoordinates") or item.get("locationCoordinates") or item.get("location_coordinates")
+                    if location_coords:
+                        if isinstance(location_coords, list) and len(location_coords) >= 2:
+                            # Array format: [lat, lon] or [lon, lat] - assume [lat, lon]
+                            latitude = float(location_coords[0]) if location_coords[0] is not None else None
+                            longitude = float(location_coords[1]) if location_coords[1] is not None else None
+                        elif isinstance(location_coords, dict):
+                            # Object format: {lat, lon} or {latitude, longitude}
+                            latitude = location_coords.get("lat") or location_coords.get("latitude")
+                            longitude = location_coords.get("lon") or location_coords.get("longitude")
+                            if latitude is not None:
+                                latitude = float(latitude)
+                            if longitude is not None:
+                                longitude = float(longitude)
+                    
+                    # Priority 2: Check usercoordinates, userlatitude, userlongitude
+                    if latitude is None or longitude is None:
+                        user_coords = item.get("usercoordinates") or item.get("userCoordinates") or item.get("user_coordinates")
+                        if user_coords:
+                            if isinstance(user_coords, list) and len(user_coords) >= 2:
+                                latitude = float(user_coords[0]) if user_coords[0] is not None else latitude
+                                longitude = float(user_coords[1]) if user_coords[1] is not None else longitude
+                            elif isinstance(user_coords, dict):
+                                lat_val = user_coords.get("lat") or user_coords.get("latitude")
+                                lon_val = user_coords.get("lon") or user_coords.get("longitude")
+                                if lat_val is not None:
+                                    latitude = float(lat_val)
+                                if lon_val is not None:
+                                    longitude = float(lon_val)
+                        
+                        # Fallback to individual fields
+                        if latitude is None:
+                            user_lat = item.get("userlatitude") or item.get("userLatitude") or item.get("user_latitude")
+                            if user_lat is not None:
+                                latitude = float(user_lat)
+                        if longitude is None:
+                            user_lon = item.get("userlongitude") or item.get("userLongitude") or item.get("user_longitude")
+                            if user_lon is not None:
+                                longitude = float(user_lon)
+                    
+                    # Store location if we have both coordinates
+                    if latitude is not None and longitude is not None:
+                        device_metadata["latitude"] = latitude
+                        device_metadata["longitude"] = longitude
+                        logger.debug(f"[External API] Extracted location for device {device_id}: lat={latitude}, lon={longitude}")
+                    
                     if existing_device:
                         # Update existing device
                         if not existing_device.name or existing_device.name == existing_device.device_id:
