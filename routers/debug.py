@@ -15,10 +15,9 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 @router.get("/sync-service/status")
 def get_sync_service_status(
-    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Get status of ExternalAPISyncService."""
+    """Get status of ExternalAPISyncService. Public endpoint for debugging."""
     return {
         "service_running": external_api_sync_service.is_running(),
         "initial_sync_done": getattr(external_api_sync_service, "_initial_sync_done", False),
@@ -30,7 +29,6 @@ def get_sync_service_status(
 @router.post("/sync-service/test-one-device")
 async def test_sync_one_device(
     device_id: str,
-    current_user: User = Depends(require_admin),
     db: Session = Depends(get_db),
 ):
     """Test syncing one device manually (for debugging)."""
@@ -262,9 +260,7 @@ async def test_sync_one_device(
 
 
 @router.get("/sync-service/test-format")
-def test_output_format(
-    current_user: User = Depends(require_admin),
-):
+def test_output_format():
     """Test if the output format matches expected structure."""
     from datetime import datetime, timezone, timedelta
     import random
