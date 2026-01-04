@@ -70,10 +70,14 @@ class ExternalAPISyncService:
                 should_sync = False
                 
                 if not self._initial_sync_done:
-                    # Do initial sync immediately on startup
-                    logger.info("🚀 Performing initial complete device sync (installations + telemetry)...")
-                    should_sync = True
-                    self._initial_sync_done = True
+                    # DEFER initial sync by 60 seconds to let server fully start
+                    time_since_start = current_time - (self._last_device_sync if self._last_device_sync > 0 else current_time)
+                    if time_since_start >= 60:  # Wait 60 seconds after startup
+                        logger.info("🚀 Performing initial complete device sync (installations + telemetry)...")
+                        should_sync = True
+                        self._initial_sync_done = True
+                    else:
+                        logger.debug(f"Deferring initial sync for {60 - int(time_since_start)} more seconds...")
                 elif current_time - self._last_device_sync >= self._device_sync_interval:
                     # Regular hourly sync
                     logger.info("⏰ Time to sync complete device data (1 hour interval reached)")
