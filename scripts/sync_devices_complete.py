@@ -28,8 +28,8 @@ API_A = os.getenv("API_A_URL", "https://flooddemo-qr2x.onrender.com/api/installa
 API_B = os.getenv("API_B_URL", "https://op1.smarttive.com/device/{}")
 API_B_KEY = os.getenv("API_B_KEY", "M2nJ5vKt8QwR3pLxT0yZ7aDbU1sH6cYe")
 
-FLOWSENSE_API_URL = os.getenv("FLOWSENSE_API_URL", "http://localhost:5000")
-FLOWSENSE_API_KEY = os.getenv("FLOWSENSE_API_KEY", "")
+FLOWSENSE_API_URL = os.getenv("FLOWSENSE_API_URL", "https://flowsense-772d.onrender.com")
+FLOWSENSE_API_KEY = os.getenv("FLOWSENSE_API_KEY", "ext_DOxMY4SinUXk1kgud1LZTBh06QRQvIgPSTJzx4hIO6k")
 
 CONCURRENCY = 200
 SEM = asyncio.Semaphore(CONCURRENCY)

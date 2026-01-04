@@ -1,0 +1,20 @@
+services:
+  # Hourly device sync cron job
+  - type: cron
+    name: flowsense-device-sync
+    env: python
+    schedule: "0 * * * *"  # Every hour at minute 0
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python scripts/sync_devices_complete.py"
+    envVars:
+      - key: FLOWSENSE_API_URL
+        value: https://flowsense-772d.onrender.com
+      - key: FLOWSENSE_API_KEY
+        value: ext_DOxMY4SinUXk1kgud1LZTBh06QRQvIgPSTJzx4hIO6k
+      - key: API_A_URL
+        value: https://flooddemo-qr2x.onrender.com/api/installations
+      - key: API_B_URL
+        value: https://op1.smarttive.com/device/{}
+      - key: API_B_KEY
+        value: M2nJ5vKt8QwR3pLxT0yZ7aDbU1sH6cYe
+

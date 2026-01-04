@@ -56,38 +56,18 @@ class ExternalAPISyncService:
         logger.info("External API sync service stopped")
     
     def _worker_loop(self):
-        """Background worker loop that syncs data from external APIs."""
+        """Background worker loop that syncs data from external APIs.
+        
+        NOTE: Device sync is now handled by Render Cron Job running scripts/sync_devices_complete.py
+        This worker is kept for future custom integrations but device sync is disabled.
+        """
         while self._running:
             try:
-                # OLD: _sync_all_integrations() handled sequential batch processing
-                # NOW: Only use async parallel device sync (handles installations + telemetry)
+                # Device sync DISABLED - now handled by cron job (scripts/sync_devices_complete.py)
+                # The cron job fetches from both installations API and SmartTive API
+                # and sends complete device data to /external/devices/complete endpoint
                 
-                # Check if it's time to sync device external data (every 1 hour)
-                # Do initial sync on first run, then every hour
-                current_time = time.time()
-                should_sync = False
-                
-                if not self._initial_sync_done:
-                    # Do initial sync immediately on startup
-                    logger.info("🚀 Performing initial external device data sync...")
-                    should_sync = True
-                    self._initial_sync_done = True
-                elif current_time - self._last_device_sync >= self._device_sync_interval:
-                    # Regular hourly sync
-                    logger.info("⏰ Time to sync external device data (1 hour interval reached)")
-                    should_sync = True
-                
-                if should_sync:
-                    db = SessionLocal()
-                    try:
-                        self._sync_all_devices_external_data(db)
-                        self._last_device_sync = current_time
-                    finally:
-                        db.close()
-                else:
-                    time_until_sync = self._device_sync_interval - (current_time - self._last_device_sync)
-                    logger.debug(f"Next device data sync in {int(time_until_sync)} seconds")
-                
+                logger.debug("External API sync service is running (device sync handled by cron job)")
                 time.sleep(self._sync_interval)
             except Exception as e:
                 logger.error(f"Error in external API sync worker loop: {e}", exc_info=True)
