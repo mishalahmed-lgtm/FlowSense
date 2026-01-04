@@ -59,7 +59,8 @@ class ExternalAPISyncService:
         """Background worker loop that syncs data from external APIs."""
         while self._running:
             try:
-                self._sync_all_integrations()
+                # OLD: _sync_all_integrations() handled sequential batch processing
+                # NOW: Only use async parallel device sync (handles installations + telemetry)
                 
                 # Check if it's time to sync device external data (every 1 hour)
                 # Do initial sync on first run, then every hour
