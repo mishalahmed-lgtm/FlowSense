@@ -10,7 +10,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import ExternalIntegration, User, Device, DeviceHealthMetrics, TelemetryLatest, DeviceType
+from models import (
+    ExternalIntegration, User, Device, DeviceHealthMetrics, TelemetryLatest, 
+    DeviceType, TelemetryTimeseries, DeviceDashboard
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1116,4 +1119,191 @@ async def send_health_data_internal(
     
     logger.info(f"[External API] Health data updated for device: {device.device_id}")
     return {"status": "success", "device_id": device.device_id, "message": "Health data updated"}
+
+
+@router.post("/devices/complete", status_code=status.HTTP_201_CREATED)
+async def create_complete_device(
+    payload: Dict[str, Any],
+    integration: ExternalIntegration = Depends(get_external_integration),
+    db: Session = Depends(get_db),
+):
+    """Create or update a device with complete data structure (device, telemetry, history, dashboard, health).
+    
+    Accepts the complete device JSON structure that includes:
+    - Device info (device_id, name, device_type, location, metadata)
+    - Current telemetry (telemetry.data)
+    - History (history.{field} arrays)
+    - Field metadata (fields array)
+    - Dashboard config (dashboard.widgets)
+    - Health metrics (health)
+    
+    This endpoint populates all FlowSense tables in one call.
+    """
+    check_endpoint_permission(integration, "devices")
+    user = get_user_from_integration(integration, db)
+    
+    if not user.tenant_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User must be assigned to a tenant")
+    
+    device_id = payload.get("device_id")
+    if not device_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+    
+    # Get or create device
+    device = db.query(Device).filter(
+        Device.device_id == device_id,
+        Device.tenant_id == user.tenant_id
+    ).first()
+    
+    # Get device type
+    device_type_info = payload.get("device_type", {})
+    device_type_name = device_type_info.get("name") or "HTTP Device"
+    device_type = db.query(DeviceType).filter(DeviceType.name == device_type_name).first()
+    if not device_type:
+        device_type = db.query(DeviceType).filter(DeviceType.protocol == "HTTP").first()
+        if not device_type:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="HTTP device type not found")
+    
+    # Create or update device
+    if device:
+        if payload.get("name"):
+            device.name = payload["name"]
+        device.device_type_id = device_type.id
+        if "is_active" in payload:
+            device.is_active = payload["is_active"]
+    else:
+        device = Device(
+            device_id=device_id,
+            name=payload.get("name") or device_id,
+            device_type_id=device_type.id,
+            tenant_id=user.tenant_id,
+            is_active=payload.get("is_active", True),
+        )
+        db.add(device)
+    
+    # Update metadata (including location)
+    metadata = {}
+    if device.device_metadata:
+        try:
+            metadata = json.loads(device.device_metadata)
+        except:
+            metadata = {}
+    
+    # Add location to metadata
+    location = payload.get("location", {})
+    if location.get("latitude") and location.get("longitude"):
+        metadata["latitude"] = location["latitude"]
+        metadata["longitude"] = location["longitude"]
+        metadata["location_source"] = location.get("source", "gps")
+    
+    # Merge other metadata
+    if payload.get("metadata"):
+        metadata.update(payload["metadata"])
+    
+    device.device_metadata = json.dumps(metadata) if metadata else None
+    
+    db.commit()
+    db.refresh(device)
+    
+    # Store telemetry (latest)
+    telemetry_data = payload.get("telemetry", {}).get("data", {})
+    if telemetry_data:
+        telemetry_timestamp = payload.get("telemetry", {}).get("timestamp")
+        try:
+            if telemetry_timestamp:
+                event_ts = datetime.fromisoformat(telemetry_timestamp.replace('Z', '+00:00'))
+            else:
+                event_ts = datetime.now(timezone.utc)
+        except:
+            event_ts = datetime.now(timezone.utc)
+        
+        # Update or create TelemetryLatest
+        telemetry_latest = db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
+        if telemetry_latest:
+            telemetry_latest.data = telemetry_data
+            telemetry_latest.event_timestamp = event_ts
+            telemetry_latest.updated_at = datetime.now(timezone.utc)
+        else:
+            telemetry_latest = TelemetryLatest(
+                device_id=device.id,
+                data=telemetry_data,
+                event_timestamp=event_ts,
+                updated_at=datetime.now(timezone.utc)
+            )
+            db.add(telemetry_latest)
+        
+        # Store history (timeseries)
+        history = payload.get("history", {})
+        for field_key, points in history.items():
+            if not isinstance(points, list):
+                continue
+            for point in points:
+                if not isinstance(point, dict) or "timestamp" not in point or "value" not in point:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(point["timestamp"].replace('Z', '+00:00'))
+                    value = point["value"]
+                    if value is None:
+                        continue
+                    # Only store numeric values in timeseries
+                    try:
+                        float_value = float(value)
+                    except (ValueError, TypeError):
+                        continue
+                    
+                    timeseries = TelemetryTimeseries(
+                        device_id=device.id,
+                        ts=ts,
+                        key=field_key,
+                        value=float_value
+                    )
+                    db.add(timeseries)
+                except Exception as e:
+                    logger.warning(f"Error storing timeseries point for {field_key}: {e}")
+                    continue
+        
+        db.commit()
+    
+    # Create/update dashboard config
+    dashboard_config = payload.get("dashboard", {})
+    if dashboard_config.get("widgets"):
+        dashboard = db.query(DeviceDashboard).filter(DeviceDashboard.device_id == device.id).first()
+        if dashboard:
+            dashboard.config = dashboard_config
+        else:
+            dashboard = DeviceDashboard(
+                device_id=device.id,
+                config=dashboard_config
+            )
+            db.add(dashboard)
+        db.commit()
+    
+    # Update health metrics
+    health_data = payload.get("health", {})
+    if health_data:
+        health = db.query(DeviceHealthMetrics).filter(DeviceHealthMetrics.device_id == device.id).first()
+        if not health:
+            health = DeviceHealthMetrics(device_id=device.id)
+            db.add(health)
+        
+        if health_data.get("status"):
+            health.current_status = health_data["status"]
+        if health_data.get("last_seen_at"):
+            try:
+                health.last_seen_at = datetime.fromisoformat(health_data["last_seen_at"].replace('Z', '+00:00'))
+            except:
+                health.last_seen_at = datetime.now(timezone.utc)
+        if health_data.get("battery", {}).get("level") is not None:
+            health.last_battery_level = health_data["battery"]["level"]
+        
+        health.calculated_at = datetime.now(timezone.utc)
+        db.commit()
+    
+    logger.info(f"[External API] ✅ Complete device data processed: {device_id}")
+    return {
+        "status": "success",
+        "device_id": device_id,
+        "message": "Device created/updated with complete data",
+        "device_db_id": device.id
+    }
 
