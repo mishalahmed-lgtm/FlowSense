@@ -290,15 +290,14 @@ def list_devices(
     offset = (page - 1) * limit
     devices = query.offset(offset).limit(limit).all()
 
-    # Check live status: device is active if EITHER:
-    # 1. It has sent telemetry in the past 5 hours 5 minutes, OR
-    # 2. It has external data synced from SmartTive API in the past 5 hours 5 minutes
-    # Only mark offline if BOTH are missing/old (device can't send data from SmartTive API)
+    # Check live status: device is active if it sent telemetry in the past 5 hours 5 minutes
+    # External data from SmartTive API is synced hourly in background, devices with only external data
+    # will show as active after the sync (data is written to TelemetryLatest during sync)
     live_map: Dict[int, bool] = {}
     
     if devices:
         device_ids = [device.id for device in devices]
-        # Check telemetry latest records
+        # Check telemetry latest records - single efficient query
         latest_records = (
             db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
             .filter(TelemetryLatest.device_id.in_(device_ids))
@@ -310,30 +309,9 @@ def list_devices(
         cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
         
         for device in devices:
-            # Check telemetry first
+            # Device is active if it has sent ANY data in the past 5 hours 5 minutes
             updated_at = latest_by_device_id.get(device.id)
-            has_recent_telemetry = bool(updated_at and updated_at >= cutoff)
-            
-            # Check external data sync time from device_metadata
-            has_recent_external_data = False
-            if device.device_metadata:
-                try:
-                    import json
-                    device_metadata = json.loads(device.device_metadata)
-                    external_synced_at_str = device_metadata.get("external_data_synced_at")
-                    if external_synced_at_str:
-                        try:
-                            external_synced_at = datetime.fromisoformat(external_synced_at_str.replace('Z', '+00:00'))
-                            if external_synced_at.tzinfo is None:
-                                external_synced_at = external_synced_at.replace(tzinfo=timezone.utc)
-                            has_recent_external_data = external_synced_at >= cutoff
-                        except (ValueError, AttributeError):
-                            pass
-                except (json.JSONDecodeError, TypeError):
-                    pass
-            
-            # Device is active if it has EITHER recent telemetry OR recent external data
-            is_live = has_recent_telemetry or has_recent_external_data
+            is_live = bool(updated_at and updated_at >= cutoff)
             live_map[device.id] = is_live
 
     # Serialize devices with live status

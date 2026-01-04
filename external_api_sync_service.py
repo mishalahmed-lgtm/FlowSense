@@ -194,8 +194,28 @@ class ExternalAPISyncService:
                         metadata["external_data"] = external_data
                         metadata["external_data_synced_at"] = datetime.now(timezone.utc).isoformat()
                         device.device_metadata = json.dumps(metadata)
-                        db.commit()
                         
+                        # Also update TelemetryLatest so device shows as active
+                        # This ensures devices with only external data (no direct telemetry) show as online
+                        from models import TelemetryLatest
+                        telemetry = db.query(TelemetryLatest).filter(
+                            TelemetryLatest.device_id == device.id
+                        ).first()
+                        
+                        if telemetry:
+                            # Update existing record
+                            telemetry.updated_at = datetime.now(timezone.utc)
+                        else:
+                            # Create new record (device has external data but never sent direct telemetry)
+                            telemetry = TelemetryLatest(
+                                device_id=device.id,
+                                payload="{}",  # Empty payload, data is in device_metadata
+                                timestamp=datetime.now(timezone.utc),
+                                updated_at=datetime.now(timezone.utc)
+                            )
+                            db.add(telemetry)
+                        
+                        db.commit()
                         synced_count += 1
                         
                     except requests.exceptions.RequestException as e:
