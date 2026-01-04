@@ -146,8 +146,8 @@ class ExternalAPISyncService:
     
     async def _async_sync_complete_devices(self, installations_api: str, smarttive_api_base: str, 
                                           smarttive_api_key: str, db: Session):
-        """Async function that fetches installations + telemetry and builds complete device data."""
-        from models import DeviceType, ExternalIntegration
+        """Async function that syncs ALL devices from DB with telemetry from SmartTive API."""
+        from models import DeviceType, ExternalIntegration, TelemetryLatest, TelemetryTimeseries, DeviceDashboard, DeviceHealthMetrics
         from database import SessionLocal
         import json
         import random
@@ -176,7 +176,7 @@ class ExternalAPISyncService:
             base = datetime.now(timezone.utc)
             return [
                 {
-                    "timestamp": (base - timedelta(minutes=15 * i)).isoformat() + "Z",
+                    "timestamp": (base - timedelta(minutes=15 * i)).isoformat().replace('+00:00', 'Z'),
                     "value": round(value + random.uniform(-spread, spread), 2)
                 }
                 for i in reversed(range(points))
@@ -204,6 +204,7 @@ class ExternalAPISyncService:
             return out
         
         def build_device(install, telemetry):
+            # install can be empty dict if no installation data
             device_id = str(
                 install.get("deviceId")
                 or install.get("device_id")
@@ -216,11 +217,11 @@ class ExternalAPISyncService:
                 or f"HTTP Device {device_id}"
             )
             
-            lat, lng = extract_location(install)
+            lat, lng = extract_location(install) if install else (None, None)
             
-            # If NO telemetry, mark device offline and skip
+            # If NO telemetry, return None
             if not telemetry or len(telemetry) == 0:
-                return None  # Will be filtered out - device has no telemetry, mark offline
+                return None
             
             # Randomize missing fields (EXACT SAME AS YOUR SCRIPT)
             level = telemetry.get("level", rand_float(20, 90))
@@ -316,24 +317,158 @@ class ExternalAPISyncService:
                 "updated_at": now()
             }
         
-        # Get integration API key for sending to FlowSense
-        integration = db.query(ExternalIntegration).filter(
-            ExternalIntegration.is_active == True
-        ).first()
-        flowsense_api_key = integration.api_key if integration else ""
-        
-        if not flowsense_api_key:
-            logger.warning("No active integration API key found - cannot send to FlowSense")
-            return 0, 0
-        
-        # Get FlowSense base URL
-        import os
-        flowsense_url = (
-            settings.api_base_url or 
-            os.getenv("API_BASE_URL") or 
-            os.getenv("RENDER_EXTERNAL_URL") or
-            "https://flowsense-772d.onrender.com"
-        )
+        def write_device_to_db(device_db_id: int, device_id: str, device_name: str, tenant_id: int, 
+                               telemetry_data: dict, location_data: dict = None):
+            """Write device data directly to database. Returns 'online' or 'offline' or 'failed'."""
+            # Create new session for this write (thread-safe)
+            write_db = SessionLocal()
+            try:
+                # Get device type
+                device_type = write_db.query(DeviceType).filter(DeviceType.name == "HTTP Device").first()
+                if not device_type:
+                    device_type = write_db.query(DeviceType).filter(DeviceType.protocol == "HTTP").first()
+                if not device_type:
+                    logger.debug(f"HTTP device type not found for {device_id}")
+                    return "failed"
+                
+                # Get device
+                device = write_db.query(Device).filter(Device.id == device_db_id).first()
+                if not device:
+                    return "failed"
+                
+                # Update device
+                device.device_type_id = device_type.id
+                if telemetry_data and len(telemetry_data) > 0:
+                    device.is_active = True
+                else:
+                    device.is_active = False
+                
+                # Update metadata
+                metadata = {}
+                if device.device_metadata:
+                    try:
+                        metadata = json.loads(device.device_metadata)
+                    except:
+                        pass
+                
+                if location_data and location_data.get("latitude") and location_data.get("longitude"):
+                    metadata["latitude"] = location_data["latitude"]
+                    metadata["longitude"] = location_data["longitude"]
+                
+                metadata["external_data_synced_at"] = now()
+                metadata["source"] = "sync_service"
+                device.device_metadata = json.dumps(metadata)
+                
+                write_db.commit()
+                write_db.refresh(device)
+                
+                if not telemetry_data or len(telemetry_data) == 0:
+                    return "offline"
+                
+                # Randomize missing fields
+                level = telemetry_data.get("level", rand_float(20, 90))
+                temperature = telemetry_data.get("temperature", rand_float(15, 40))
+                battery = telemetry_data.get("battery", rand_int(40, 100))
+                pressure = telemetry_data.get("pressure", rand_float(1.5, 2.5))
+                dis_cm = telemetry_data.get("dis_cm", rand_float(10, 80))
+                
+                # Store telemetry latest
+                event_ts = datetime.now(timezone.utc)
+                telemetry_final = {
+                    "level": level,
+                    "temperature": temperature,
+                    "battery": battery,
+                    "pressure": pressure,
+                    "dis_cm": dis_cm,
+                    **telemetry_data
+                }
+                
+                telemetry_latest = write_db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
+                if telemetry_latest:
+                    telemetry_latest.data = telemetry_final
+                    telemetry_latest.event_timestamp = event_ts
+                    telemetry_latest.updated_at = datetime.now(timezone.utc)
+                else:
+                    telemetry_latest = TelemetryLatest(
+                        device_id=device.id,
+                        data=telemetry_final,
+                        event_timestamp=event_ts,
+                        updated_at=datetime.now(timezone.utc)
+                    )
+                    write_db.add(telemetry_latest)
+                
+                # Store history (timeseries)
+                history = {
+                    "level": random_history(level),
+                    "temperature": random_history(temperature),
+                    "battery": random_history(battery),
+                    "pressure": random_history(pressure),
+                    "dis_cm": random_history(dis_cm)
+                }
+                
+                for field_key, points in history.items():
+                    if not isinstance(points, list):
+                        continue
+                    for point in points:
+                        if not isinstance(point, dict) or "timestamp" not in point or "value" not in point:
+                            continue
+                        try:
+                            ts = datetime.fromisoformat(point["timestamp"].replace('Z', '+00:00'))
+                            value = point["value"]
+                            if value is None:
+                                continue
+                            try:
+                                float_value = float(value)
+                            except (ValueError, TypeError):
+                                continue
+                            
+                            timeseries = TelemetryTimeseries(
+                                device_id=device.id,
+                                ts=ts,
+                                key=field_key,
+                                value=float_value
+                            )
+                            write_db.add(timeseries)
+                        except Exception as e:
+                            logger.debug(f"Error storing timeseries {field_key}: {e}")
+                            continue
+                
+                # Dashboard config
+                dashboard_config = {
+                    "widgets": [
+                        {"id": "level-gauge", "type": "gauge", "field": "level"},
+                        {"id": "temp-thermo", "type": "thermometer", "field": "temperature"},
+                        {"id": "battery", "type": "battery", "field": "battery"}
+                    ],
+                    "layout": "grid"
+                }
+                
+                dashboard = write_db.query(DeviceDashboard).filter(DeviceDashboard.device_id == device.id).first()
+                if dashboard:
+                    dashboard.config = dashboard_config
+                else:
+                    dashboard = DeviceDashboard(device_id=device.id, config=dashboard_config)
+                    write_db.add(dashboard)
+                
+                # Health metrics
+                health = write_db.query(DeviceHealthMetrics).filter(DeviceHealthMetrics.device_id == device.id).first()
+                if not health:
+                    health = DeviceHealthMetrics(device_id=device.id)
+                    write_db.add(health)
+                
+                health.current_status = "online"
+                health.last_seen_at = datetime.now(timezone.utc)
+                health.last_battery_level = battery
+                health.calculated_at = datetime.now(timezone.utc)
+                
+                write_db.commit()
+                return "online"
+            except Exception as e:
+                logger.debug(f"Error writing device {device_id} to DB: {e}")
+                write_db.rollback()
+                return "failed"
+            finally:
+                write_db.close()
         
         async def fetch_telemetry(session, device_id):
             """Fetch telemetry from SmartTive API."""
@@ -349,125 +484,78 @@ class ExternalAPISyncService:
                 except Exception:
                     return {}
         
-        async def process_device(session, install):
-            """Process a single device: fetch telemetry, build complete data, send to FlowSense."""
-            device_id = install.get("deviceId") or install.get("device_id")
-            if not device_id:
-                logger.debug(f"  ⚠ Skipping installation - no device_id: {install.get('id', 'unknown')}")
-                return "skipped"
-            
-            try:
-                logger.debug(f"  Processing device: {device_id}")
-                # Fetch telemetry
-                telemetry = await fetch_telemetry(session, device_id)
-                logger.debug(f"  Device {device_id}: fetched {len(telemetry)} telemetry fields")
-                
-                # Build complete device
-                device_data = build_device(install, telemetry)
-                logger.debug(f"  Device {device_id}: built device data, is_active={device_data.get('is_active')}")
-                
-                # If no telemetry (device returned None), mark offline
-                if device_data is None:
-                    # Mark device offline by sending minimal data
-                    device_data = {
-                        "device_id": device_id,
-                        "name": install.get("deviceName") or install.get("name") or device_id,
-                        "device_type": {"id": 1, "name": "HTTP Device", "protocol": "HTTP"},
-                        "is_active": False,  # OFFLINE - no telemetry
-                        "metadata": {
-                            "installation_id": install.get("installationId"),
-                            "source": "external_installations_api",
-                            "no_telemetry": True
-                        }
-                    }
-                
-                # Send to FlowSense
-                url = f"{flowsense_url}/api/v1/external/devices/complete"
-                headers = {
-                    "X-API-Key": flowsense_api_key,
-                    "Content-Type": "application/json"
-                }
-                
-                logger.debug(f"  Device {device_id}: Sending to {url}")
-                logger.debug(f"  Device {device_id}: Payload keys: {list(device_data.keys())}")
-                if device_data.get("telemetry"):
-                    logger.debug(f"  Device {device_id}: Telemetry fields: {len(device_data['telemetry'].get('data', {}))}")
-                if device_data.get("history"):
-                    logger.debug(f"  Device {device_id}: History fields: {list(device_data['history'].keys())}")
-                if device_data.get("dashboard"):
-                    logger.debug(f"  Device {device_id}: Dashboard widgets: {len(device_data['dashboard'].get('widgets', []))}")
-                
-                async with session.post(url, json=device_data, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
-                    response_text = await r.text()
-                    if r.status in [200, 201]:
-                        logger.debug(f"  Device {device_id}: ✓ Successfully sent (HTTP {r.status})")
-                        try:
-                            response_json = await r.json() if response_text else {}
-                            logger.debug(f"  Device {device_id}: Response: {response_json}")
-                        except:
-                            pass
-                        return "online" if device_data.get("is_active") else "offline"
-                    else:
-                        logger.warning(f"  ⚠ Failed to send {device_id}: HTTP {r.status}")
-                        logger.debug(f"  Device {device_id}: Response body: {response_text[:500]}")
-                        return "failed"
-            except Exception as e:
-                logger.warning(f"  ⚠ Error processing device {device_id}: {e}")
-                return "failed"
-        
-        # Create new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
+        # Step 1: Fetch installations for location mapping
+        logger.info(f"  📥 Fetching installations from {installations_api}...")
+        installations_map = {}
         try:
-            async with aiohttp.ClientSession() as session:
-                # Step 1: Fetch installations
-                logger.info(f"  📥 Fetching installations from {installations_api}...")
-                logger.debug(f"  Request URL: {installations_api}")
+            import aiohttp
+            connector = aiohttp.TCPConnector(limit=100)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 try:
                     async with session.get(installations_api, timeout=aiohttp.ClientTimeout(total=30)) as r:
-                        logger.debug(f"  Response status: {r.status}")
-                        if r.status != 200:
-                            text = await r.text()
-                            logger.error(f"  ✗ Failed to fetch installations: HTTP {r.status}")
-                            logger.debug(f"  Response body: {text[:200]}")
-                            return 0, 0
-                        installations = await r.json()
-                        logger.debug(f"  Raw response type: {type(installations)}")
+                        if r.status == 200:
+                            installations_response = await r.json()
+                            if isinstance(installations_response, dict) and 'data' in installations_response:
+                                installations_list = installations_response['data']
+                            elif isinstance(installations_response, list):
+                                installations_list = installations_response
+                            else:
+                                installations_list = []
+                            
+                            # Build map of device_id -> installation
+                            for install in installations_list:
+                                device_id = install.get("deviceId") or install.get("device_id")
+                                if device_id:
+                                    installations_map[device_id] = install
+                            logger.info(f"  ✅ Found {len(installations_map)} installations for location mapping")
+                        else:
+                            logger.warning(f"  ⚠ Failed to fetch installations (HTTP {r.status}), will sync without location data")
                 except Exception as e:
-                    logger.error(f"  ✗ Error fetching installations: {e}")
-                    logger.debug(f"  Exception details: {type(e).__name__}: {str(e)}", exc_info=True)
+                    logger.warning(f"  ⚠ Error fetching installations: {e}, will sync without location data")
+                
+                # Step 2: Get ALL devices from DB
+                devices = db.query(Device).filter(Device.tenant_id == 2).all()  # Only flowset@flowsense.com tenant
+                logger.info(f"  📦 Found {len(devices)} devices in DB for tenant_id=2")
+                
+                if not devices:
+                    logger.warning("  ⚠ No devices found in DB")
                     return 0, 0
                 
-                # Handle different response formats
-                if isinstance(installations, list):
-                    installations_list = installations
-                elif isinstance(installations, dict):
-                    if 'data' in installations:
-                        installations_list = installations['data']
-                    elif 'installations' in installations:
-                        installations_list = installations['installations']
-                    else:
-                        installations_list = [installations] if installations else []
-                else:
-                    installations_list = []
+                # Step 3: Process all devices in parallel
+                logger.info(f"  🔄 Processing {len(devices)} devices (concurrency: {CONCURRENCY})...")
                 
-                logger.info(f"  ✅ Found {len(installations_list)} installations")
-                logger.debug(f"  Response format: {type(installations).__name__}")
-                if installations_list:
-                    sample = installations_list[0]
-                    logger.debug(f"  Sample installation keys: {list(sample.keys())[:5]}...")
+                async def process_single_device(session, device):
+                    """Process one device: fetch telemetry, write directly to database."""
+                    async with sem:
+                        try:
+                            # Get installation for location data
+                            install = installations_map.get(device.device_id, {})
+                            location_data = None
+                            if install:
+                                lat, lng = extract_location(install)
+                                if lat and lng:
+                                    location_data = {"latitude": lat, "longitude": lng}
+                            
+                            # Fetch telemetry from SmartTive
+                            telemetry = await fetch_telemetry(session, device.device_id)
+                            
+                            # Write directly to database (no HTTP API calls)
+                            return write_device_to_db(
+                                device_db_id=device.id,
+                                device_id=device.device_id,
+                                device_name=device.name or device.device_id,
+                                tenant_id=device.tenant_id,
+                                telemetry_data=telemetry,
+                                location_data=location_data
+                            )
+                        
+                        except Exception as e:
+                            logger.debug(f"  Error processing {device.device_id}: {e}")
+                            return "failed"
                 
-                # Step 2: Process all devices in parallel
-                logger.info(f"  🔄 Processing {len(installations_list)} devices (concurrency: {CONCURRENCY})...")
-                logger.debug(f"  Creating {len(installations_list)} async tasks")
-                tasks = [process_device(session, install) for install in installations_list]
-                logger.debug(f"  Executing tasks with concurrency limit: {CONCURRENCY}")
+                # Execute all tasks
+                tasks = [process_single_device(session, device) for device in devices]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                logger.debug(f"  Completed {len(results)} tasks")
-                
-                # Store installations_list for use in results counting
-                installations = installations_list
                 
                 # Count results
                 online_count = 0
@@ -481,14 +569,14 @@ class ExternalAPISyncService:
                     elif result == "offline":
                         synced_count += 1
                         offline_count += 1
-                    elif result == "skipped":
-                        pass
                     else:
                         failed_count += 1
                 
                 logger.info(f"  📊 Results: {online_count} online, {offline_count} offline (no telemetry), {failed_count} failed")
-        finally:
-            loop.close()
+        
+        except Exception as e:
+            logger.error(f"  ✗ Sync failed: {e}", exc_info=True)
+            return 0, 0
         
         return synced_count, failed_count
     
