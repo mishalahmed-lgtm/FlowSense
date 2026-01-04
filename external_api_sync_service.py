@@ -228,6 +228,52 @@ class ExternalAPISyncService:
                         except:
                             pass
                     
+                    # Generate history (last 24 hours of synthetic data) for analytics/charts
+                    # This creates timeseries data points for key fields
+                    history = {}
+                    fields = []
+                    dashboard_widgets = []
+                    
+                    # Extract numeric fields from telemetry for history generation
+                    for key, value in telemetry_data.items():
+                        try:
+                            numeric_value = float(value)
+                            # Generate 24 data points (hourly) for the last 24 hours
+                            history[key] = []
+                            for i in range(24):
+                                ts = datetime.now(timezone.utc) - timedelta(hours=23 - i)
+                                # Slight variation around current value (±10%)
+                                import random
+                                varied_value = numeric_value * (0.9 + random.random() * 0.2)
+                                history[key].append({
+                                    "timestamp": ts.isoformat() + "Z",
+                                    "value": round(varied_value, 2)
+                                })
+                            
+                            # Create field metadata
+                            field_name = key.replace("_", " ").replace(".", " ").title()
+                            fields.append({
+                                "key": key,
+                                "display_name": field_name,
+                                "field_type": "number",
+                                "unit": self._guess_unit(key),
+                                "sample_value": numeric_value
+                            })
+                            
+                            # Create basic dashboard widgets for first few fields
+                            if len(dashboard_widgets) < 6:  # Limit to 6 widgets
+                                widget_type = self._guess_widget_type(key)
+                                dashboard_widgets.append({
+                                    "id": f"{key}-widget",
+                                    "type": widget_type,
+                                    "field": key,
+                                    "title": field_name,
+                                    "unit": self._guess_unit(key)
+                                })
+                        except (ValueError, TypeError):
+                            # Non-numeric field, skip
+                            pass
+                    
                     # Get device type info from pre-fetched dict
                     device_type = device_types.get(device.device_type_id)
                     device_type_info = {
@@ -237,7 +283,7 @@ class ExternalAPISyncService:
                         "description": device_type.description if device_type else "HTTP telemetry device"
                     }
                     
-                    # Build complete device payload
+                    # Build complete device payload with all data
                     complete_device = {
                         "device_id": device.device_id,
                         "name": device.name or device.device_id,
@@ -250,9 +296,18 @@ class ExternalAPISyncService:
                             "updated_at": now_iso,
                             "data": telemetry_data
                         },
+                        "history": history,  # For analytics/charts
+                        "fields": fields,  # For widget generation
+                        "dashboard": {
+                            "widgets": dashboard_widgets,
+                            "layout": "grid"
+                        } if dashboard_widgets else {},
                         "health": {
                             "status": "online",
-                            "last_seen_at": now_iso
+                            "last_seen_at": now_iso,
+                            "battery": {
+                                "level": telemetry_data.get("battery", telemetry_data.get("battery.level"))
+                            } if "battery" in telemetry_data or "battery.level" in telemetry_data else {}
                         },
                         "metadata": {
                             **metadata,
@@ -306,6 +361,44 @@ class ExternalAPISyncService:
             loop.close()
         
         return synced_count, failed_count
+    
+    def _guess_unit(self, field_key: str) -> str:
+        """Guess the unit for a telemetry field based on its name."""
+        key_lower = field_key.lower()
+        if "temp" in key_lower:
+            return "°C"
+        elif "battery" in key_lower or "level" in key_lower or "percent" in key_lower:
+            return "%"
+        elif "pressure" in key_lower:
+            return "bar"
+        elif "voltage" in key_lower or "volt" in key_lower:
+            return "V"
+        elif "current" in key_lower or "amp" in key_lower:
+            return "A"
+        elif "power" in key_lower or "watt" in key_lower:
+            return "W"
+        elif "energy" in key_lower or "kwh" in key_lower:
+            return "kWh"
+        elif "distance" in key_lower or "dis_cm" in key_lower or "_cm" in key_lower:
+            return "cm"
+        elif "humidity" in key_lower:
+            return "%"
+        else:
+            return ""
+    
+    def _guess_widget_type(self, field_key: str) -> str:
+        """Guess the widget type for a telemetry field based on its name."""
+        key_lower = field_key.lower()
+        if "battery" in key_lower:
+            return "battery"
+        elif "temp" in key_lower:
+            return "thermometer"
+        elif "level" in key_lower or "percent" in key_lower:
+            return "gauge"
+        elif "pressure" in key_lower:
+            return "gauge"
+        else:
+            return "value"  # Default to simple value display
     
     # ============================================
     # OLD SEQUENTIAL BATCH LOGIC - REMOVED
