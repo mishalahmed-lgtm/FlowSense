@@ -211,15 +211,20 @@ class ExternalAPISyncService:
             
             lat, lng = extract_location(install)
             
-            # Randomize missing fields (same as script)
+            # If NO telemetry, mark device offline and skip
+            if not telemetry or len(telemetry) == 0:
+                return None  # Will be filtered out - device has no telemetry, mark offline
+            
+            # Randomize missing fields (EXACT SAME AS YOUR SCRIPT)
             level = telemetry.get("level", rand_float(20, 90))
             temperature = telemetry.get("temperature", rand_float(15, 40))
             battery = telemetry.get("battery", rand_int(40, 100))
             pressure = telemetry.get("pressure", rand_float(1.5, 2.5))
             dis_cm = telemetry.get("dis_cm", rand_float(10, 80))
             
-            # Build complete device structure (same as script)
+            # Build complete device structure (EXACT SAME AS YOUR SCRIPT)
             return {
+                # CORE
                 "device_id": device_id,
                 "name": name,
                 "device_type": {
@@ -228,13 +233,22 @@ class ExternalAPISyncService:
                     "protocol": "HTTP",
                     "description": "HTTP telemetry device"
                 },
-                "is_active": True,
+                "tenant_id": 2,  # Your TENANT_ID
+                "tenant_name": "Flowsense",  # Your TENANT_NAME
+                "is_active": True,  # Device has telemetry, so ONLINE
+                "is_provisioned": True,
+                
+                # LOCATION
                 "location": {
                     "latitude": lat,
                     "longitude": lng,
+                    "address": None,
+                    "accuracy": rand_float(5, 25) if lat else None,
                     "source": "gps" if lat else None,
                     "updated_at": now()
-                } if lat and lng else {},
+                },
+                
+                # TELEMETRY
                 "telemetry": {
                     "timestamp": now(),
                     "updated_at": now(),
@@ -246,6 +260,8 @@ class ExternalAPISyncService:
                         "dis_cm": dis_cm
                     }
                 },
+                
+                # HISTORY
                 "history": {
                     "level": random_history(level),
                     "temperature": random_history(temperature),
@@ -253,6 +269,8 @@ class ExternalAPISyncService:
                     "pressure": random_history(pressure),
                     "dis_cm": random_history(dis_cm)
                 },
+                
+                # FIELDS
                 "fields": [
                     {"key": "level", "display_name": "Level", "field_type": "number", "unit": "%", "sample_value": level},
                     {"key": "temperature", "display_name": "Temperature", "field_type": "number", "unit": "°C", "sample_value": temperature},
@@ -260,14 +278,18 @@ class ExternalAPISyncService:
                     {"key": "pressure", "display_name": "Pressure", "field_type": "number", "unit": "bar", "sample_value": pressure},
                     {"key": "dis_cm", "display_name": "Dis Cm", "field_type": "number", "unit": "cm", "sample_value": dis_cm}
                 ],
+                
+                # DASHBOARD (BASIC)
                 "dashboard": {
                     "widgets": [
-                        {"id": "level-gauge", "type": "gauge", "field": "level", "title": "Level", "unit": "%", "min": 0, "max": 100},
-                        {"id": "temp-thermo", "type": "thermometer", "field": "temperature", "title": "Temperature", "unit": "°C", "min": -20, "max": 50},
-                        {"id": "battery", "type": "battery", "field": "battery", "title": "Battery", "min": 0, "max": 100}
+                        {"id": "level-gauge", "type": "gauge", "field": "level"},
+                        {"id": "temp-thermo", "type": "thermometer", "field": "temperature"},
+                        {"id": "battery", "type": "battery", "field": "battery"}
                     ],
                     "layout": "grid"
                 },
+                
+                # HEALTH
                 "health": {
                     "status": "online",
                     "last_seen_at": now(),
@@ -276,10 +298,15 @@ class ExternalAPISyncService:
                         "trend": "stable"
                     }
                 },
+                
+                # METADATA
                 "metadata": {
-                    "installation_id": install.get("installationId") or install.get("id"),
+                    "installation_id": install.get("installationId"),
                     "source": "external_installations_api"
-                }
+                },
+                
+                "created_at": now(),
+                "updated_at": now()
             }
         
         # Get integration API key for sending to FlowSense
@@ -319,7 +346,7 @@ class ExternalAPISyncService:
             """Process a single device: fetch telemetry, build complete data, send to FlowSense."""
             device_id = install.get("deviceId") or install.get("device_id")
             if not device_id:
-                return False
+                return "skipped"
             
             try:
                 # Fetch telemetry
@@ -327,6 +354,21 @@ class ExternalAPISyncService:
                 
                 # Build complete device
                 device_data = build_device(install, telemetry)
+                
+                # If no telemetry (device returned None), mark offline
+                if device_data is None:
+                    # Mark device offline by sending minimal data
+                    device_data = {
+                        "device_id": device_id,
+                        "name": install.get("deviceName") or install.get("name") or device_id,
+                        "device_type": {"id": 1, "name": "HTTP Device", "protocol": "HTTP"},
+                        "is_active": False,  # OFFLINE - no telemetry
+                        "metadata": {
+                            "installation_id": install.get("installationId"),
+                            "source": "external_installations_api",
+                            "no_telemetry": True
+                        }
+                    }
                 
                 # Send to FlowSense
                 url = f"{flowsense_url}/api/v1/external/devices/complete"
@@ -337,14 +379,14 @@ class ExternalAPISyncService:
                 
                 async with session.post(url, json=device_data, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as r:
                     if r.status in [200, 201]:
-                        return True
+                        return "online" if device_data.get("is_active") else "offline"
                     else:
                         text = await r.text()
                         logger.warning(f"  ⚠ Failed to send {device_id}: HTTP {r.status}")
-                        return False
+                        return "failed"
             except Exception as e:
                 logger.warning(f"  ⚠ Error processing device {device_id}: {e}")
-                return False
+                return "failed"
         
         # Create new event loop for this thread
         loop = asyncio.new_event_loop()
@@ -372,13 +414,23 @@ class ExternalAPISyncService:
                 results = await asyncio.gather(*tasks, return_exceptions=True)
                 
                 # Count results
+                online_count = 0
+                offline_count = 0
                 for result in results:
                     if isinstance(result, Exception):
                         failed_count += 1
-                    elif result is True:
+                    elif result == "online":
                         synced_count += 1
+                        online_count += 1
+                    elif result == "offline":
+                        synced_count += 1
+                        offline_count += 1
+                    elif result == "skipped":
+                        pass
                     else:
                         failed_count += 1
+                
+                logger.info(f"  📊 Results: {online_count} online, {offline_count} offline (no telemetry), {failed_count} failed")
         finally:
             loop.close()
         
