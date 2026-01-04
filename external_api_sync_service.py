@@ -404,6 +404,11 @@ class ExternalAPISyncService:
                     **telemetry_data
                 }
                 
+                # Add location to telemetry data for map API
+                if location_data and location_data.get("latitude") and location_data.get("longitude"):
+                    telemetry_final["latitude"] = location_data["latitude"]
+                    telemetry_final["longitude"] = location_data["longitude"]
+                
                 telemetry_latest = write_db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
                 if telemetry_latest:
                     telemetry_latest.data = telemetry_final
