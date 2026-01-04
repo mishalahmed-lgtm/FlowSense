@@ -290,13 +290,15 @@ def list_devices(
     offset = (page - 1) * limit
     devices = query.offset(offset).limit(limit).all()
 
-    # Check live status: device is active if it sent telemetry in the past 5 hours 5 minutes
-    # External data from SmartTive API is synced hourly in background, devices with only external data
-    # will show as active after the sync (data is written to TelemetryLatest during sync)
+    # Check live status: device is active if EITHER:
+    # 1. It sent telemetry in the past 5 hours 5 minutes, OR
+    # 2. It has external_data_synced_at in device_metadata within past 5 hours 5 minutes
+    # Use PostgreSQL JSON queries for efficiency (no Python JSON parsing)
     live_map: Dict[int, bool] = {}
     
     if devices:
         device_ids = [device.id for device in devices]
+        
         # Check telemetry latest records - single efficient query
         latest_records = (
             db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
@@ -305,13 +307,38 @@ def list_devices(
         )
         latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
         
+        # Also check for devices with recent external_data_synced_at using native PostgreSQL JSON query
+        # This is efficient - PostgreSQL extracts JSON at database level, no Python parsing
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(seconds=18300)).isoformat()
+        
+        # Raw SQL query using PostgreSQL JSON operators for efficiency
+        external_sync_query = text("""
+            SELECT id 
+            FROM devices 
+            WHERE id = ANY(:device_ids)
+              AND device_metadata IS NOT NULL
+              AND device_metadata::jsonb->>'external_data_synced_at' >= :cutoff_iso
+        """)
+        
+        external_synced_devices = db.execute(
+            external_sync_query,
+            {"device_ids": device_ids, "cutoff_iso": cutoff_iso}
+        ).fetchall()
+        external_synced_device_ids = {row[0] for row in external_synced_devices}
+        
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
         
         for device in devices:
-            # Device is active if it has sent ANY data in the past 5 hours 5 minutes
+            # Check telemetry first
             updated_at = latest_by_device_id.get(device.id)
-            is_live = bool(updated_at and updated_at >= cutoff)
+            has_recent_telemetry = bool(updated_at and updated_at >= cutoff)
+            
+            # Check if device has recent external sync
+            has_recent_external = device.id in external_synced_device_ids
+            
+            # Device is active if it has EITHER recent telemetry OR recent external data
+            is_live = has_recent_telemetry or has_recent_external
             live_map[device.id] = is_live
 
     # Serialize devices with live status
