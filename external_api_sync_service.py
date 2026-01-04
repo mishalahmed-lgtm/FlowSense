@@ -92,32 +92,9 @@ class ExternalAPISyncService:
                 logger.error(f"Error in external API sync worker loop: {e}", exc_info=True)
                 time.sleep(60)  # Wait 1 minute on error
     
-    def _sync_all_integrations(self):
-        """Sync data from all active external integrations."""
-        db: Session = SessionLocal()
-        try:
-            # Get all active integrations
-            integrations = db.query(ExternalIntegration).filter(
-                ExternalIntegration.is_active == True
-            ).all()
-            
-            if not integrations:
-                logger.debug("No active external integrations found")
-                return
-            
-            logger.info(f"🔄 Syncing data from {len(integrations)} external integration(s)...")
-            
-            for integration in integrations:
-                try:
-                    user = db.query(User).filter(User.id == integration.user_id).first()
-                    user_email = user.email if user else f"user_{integration.user_id}"
-                    logger.info(f"  Checking integration {integration.id} ({integration.name}) for user {user_email}...")
-                    self._sync_integration(integration, db)
-                except Exception as e:
-                    logger.error(f"Error syncing integration {integration.id} ({integration.name}): {e}", exc_info=True)
-        
-        finally:
-            db.close()
+    # REMOVED: _sync_all_integrations() - replaced by async parallel sync in _sync_all_devices_external_data()
+    # Old method handled installations, devices, data, health endpoints sequentially in batches
+    # New method uses async parallel requests (200 concurrent) via /external/devices/complete endpoint
     
     def _sync_all_devices_external_data(self, db: Session):
         """Sync external device data for all devices every hour using async parallel requests.
@@ -329,7 +306,11 @@ class ExternalAPISyncService:
         
         return synced_count, failed_count
     
-    def _sync_integration(self, integration: ExternalIntegration, db: Session):
+    # REMOVED: All methods below (_sync_integration, _fetch_and_sync_endpoint, _transform_*, _send_batch)
+    # were part of the old sequential batch processing logic
+    # Now replaced by async parallel processing in _async_sync_devices()
+    
+    def _sync_integration_OLD_REMOVED(self, integration: ExternalIntegration, db: Session):
         """Sync data from a single external integration."""
         # Use source_urls if available, otherwise fall back to endpoint_urls (for backward compatibility)
         # Handle case where source_urls column doesn't exist yet in database
