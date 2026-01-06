@@ -725,303 +725,305 @@ async def receive_installations(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="External device creation is disabled. Please use the admin API to create devices."
     )
-    # DISABLED CODE BELOW
-    # """Receive installations data from external API and auto-create devices.
-    
-    Accepts data in format:
-    [
-        {
-            "id": "123",
-            "deviceId": "A1B2C3D4E5F6G7H8",
-            "amanah": "Tabuk",
-            "createdAt": "2025-01-10"
-        }
-    ]
-    
-    Devices are automatically created with HTTP protocol since data comes via HTTP.
-    """
+    # All code below is disabled - external API sync removed
+    # return
+    # """
+    # Receive installations data from external API and auto-create devices.
+    # 
+    # Accepts data in format:
+    #     [
+    #         {
+    #             "id": "123",
+    #             "deviceId": "A1B2C3D4E5F6G7H8",
+    #             "amanah": "Tabuk",
+    #             "createdAt": "2025-01-10"
+    #         }
+    #     ]
+
+    #     Devices are automatically created with HTTP protocol since data comes via HTTP.
+    #     """
     # Check for "installations", "devices", or "data" permission
     # (installations creates devices, and installations are a type of data)
     # Make check case-insensitive
-    allowed_raw = integration.allowed_endpoints or []
+    #     allowed_raw = integration.allowed_endpoints or []
     # Handle both list and string formats
-    if isinstance(allowed_raw, str):
-        try:
-            allowed_raw = json.loads(allowed_raw)
-        except:
-            allowed_raw = [allowed_raw]
+    #     if isinstance(allowed_raw, str):
+    #         try:
+    #             allowed_raw = json.loads(allowed_raw)
+    #         except:
+    #             allowed_raw = [allowed_raw]
     
-    allowed = [ep.lower() if isinstance(ep, str) else str(ep).lower() for ep in allowed_raw]
+    #     allowed = [ep.lower() if isinstance(ep, str) else str(ep).lower() for ep in allowed_raw]
     
-    logger.info(f"Installations endpoint check - Integration ID: {integration.id}, Raw allowed_endpoints: {allowed_raw}, Normalized: {allowed}, Type: {type(allowed_raw)}")
+    #     logger.info(f"Installations endpoint check - Integration ID: {integration.id}, Raw allowed_endpoints: {allowed_raw}, Normalized: {allowed}, Type: {type(allowed_raw)}")
     
-    if "installations" not in allowed and "devices" not in allowed and "data" not in allowed:
-        logger.error(f"Permission denied for installations endpoint. Integration ID: {integration.id}, Allowed endpoints (raw): {allowed_raw}, Allowed endpoints (normalized): {allowed}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"API key does not have permission to access 'installations', 'devices', or 'data' endpoint. Allowed endpoints: {allowed_raw}",
-        )
+    #     if "installations" not in allowed and "devices" not in allowed and "data" not in allowed:
+    #         logger.error(f"Permission denied for installations endpoint. Integration ID: {integration.id}, Allowed endpoints (raw): {allowed_raw}, Allowed endpoints (normalized): {allowed}")
+    #         raise HTTPException(
+    #             status_code=status.HTTP_400_BAD_REQUEST,
+    #             detail=f"API key does not have permission to access 'installations', 'devices', or 'data' endpoint. Allowed endpoints: {allowed_raw}",
+    #         )
     
-    user = get_user_from_integration(integration, db)
+    #     user = get_user_from_integration(integration, db)
     
-    if not user.tenant_id:
-        logger.error(f"User {user.email} (ID: {user.id}) does not have a tenant_id assigned")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User must be assigned to a tenant",
-        )
+    #     if not user.tenant_id:
+    #         logger.error(f"User {user.email} (ID: {user.id}) does not have a tenant_id assigned")
+    #         raise HTTPException(
+    #             status_code=status.HTTP_400_BAD_REQUEST,
+    #             detail="User must be assigned to a tenant",
+    #         )
     
-    try:
+    #     try:
         # Parse request body - can be array directly or wrapped
         # Handle GET requests (external API might send GET to fetch, but we'll process as POST)
-        if request.method == "GET":
+    #         if request.method == "GET":
             # For GET, we might receive query params or empty body
-            body = {}
-        else:
-            try:
-                body = await request.json()
-            except:
-                body = {}
+    #             body = {}
+    #         else:
+    #             try:
+    #                 body = await request.json()
+    #             except:
+    #                 body = {}
         
         # Handle both array format and object with installations array
-        installations_list = []
-        if isinstance(body, list):
-            installations_list = body
-        elif isinstance(body, dict):
-            if "installations" in body:
-                installations_list = body["installations"]
-            else:
+    #         installations_list = []
+    #         if isinstance(body, list):
+    #             installations_list = body
+    #         elif isinstance(body, dict):
+    #             if "installations" in body:
+    #                 installations_list = body["installations"]
+    #             else:
                 # Single installation object
-                installations_list = [body]
+    #                 installations_list = [body]
         
-        if not installations_list:
-            logger.warning(f"[External API] No installations data provided. Body type: {type(body).__name__}, Body content: {str(body)[:500]}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No installations data provided"
-            )
+    #         if not installations_list:
+    #             logger.warning(f"[External API] No installations data provided. Body type: {type(body).__name__}, Body content: {str(body)[:500]}")
+    #             raise HTTPException(
+    #                 status_code=status.HTTP_400_BAD_REQUEST,
+    #                 detail="No installations data provided"
+    #             )
         
         # Get HTTP device type - prefer generic "HTTP" type over specific ones
-        http_device_type = db.query(DeviceType).filter(
-            DeviceType.protocol == "HTTP",
-            DeviceType.name == "HTTP"
-        ).first()
+    #         http_device_type = db.query(DeviceType).filter(
+    #             DeviceType.protocol == "HTTP",
+    #             DeviceType.name == "HTTP"
+    #         ).first()
         
         # If generic HTTP not found, get any HTTP device type
-        if not http_device_type:
-            http_device_type = db.query(DeviceType).filter(
-                DeviceType.protocol == "HTTP"
-            ).order_by(DeviceType.id).first()
+    #         if not http_device_type:
+    #             http_device_type = db.query(DeviceType).filter(
+    #                 DeviceType.protocol == "HTTP"
+    #             ).order_by(DeviceType.id).first()
         
         # Fallback to generic MQTT if HTTP not found
-        if not http_device_type:
-            http_device_type = db.query(DeviceType).filter(
-                DeviceType.protocol == "MQTT",
-                DeviceType.name == "MQTT"
-            ).first()
+    #         if not http_device_type:
+    #             http_device_type = db.query(DeviceType).filter(
+    #                 DeviceType.protocol == "MQTT",
+    #                 DeviceType.name == "MQTT"
+    #             ).first()
         
-        if not http_device_type:
+    #         if not http_device_type:
             # Last resort: any MQTT device type
-            http_device_type = db.query(DeviceType).filter(
-                DeviceType.protocol == "MQTT"
-            ).first()
+    #             http_device_type = db.query(DeviceType).filter(
+    #                 DeviceType.protocol == "MQTT"
+    #             ).first()
         
-        if not http_device_type:
+    #         if not http_device_type:
             # Log all available device types for debugging
-            all_device_types = db.query(DeviceType).all()
-            device_types_info = [(dt.id, dt.name, dt.protocol) for dt in all_device_types]
-            logger.error(f"[External API] No HTTP or MQTT device type found. Available device types: {device_types_info}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"No HTTP or MQTT device type found in system. Available types: {device_types_info}"
-            )
+    #             all_device_types = db.query(DeviceType).all()
+    #             device_types_info = [(dt.id, dt.name, dt.protocol) for dt in all_device_types]
+    #             logger.error(f"[External API] No HTTP or MQTT device type found. Available device types: {device_types_info}")
+    #             raise HTTPException(
+    #                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #                 detail=f"No HTTP or MQTT device type found in system. Available types: {device_types_info}"
+    #             )
         
-        created_devices = []
-        updated_devices = []
-        errors = []
+    #         created_devices = []
+    #         updated_devices = []
+    #         errors = []
         
-        for item in installations_list:
-            try:
+    #         for item in installations_list:
+    #             try:
                 # Parse installation item
-                if isinstance(item, dict):
-                    device_id = item.get("deviceId") or item.get("device_id")
-                    installation_id = item.get("id")
-                    amanah = item.get("amanah")
-                    created_at = item.get("createdAt") or item.get("created_at")
+    #                 if isinstance(item, dict):
+    #                     device_id = item.get("deviceId") or item.get("device_id")
+    #                     installation_id = item.get("id")
+    #                     amanah = item.get("amanah")
+    #                     created_at = item.get("createdAt") or item.get("created_at")
                     
-                    if not device_id:
-                        errors.append(f"Missing deviceId in item: {item}")
-                        continue
+    #                     if not device_id:
+    #                         errors.append(f"Missing deviceId in item: {item}")
+    #                         continue
                     
                     # Check if device already exists
-                    existing_device = db.query(Device).filter(
-                        Device.device_id == device_id,
-                        Device.tenant_id == user.tenant_id
-                    ).first()
+    #                     existing_device = db.query(Device).filter(
+    #                         Device.device_id == device_id,
+    #                         Device.tenant_id == user.tenant_id
+    #                     ).first()
                     
                     # Prepare device name
                     # Use installation_id if it exists and is different from device_id (and not too long)
                     # Otherwise, use a shortened version of device_id
-                    device_name = device_id
-                    if installation_id and installation_id != device_id:
+    #                     device_name = device_id
+    #                     if installation_id and installation_id != device_id:
                         # Check if installation_id looks like a short identifier (not a long hex string)
                         # If it's short (less than 20 chars) and not the same as device_id, use it
-                        if len(installation_id) < 20:
-                            device_name = f"Installation {installation_id}"
-                        else:
+    #                         if len(installation_id) < 20:
+    #                             device_name = f"Installation {installation_id}"
+    #                         else:
                             # installation_id is too long, might be the same as device_id
                             # Use first 8 chars of device_id for readability
-                            device_name = f"Installation {device_id[:8]}"
-                    elif installation_id and installation_id == device_id:
+    #                             device_name = f"Installation {device_id[:8]}"
+    #                     elif installation_id and installation_id == device_id:
                         # installation_id is the same as device_id, use shortened version
-                        device_name = f"Installation {device_id[:8]}"
-                    else:
+    #                         device_name = f"Installation {device_id[:8]}"
+    #                     else:
                         # No installation_id, use shortened device_id
-                        device_name = f"Installation {device_id[:8]}"
+    #                         device_name = f"Installation {device_id[:8]}"
                     
                     # Prepare metadata
-                    device_metadata = {
-                        "installation_id": installation_id,
-                        "source": "external_installations_api",
-                    }
-                    if amanah:
-                        device_metadata["amanah"] = amanah
-                    if created_at:
-                        device_metadata["created_at"] = created_at
+    #                     device_metadata = {
+    #                         "installation_id": installation_id,
+    #                         "source": "external_installations_api",
+    #                     }
+    #                     if amanah:
+    #                         device_metadata["amanah"] = amanah
+    #                     if created_at:
+    #                         device_metadata["created_at"] = created_at
                     
                     # Extract location coordinates (priority: locationcoordinates > usercoordinates/userlatitude/userlongitude)
-                    latitude = None
-                    longitude = None
+    #                     latitude = None
+    #                     longitude = None
                     
                     # Priority 1: Check locationcoordinates (could be array [lat, lon] or object {lat, lon} or {latitude, longitude})
-                    location_coords = item.get("locationcoordinates") or item.get("locationCoordinates") or item.get("location_coordinates")
-                    if location_coords:
-                        if isinstance(location_coords, list) and len(location_coords) >= 2:
+    #                     location_coords = item.get("locationcoordinates") or item.get("locationCoordinates") or item.get("location_coordinates")
+    #                     if location_coords:
+    #                         if isinstance(location_coords, list) and len(location_coords) >= 2:
                             # Array format: [lat, lon] or [lon, lat] - assume [lat, lon]
-                            latitude = float(location_coords[0]) if location_coords[0] is not None else None
-                            longitude = float(location_coords[1]) if location_coords[1] is not None else None
-                        elif isinstance(location_coords, dict):
+    #                             latitude = float(location_coords[0]) if location_coords[0] is not None else None
+    #                             longitude = float(location_coords[1]) if location_coords[1] is not None else None
+    #                         elif isinstance(location_coords, dict):
                             # Object format: {lat, lon} or {latitude, longitude}
-                            latitude = location_coords.get("lat") or location_coords.get("latitude")
-                            longitude = location_coords.get("lon") or location_coords.get("longitude")
-                            if latitude is not None:
-                                latitude = float(latitude)
-                            if longitude is not None:
-                                longitude = float(longitude)
+    #                             latitude = location_coords.get("lat") or location_coords.get("latitude")
+    #                             longitude = location_coords.get("lon") or location_coords.get("longitude")
+    #                             if latitude is not None:
+    #                                 latitude = float(latitude)
+    #                             if longitude is not None:
+    #                                 longitude = float(longitude)
                     
                     # Priority 2: Check usercoordinates, userlatitude, userlongitude
-                    if latitude is None or longitude is None:
-                        user_coords = item.get("usercoordinates") or item.get("userCoordinates") or item.get("user_coordinates")
-                        if user_coords:
-                            if isinstance(user_coords, list) and len(user_coords) >= 2:
-                                latitude = float(user_coords[0]) if user_coords[0] is not None else latitude
-                                longitude = float(user_coords[1]) if user_coords[1] is not None else longitude
-                            elif isinstance(user_coords, dict):
-                                lat_val = user_coords.get("lat") or user_coords.get("latitude")
-                                lon_val = user_coords.get("lon") or user_coords.get("longitude")
-                                if lat_val is not None:
-                                    latitude = float(lat_val)
-                                if lon_val is not None:
-                                    longitude = float(lon_val)
+    #                     if latitude is None or longitude is None:
+    #                         user_coords = item.get("usercoordinates") or item.get("userCoordinates") or item.get("user_coordinates")
+    #                         if user_coords:
+    #                             if isinstance(user_coords, list) and len(user_coords) >= 2:
+    #                                 latitude = float(user_coords[0]) if user_coords[0] is not None else latitude
+    #                                 longitude = float(user_coords[1]) if user_coords[1] is not None else longitude
+    #                             elif isinstance(user_coords, dict):
+    #                                 lat_val = user_coords.get("lat") or user_coords.get("latitude")
+    #                                 lon_val = user_coords.get("lon") or user_coords.get("longitude")
+    #                                 if lat_val is not None:
+    #                                     latitude = float(lat_val)
+    #                                 if lon_val is not None:
+    #                                     longitude = float(lon_val)
                         
                         # Fallback to individual fields
-                        if latitude is None:
-                            user_lat = item.get("userlatitude") or item.get("userLatitude") or item.get("user_latitude")
-                            if user_lat is not None:
-                                latitude = float(user_lat)
-                        if longitude is None:
-                            user_lon = item.get("userlongitude") or item.get("userLongitude") or item.get("user_longitude")
-                            if user_lon is not None:
-                                longitude = float(user_lon)
+    #                         if latitude is None:
+    #                             user_lat = item.get("userlatitude") or item.get("userLatitude") or item.get("user_latitude")
+    #                             if user_lat is not None:
+    #                                 latitude = float(user_lat)
+    #                         if longitude is None:
+    #                             user_lon = item.get("userlongitude") or item.get("userLongitude") or item.get("user_longitude")
+    #                             if user_lon is not None:
+    #                                 longitude = float(user_lon)
                     
                     # Store location if we have both coordinates
-                    if latitude is not None and longitude is not None:
-                        device_metadata["latitude"] = latitude
-                        device_metadata["longitude"] = longitude
-                        logger.debug(f"[External API] Extracted location for device {device_id}: lat={latitude}, lon={longitude}")
+    #                     if latitude is not None and longitude is not None:
+    #                         device_metadata["latitude"] = latitude
+    #                         device_metadata["longitude"] = longitude
+    #                         logger.debug(f"[External API] Extracted location for device {device_id}: lat={latitude}, lon={longitude}")
                     
-                    if existing_device:
+    #                     if existing_device:
                         # Update existing device
-                        if not existing_device.name or existing_device.name == existing_device.device_id:
-                            existing_device.name = device_name
-                        existing_device.is_active = True
+    #                         if not existing_device.name or existing_device.name == existing_device.device_id:
+    #                             existing_device.name = device_name
+    #                         existing_device.is_active = True
                         # Merge metadata
-                        existing_metadata = {}
-                        if existing_device.device_metadata:
-                            try:
-                                existing_metadata = json.loads(existing_device.device_metadata)
-                            except:
-                                pass
-                        existing_metadata.update(device_metadata)
-                        existing_device.device_metadata = json.dumps(existing_metadata)
-                        db.commit()
-                        db.refresh(existing_device)
-                        updated_devices.append(device_id)
-                        logger.info(f"[External API] ✅ Updated device from installations: {device_id} (device_db_id: {existing_device.id}, tenant: {user.tenant_id})")
-                    else:
+    #                         existing_metadata = {}
+    #                         if existing_device.device_metadata:
+    #                             try:
+    #                                 existing_metadata = json.loads(existing_device.device_metadata)
+    #                             except:
+    #                                 pass
+    #                         existing_metadata.update(device_metadata)
+    #                         existing_device.device_metadata = json.dumps(existing_metadata)
+    #                         db.commit()
+    #                         db.refresh(existing_device)
+    #                         updated_devices.append(device_id)
+    #                         logger.info(f"[External API] ✅ Updated device from installations: {device_id} (device_db_id: {existing_device.id}, tenant: {user.tenant_id})")
+    #                     else:
                         # Create new device
-                        device = Device(
-                            device_id=device_id,
-                            name=device_name,
-                            device_type_id=http_device_type.id,
-                            tenant_id=user.tenant_id,
-                            is_active=True,
-                            device_metadata=json.dumps(device_metadata),
-                        )
-                        db.add(device)
-                        db.commit()
-                        db.refresh(device)
-                        created_devices.append(device_id)
-                        logger.info(f"[External API] ✅ Created device from installations: {device_id} (name: {device_name}, tenant: {user.tenant_id}, device_db_id: {device.id})")
-                else:
-                    errors.append(f"Invalid item format: {item}")
-            except Exception as e:
-                logger.error(f"Error processing installation item {item}: {e}", exc_info=True)
-                errors.append(f"Error processing item: {str(e)}")
+    #                         device = Device(
+    #                             device_id=device_id,
+    #                             name=device_name,
+    #                             device_type_id=http_device_type.id,
+    #                             tenant_id=user.tenant_id,
+    #                             is_active=True,
+    #                             device_metadata=json.dumps(device_metadata),
+    #                         )
+    #                         db.add(device)
+    #                         db.commit()
+    #                         db.refresh(device)
+    #                         created_devices.append(device_id)
+    #                         logger.info(f"[External API] ✅ Created device from installations: {device_id} (name: {device_name}, tenant: {user.tenant_id}, device_db_id: {device.id})")
+    #                 else:
+    #                     errors.append(f"Invalid item format: {item}")
+    #             except Exception as e:
+    #                 logger.error(f"Error processing installation item {item}: {e}", exc_info=True)
+    #                 errors.append(f"Error processing item: {str(e)}")
         
-        result = {
-            "status": "success",
-            "created": len(created_devices),
-            "updated": len(updated_devices),
-            "errors": len(errors),
-            "created_devices": created_devices,
-            "updated_devices": updated_devices,
-            "error_details": errors if errors else None,
-        }
-        logger.info(f"[External API] ✅ Installations processing complete: {result['created']} created, {result['updated']} updated, {result['errors']} errors")
+    #         result = {
+    #             "status": "success",
+    #             "created": len(created_devices),
+    #             "updated": len(updated_devices),
+    #             "errors": len(errors),
+    #             "created_devices": created_devices,
+    #             "updated_devices": updated_devices,
+    #             "error_details": errors if errors else None,
+    #         }
+    #         logger.info(f"[External API] ✅ Installations processing complete: {result['created']} created, {result['updated']} updated, {result['errors']} errors")
         
         # Verify devices were actually saved to DB
-        if created_devices:
-            for device_id in created_devices[:5]:  # Check first 5
-                verify_device = db.query(Device).filter(
-                    Device.device_id == device_id,
-                    Device.tenant_id == user.tenant_id
-                ).first()
-                if verify_device:
-                    logger.info(f"[External API] ✅ Verified device in DB: {device_id} (DB ID: {verify_device.id})")
-                else:
-                    logger.error(f"[External API] ❌ Device NOT found in DB after creation: {device_id}")
+    #         if created_devices:
+    #             for device_id in created_devices[:5]:  # Check first 5
+    #                 verify_device = db.query(Device).filter(
+    #                     Device.device_id == device_id,
+    #                     Device.tenant_id == user.tenant_id
+    #                 ).first()
+    #                 if verify_device:
+    #                     logger.info(f"[External API] ✅ Verified device in DB: {device_id} (DB ID: {verify_device.id})")
+    #                 else:
+    #                     logger.error(f"[External API] ❌ Device NOT found in DB after creation: {device_id}")
         
-        return result
+    #         return result
     
-    except json.JSONDecodeError as e:
-        logger.error(f"[External API] JSON decode error in installations endpoint: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid JSON payload"
-        )
-    except HTTPException as e:
+    #     except json.JSONDecodeError as e:
+    #         logger.error(f"[External API] JSON decode error in installations endpoint: {e}")
+    #         raise HTTPException(
+    #             status_code=status.HTTP_400_BAD_REQUEST,
+    #             detail="Invalid JSON payload"
+    #         )
+    #     except HTTPException as e:
         # Log HTTPException details before re-raising
-        logger.error(f"[External API] HTTPException in installations endpoint: status={e.status_code}, detail={e.detail}")
-        raise
-    except Exception as e:
-        logger.error(f"[External API] Error processing installations data: {e}", exc_info=True)
-        import traceback
-        logger.error(f"[External API] Full traceback: {traceback.format_exc()}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process installations: {str(e)}"
-        )
+    #         logger.error(f"[External API] HTTPException in installations endpoint: status={e.status_code}, detail={e.detail}")
+    #         raise
+    #     except Exception as e:
+    #         logger.error(f"[External API] Error processing installations data: {e}", exc_info=True)
+    #         import traceback
+    #         logger.error(f"[External API] Full traceback: {traceback.format_exc()}")
+    #         raise HTTPException(
+    #             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #             detail=f"Failed to process installations: {str(e)}"
+    #         )
 
 
 # Internal handler functions (extracted from route handlers)

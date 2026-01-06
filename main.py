@@ -33,7 +33,8 @@ from mqtt_command_service import mqtt_command_service
 from modbus_handler import modbus_handler
 from dali_handler import dali_handler
 from metrics import metrics
-from external_api_sync_service import external_api_sync_service
+# External API sync service removed - frontend now only reads from database
+# from external_api_sync_service import external_api_sync_service
 from admin_auth import get_current_user
 from database import get_db
 from sqlalchemy.orm import Session
@@ -393,563 +394,97 @@ async def health():
     }
 
 
-@app.get("/debug/health")
-async def debug_health():
-    """Simple health check for debug endpoints."""
-    return {
-        "status": "ok",
-        "message": "Debug endpoints are working",
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+    raise HTTPException(status_code=status.HTTP_410_GONE, detail="External API sync service has been removed. Frontend now only reads from database.")
+    # DISABLED CODE BELOW
+    # """Manually trigger external API sync (for testing/debugging)."""
+    # try:
+    #     from external_api_sync_service import external_api_sync_service
+    #     from models import ExternalIntegration, Device
+    #     
+    #     # Get integration details before sync
+    #     integration = db.query(ExternalIntegration).filter(
+    #         ExternalIntegration.is_active == True
+    #     ).first()
+    #     
+    #     device_count_before = db.query(Device).count()
+    #     
+    #     # Trigger sync
+    #     external_api_sync_service._sync_all_integrations()
+    #     
+    #     # Check device count after sync
+    #     device_count_after = db.query(Device).count()
+    #     devices_created = device_count_after - device_count_before
+    #     
+    #     return {
+    #         "status": "success",
+    #         "message": "Sync triggered manually. Check logs for details.",
+    #         "timestamp": datetime.now(timezone.utc).isoformat(),
+    #         "devices_before": device_count_before,
+    #         "devices_after": device_count_after,
+    #         "devices_created": devices_created,
+    #         "integration_id": integration.id if integration else None
+    #     }
+    # except Exception as e:
+    #     logger.error(f"Error triggering manual sync: {e}", exc_info=True)
+    #     return {
+    #         "status": "error",
+    #         "message": str(e),
+    #         "timestamp": datetime.now(timezone.utc).isoformat()
+    #     }
 
 
-@app.get("/debug/test-external-api")
-async def test_external_api(db: Session = Depends(get_db)):
-    """Test fetching data from external API to see what it returns."""
-    try:
-        import requests
-        from models import ExternalIntegration, Device
-        
-        integration = db.query(ExternalIntegration).filter(
-            ExternalIntegration.is_active == True
-        ).first()
-        
-        if not integration:
-            return {
-                "status": "error",
-                "message": "No active integration found"
-            }
-        
-        # Get source URL
-        try:
-            source_urls = integration.source_urls or integration.endpoint_urls or {}
-        except AttributeError:
-            source_urls = integration.endpoint_urls or {}
-        
-        if not source_urls:
-            return {
-                "status": "error",
-                "message": "No source URLs configured",
-                "integration_id": integration.id
-            }
-        
-        # Get first URL
-        external_url = list(source_urls.values())[0] if source_urls else None
-        if not external_url:
-            return {
-                "status": "error",
-                "message": "No external URL found",
-                "source_urls": source_urls
-            }
-        
-        # Get user to access tenant_id
-        user = db.query(User).filter(User.id == integration.user_id).first()
-        if not user:
-            return {
-                "status": "error",
-                "message": f"User not found for integration {integration.id}"
-            }
-        
-        # Fetch from external API
-        logger.info(f"Testing fetch from {external_url}...")
-        response = requests.get(external_url, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Count devices before
-        device_count_before = db.query(Device).filter(
-            Device.tenant_id == user.tenant_id
-        ).count()
-        
-        return {
-            "status": "success",
-            "external_url": external_url,
-            "response_status": response.status_code,
-            "data_type": type(data).__name__,
-            "data_length": len(data) if isinstance(data, (list, dict)) else None,
-            "data_sample": data[:3] if isinstance(data, list) else (data if isinstance(data, dict) else str(data)[:500]),
-            "integration_id": integration.id,
-            "tenant_id": user.tenant_id if user else None,
-            "devices_in_tenant_before": device_count_before
-        }
-    except Exception as e:
-        logger.error(f"Error testing external API: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "message": str(e),
-            "error_type": type(e).__name__
-        }
+    # DISABLED CODE BELOW
+    # """Manually trigger external API sync (for testing/debugging)."""
+    # try:
+    #     from external_api_sync_service import external_api_sync_service
+    #     from models import ExternalIntegration, Device
+    #     
+    #     # Get integration details before sync
+    #     integration = db.query(ExternalIntegration).filter(
+    #         ExternalIntegration.is_active == True
+    #     ).first()
+    #     
+    #     device_count_before = db.query(Device).count()
+    #     
+    #     # Trigger sync
+    #     external_api_sync_service._sync_all_integrations()
+    #     
+    #     # Check device count after sync
+    #     device_count_after = db.query(Device).count()
+    #     devices_created = device_count_after - device_count_before
+    #     
+    #     return {
+    #         "status": "success",
+    #         "message": "Sync triggered manually. Check logs for details.",
+    #         "timestamp": datetime.now(timezone.utc).isoformat(),
+    #         "devices_before": device_count_before,
+    #         "devices_after": device_count_after,
+    #         "devices_created": devices_created,
+    #         "integration_id": integration.id if integration else None
+    #     }
+    # except Exception as e:
+    #     logger.error(f"Error triggering manual sync: {e}", exc_info=True)
+    #     return {
+    #         "status": "error",
+    #         "message": str(e),
+    #         "timestamp": datetime.now(timezone.utc).isoformat()
+    #     }
+    # 
+    # 
+    #     raise HTTPException(
+    #         status_code=status.HTTP_404_NOT_FOUND,
+    #         detail=f"No metrics found for device {device_id}"
+    #     )
+    #     return device_stats
 
 
-@app.get("/debug/admin-check")
-async def debug_admin_check(db: Session = Depends(get_db)):
-    """Debug endpoint to check if admin user exists (for troubleshooting)."""
-    try:
-        admin_email = "admin@flowsense.com".lower()
-        user = db.query(User).filter(User.email == admin_email).first()
-        
-        if user:
-            return {
-                "status": "success",
-                "exists": True,
-                "email": user.email,
-                "id": user.id,
-                "role": user.role.value,
-                "is_active": user.is_active,
-                "hashed_password_length": len(user.hashed_password) if user.hashed_password else 0,
-            }
-        else:
-            # Check if any users exist
-            all_users = db.query(User).all()
-            return {
-                "status": "success",
-                "exists": False,
-                "admin_email_looking_for": admin_email,
-                "total_users_in_db": len(all_users),
-                "all_user_emails": [u.email for u in all_users],
-            }
-    except Exception as e:
-        logger.error(f"Error in admin-check endpoint: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "message": str(e),
-            "error_type": type(e).__name__
-        }
-
-
-@app.get("/debug/trigger-sync")
-@app.post("/debug/trigger-sync")
-async def trigger_sync_manually(db: Session = Depends(get_db)):
-    """Manually trigger external API sync (for testing/debugging)."""
-    try:
-        from external_api_sync_service import external_api_sync_service
-        from models import ExternalIntegration, Device
-        
-        # Get integration details before sync
-        integration = db.query(ExternalIntegration).filter(
-            ExternalIntegration.is_active == True
-        ).first()
-        
-        device_count_before = db.query(Device).count()
-        
-        # Trigger sync
-        external_api_sync_service._sync_all_integrations()
-        
-        # Check device count after sync
-        device_count_after = db.query(Device).count()
-        devices_created = device_count_after - device_count_before
-        
-        return {
-            "status": "success",
-            "message": "Sync triggered manually. Check logs for details.",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "devices_before": device_count_before,
-            "devices_after": device_count_after,
-            "devices_created": devices_created,
-            "integration_id": integration.id if integration else None
-        }
-    except Exception as e:
-        logger.error(f"Error triggering manual sync: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "message": str(e),
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-
-
-@app.get("/debug/sync-status")
-async def get_sync_status(db: Session = Depends(get_db)):
-    """Get status of external API sync service."""
-    try:
-        from external_api_sync_service import external_api_sync_service
-        from models import ExternalIntegration, User
-        
-        integrations = db.query(ExternalIntegration).filter(
-            ExternalIntegration.is_active == True
-        ).all()
-        
-        integration_details = []
-        for integration in integrations:
-            try:
-                user = db.query(User).filter(User.id == integration.user_id).first()
-                # Handle source_urls gracefully - might not exist in older DBs
-                try:
-                    source_urls = integration.source_urls or integration.endpoint_urls or {}
-                except AttributeError:
-                    source_urls = integration.endpoint_urls or {}
-                
-                integration_details.append({
-                    "id": integration.id,
-                    "name": integration.name,
-                    "user_email": user.email if user else None,
-                    "tenant_id": user.tenant_id if user else None,
-                    "source_urls": source_urls,
-                    "endpoint_urls": integration.endpoint_urls,
-                    "last_used_at": integration.last_used_at.isoformat() if integration.last_used_at else None,
-                    "is_active": integration.is_active
-                })
-            except Exception as e:
-                logger.error(f"Error processing integration {integration.id}: {e}", exc_info=True)
-                integration_details.append({
-                    "id": integration.id,
-                    "error": str(e)
-                })
-        
-        return {
-            "status": "success",
-            "service_running": external_api_sync_service._running,
-            "sync_interval_seconds": external_api_sync_service._sync_interval,
-            "active_integrations": len(integrations),
-            "integrations": integration_details
-        }
-    except Exception as e:
-        logger.error(f"Error in sync-status endpoint: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "message": str(e),
-            "error_type": type(e).__name__
-        }
-
-
-@app.get("/debug/external-device-data-status")
-async def get_external_device_data_status(db: Session = Depends(get_db)):
-    """Debug endpoint to check external device data sync status and configuration."""
-    import json
-    from models import Device
-    
-    try:
-        from external_api_sync_service import external_api_sync_service
-        from config import settings
-        
-        # Check API configuration
-        api_configured = bool(settings.external_device_api_base_url and settings.external_device_api_key)
-        api_base_url = settings.external_device_api_base_url or "NOT SET"
-        api_key_set = bool(settings.external_device_api_key)
-        api_key_preview = settings.external_device_api_key[:10] + "..." if settings.external_device_api_key else "NOT SET"
-        
-        # Check service status
-        service_running = external_api_sync_service._running
-        device_sync_interval = getattr(external_api_sync_service, '_device_sync_interval', 3600)
-        last_device_sync = getattr(external_api_sync_service, '_last_device_sync', 0)
-        initial_sync_done = getattr(external_api_sync_service, '_initial_sync_done', False)
-        
-        # Calculate time until next sync
-        import time
-        current_time = time.time()
-        if last_device_sync == 0:
-            time_until_sync = "Not started yet" if not initial_sync_done else "Initial sync pending"
-        else:
-            time_since_sync = current_time - last_device_sync
-            time_until_sync_seconds = device_sync_interval - time_since_sync
-            if time_until_sync_seconds <= 0:
-                time_until_sync = "Due now (should sync on next cycle)"
-            else:
-                minutes = int(time_until_sync_seconds / 60)
-                seconds = int(time_until_sync_seconds % 60)
-                time_until_sync = f"{minutes}m {seconds}s"
-        
-        # Get device statistics
-        total_devices = db.query(Device).count()
-        devices_with_external_data = 0
-        devices_synced_recently = 0  # Synced in last hour
-        devices_never_synced = 0
-        sample_devices = []
-        
-        now = datetime.now(timezone.utc)
-        cutoff_recent = now - timedelta(hours=1)
-        
-        # Sample up to 10 devices to show sync status
-        devices = db.query(Device).limit(100).all()
-        for device in devices:
-            metadata = {}
-            if device.device_metadata:
-                try:
-                    metadata = json.loads(device.device_metadata)
-                except:
-                    pass
-            
-            external_data = metadata.get("external_data")
-            synced_at_str = metadata.get("external_data_synced_at")
-            
-            if external_data:
-                devices_with_external_data += 1
-            
-            if synced_at_str:
-                try:
-                    synced_at = datetime.fromisoformat(synced_at_str.replace('Z', '+00:00'))
-                    if synced_at >= cutoff_recent:
-                        devices_synced_recently += 1
-                except:
-                    pass
-            else:
-                devices_never_synced += 1
-            
-            # Collect sample devices (first 5 with data, first 5 without)
-            if len(sample_devices) < 10:
-                sample_devices.append({
-                    "device_id": device.device_id,
-                    "has_external_data": bool(external_data),
-                    "synced_at": synced_at_str,
-                    "data_keys": list(external_data.keys()) if external_data and isinstance(external_data, dict) else None
-                })
-        
-        # Get full statistics (query all devices)
-        all_devices = db.query(Device).all()
-        total_with_data = 0
-        total_recent = 0
-        total_never = 0
-        
-        for device in all_devices:
-            metadata = {}
-            if device.device_metadata:
-                try:
-                    metadata = json.loads(device.device_metadata)
-                except:
-                    pass
-            
-            external_data = metadata.get("external_data")
-            synced_at_str = metadata.get("external_data_synced_at")
-            
-            if external_data:
-                total_with_data += 1
-            
-            if synced_at_str:
-                try:
-                    synced_at = datetime.fromisoformat(synced_at_str.replace('Z', '+00:00'))
-                    if synced_at >= cutoff_recent:
-                        total_recent += 1
-                except:
-                    pass
-            else:
-                total_never += 1
-        
-        return {
-            "status": "success",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "api_configuration": {
-                "configured": api_configured,
-                "base_url": api_base_url,
-                "api_key_set": api_key_set,
-                "api_key_preview": api_key_preview
-            },
-            "service_status": {
-                "running": service_running,
-                "device_sync_interval_seconds": device_sync_interval,
-                "device_sync_interval_hours": device_sync_interval / 3600,
-                "last_device_sync_timestamp": last_device_sync,
-                "last_device_sync_datetime": datetime.fromtimestamp(last_device_sync, tz=timezone.utc).isoformat() if last_device_sync > 0 else None,
-                "initial_sync_done": initial_sync_done,
-                "time_until_next_sync": time_until_sync
-            },
-            "device_statistics": {
-                "total_devices": total_devices,
-                "devices_with_external_data": total_with_data,
-                "devices_synced_in_last_hour": total_recent,
-                "devices_never_synced": total_never,
-                "sync_coverage_percent": round((total_with_data / total_devices * 100) if total_devices > 0 else 0, 2)
-            },
-            "sample_devices": sample_devices,
-            "recommendations": []
-        }
-    except Exception as e:
-        logger.error(f"Error in external-device-data-status endpoint: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "message": str(e),
-            "error_type": type(e).__name__,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-
-
-@app.get("/metrics")
-async def get_metrics():
-    """Get ingestion pipeline metrics."""
-    return metrics.get_stats()
-
-
-@app.get("/metrics/tenant")
-async def get_tenant_metrics(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Get tenant-scoped ingestion metrics.
-    
-    - Tenant admins: metrics for their own tenant's devices only.
-    - Admins / other roles: fall back to global metrics.
-    """
-    # Platform admins get global view
-    if current_user.role != UserRole.TENANT_ADMIN or not current_user.tenant_id:
-        base_stats = metrics.get_stats()
-        # Add database-sourced protocol counts for admins too - use efficient query
-        from models import DeviceType
-        from sqlalchemy import func
-        protocol_counts_query = (
-            db.query(DeviceType.protocol, func.count(Device.id).label("count"))
-            .join(Device, Device.device_type_id == DeviceType.id)
-            .group_by(DeviceType.protocol)
-            .all()
-        )
-        protocol_counts = {row.protocol or "unknown": row.count for row in protocol_counts_query}
-        
-        # Override sources with database counts
-        base_stats["sources"] = protocol_counts
-        return base_stats
-
-    # OPTIMIZED: Don't load all devices into memory - use efficient queries instead
-    # Get device IDs only (much faster)
-    device_ids_result = (
-        db.query(Device.device_id)
-        .filter(Device.tenant_id == current_user.tenant_id)
-        .all()
-    )
-    device_ids = [row[0] for row in device_ids_result]
-    
-    # Get device count (for stats)
-    total_device_count = len(device_ids)
-
-    # Get message counts from database (TelemetryTimeseries) instead of in-memory metrics
-    from models import TelemetryTimeseries
-    from sqlalchemy import func
-    
-    # Count distinct (device_id, timestamp) pairs to get actual message count
-    # Each message creates multiple TelemetryTimeseries rows (one per field), 
-    # so we count distinct timestamps per device
-    message_counts = (
-        db.query(
-            Device.device_id,
-            func.count(func.distinct(TelemetryTimeseries.ts)).label("message_count")
-        )
-        .join(TelemetryTimeseries, TelemetryTimeseries.device_id == Device.id)
-        .filter(Device.tenant_id == current_user.tenant_id)
-        .group_by(Device.device_id)
-        .all()
-    )
-    
-    # Also get total count across all tenant devices
-    total_message_count = (
-        db.query(func.count(func.distinct(
-            func.concat(TelemetryTimeseries.device_id, '-', TelemetryTimeseries.ts)
-        )))
-        .join(Device, Device.id == TelemetryTimeseries.device_id)
-        .filter(Device.tenant_id == current_user.tenant_id)
-        .scalar() or 0
-    )
-    
-    # Build device stats from database - OPTIMIZED: only include devices with messages
-    # Limit to top 100 devices by message count to avoid huge response
-    tenant_device_stats = {}
-    message_counts_dict = {mc.device_id: mc.message_count for mc in message_counts}
-    
-    # Sort by message count and take top 100
-    sorted_devices = sorted(
-        message_counts_dict.items(),
-        key=lambda x: x[1],
-        reverse=True
-    )[:100]
-    
-    for device_id, msg_count in sorted_devices:
-        tenant_device_stats[device_id] = {
-            "received": msg_count,
-            "published": msg_count,  # Assume all received messages were published
-            "rejected": 0,
-            "last_seen": None,
-        }
-    
-    # Use database count for total messages
-    total_received = total_message_count
-    total_published = total_message_count  # Assume all received messages were published
-    total_rejected = 0
-    
-    base_stats = metrics.get_stats()
-
-    # Count active devices based on live telemetry (consistent with /devices endpoint)
-    # A device is active if it has sent telemetry in the last 10 minutes
-    # OPTIMIZED: Use a single query instead of N+1 queries
-    from models import TelemetryLatest
-    from sqlalchemy import func
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=600)  # 10 minutes
-    
-    # Single query to count active devices
-    active_devices = (
-        db.query(func.count(func.distinct(TelemetryLatest.device_id)))
-        .join(Device, Device.id == TelemetryLatest.device_id)
-        .filter(
-            Device.tenant_id == current_user.tenant_id,
-            TelemetryLatest.updated_at >= cutoff
-        )
-        .scalar() or 0
-    )
-
-    # Get protocol distribution from database - OPTIMIZED: single query
-    from models import DeviceType
-    protocol_counts_query = (
-        db.query(DeviceType.protocol, func.count(Device.id).label("count"))
-        .join(Device, Device.device_type_id == DeviceType.id)
-        .filter(Device.tenant_id == current_user.tenant_id)
-        .group_by(DeviceType.protocol)
-        .all()
-    )
-    protocol_counts = {row.protocol or "unknown": row.count for row in protocol_counts_query}
-
-    success_rate = (
-        total_published / total_received * 100
-        if total_received > 0 else 0
-    )
-
-    return {
-        "uptime_seconds": base_stats.get("uptime_seconds", 0),
-        "messages": {
-            "total_received": total_received,
-            "total_published": total_published,
-            "total_rejected": total_rejected,
-            "success_rate": success_rate,
-        },
-        # Keep error/rate/rules sections simple for now – not used on tenant dashboard
-        "errors": {
-            "total": 0,
-            "by_type": {},
-            "by_device": {},
-        },
-        "rate_limiting": {
-            "total_hits": 0,
-            "by_device": {},
-        },
-        "authentication": {
-            "total_failures": 0,
-            "by_device": {},
-        },
-        "processing": {
-            "avg_time_ms": base_stats.get("processing", {}).get("avg_time_ms", 0),
-            "samples": base_stats.get("processing", {}).get("samples", 0),
-        },
-        "rules": base_stats.get("rules", {}),
-        "sources": protocol_counts,  # Use database-sourced protocol counts
-        "active_devices": active_devices,
-        "devices": tenant_device_stats,
-    }
-
-@app.get("/metrics/device/{device_id}")
-async def get_device_metrics(device_id: str):
-    """Get metrics for a specific device."""
-    device_stats = metrics.get_device_stats(device_id)
-    if not device_stats:
-        from fastapi import HTTPException, status
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"No metrics found for device {device_id}"
-        )
-    return device_stats
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=5000,
-        reload=True,
-        log_level=settings.log_level.lower()
-    )
+    # if __name__ == "__main__":
+    # import uvicorn
+    # uvicorn.run(
+    # "main:app",
+    # host="0.0.0.0",
+    # port=5000,
+    # reload=True,
+    # log_level=settings.log_level.lower()
+    # )
 
