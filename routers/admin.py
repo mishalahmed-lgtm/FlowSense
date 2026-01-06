@@ -305,50 +305,157 @@ def list_devices(
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
         
-        for idx, snap in enumerate(snapshots, start=1 + offset):
-            payload = snap.payload or {}
-
-            # Best-effort name extraction from payload
-            name = None
-            if isinstance(payload, dict):
-                for key in ["name", "device_name", "deviceName", "label", "title"]:
-                    value = payload.get(key)
-                    if isinstance(value, str) and value.strip():
-                        name = value.strip()
-                        break
-
-            # Determine if device is online based on telemetry timestamp
-            is_active = False
-            telemetry = payload.get("telemetry") or {}
-            telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
-            if telemetry_ts:
-                try:
-                    if isinstance(telemetry_ts, str):
-                        # Parse ISO timestamp
-                        ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
-                        if ts.tzinfo is None:
-                            ts = ts.replace(tzinfo=timezone.utc)
-                    else:
-                        ts = telemetry_ts
-                    is_active = ts >= cutoff
-                except (ValueError, TypeError, AttributeError):
-                    # Fallback: check health.last_seen_at
-                    health = payload.get("health") or {}
-                    last_seen = health.get("last_seen_at")
-                    if last_seen:
+        # Count active/inactive across ALL devices (not just current page) if include_counts is True
+        total_active_count = None
+        total_inactive_count = None
+        if include_counts:
+            # Query all snapshots for this tenant to count active/inactive
+            all_snaps = db.query(DeviceSnapshot).filter(DeviceSnapshot.tenant_id == tenant_id).all()
+            active_count = 0
+            inactive_count = 0
+            
+            for snap in all_snaps:
+                payload = snap.payload or {}
+                if not isinstance(payload, dict):
+                    payload = {}
+                
+                # Check payload.is_active first (explicit flag from devices_snapshot)
+                is_active = payload.get("is_active", False)
+                
+                # If not explicitly set, check telemetry timestamp
+                if not isinstance(is_active, bool):
+                    telemetry = payload.get("telemetry") or {}
+                    telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
+                    is_active = False
+                    
+                    if telemetry_ts:
                         try:
-                            if isinstance(last_seen, str):
-                                ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
+                            if isinstance(telemetry_ts, str):
+                                ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
                                 if ts.tzinfo is None:
                                     ts = ts.replace(tzinfo=timezone.utc)
                             else:
-                                ts = last_seen
+                                ts = telemetry_ts
                             is_active = ts >= cutoff
                         except (ValueError, TypeError, AttributeError):
-                            pass
+                            # Fallback: check health.last_seen_at
+                            health = payload.get("health") or {}
+                            last_seen = health.get("last_seen_at")
+                            if last_seen:
+                                try:
+                                    if isinstance(last_seen, str):
+                                        ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
+                                        if ts.tzinfo is None:
+                                            ts = ts.replace(tzinfo=timezone.utc)
+                                    else:
+                                        ts = last_seen
+                                    is_active = ts >= cutoff
+                                except (ValueError, TypeError, AttributeError):
+                                    is_active = False
+                    else:
+                        is_active = False
+                
+                if is_active:
+                    active_count += 1
+                else:
+                    inactive_count += 1
+            
+            total_active_count = active_count
+            total_inactive_count = inactive_count
+        
+        for idx, snap in enumerate(snapshots, start=1 + offset):
+            payload = snap.payload or {}
+            if not isinstance(payload, dict):
+                payload = {}
 
-            # Map payload into DeviceMetadata.extras so UI can still inspect it
-            metadata = DeviceMetadata(extras=payload)
+            # Extract ALL fields from payload - everything comes from devices_snapshot
+            # Name extraction
+            name = (
+                payload.get("name") or 
+                payload.get("device_name") or 
+                payload.get("deviceName") or 
+                payload.get("label") or 
+                payload.get("title") or 
+                snap.device_id
+            )
+
+            # Extract device_type from payload
+            device_type_name = "Snapshot Device"
+            device_type_id = 0
+            protocol = "HTTP"
+            
+            device_type_obj = payload.get("device_type")
+            if isinstance(device_type_obj, dict):
+                device_type_name = device_type_obj.get("name") or device_type_name
+                protocol = device_type_obj.get("protocol") or protocol
+                device_type_id = device_type_obj.get("id") or 0
+            elif isinstance(device_type_obj, str):
+                device_type_name = device_type_obj
+            
+            # Protocol can also be top-level
+            if payload.get("protocol"):
+                protocol = payload["protocol"]
+
+            # Extract tenant info from payload (if available)
+            payload_tenant_id = payload.get("tenant_id")
+            payload_tenant_name = payload.get("tenant_name")
+            if payload_tenant_id:
+                tenant_id_to_use = payload_tenant_id
+            else:
+                tenant_id_to_use = tenant_id
+            
+            if payload_tenant_name:
+                tenant_name_to_use = payload_tenant_name
+            else:
+                tenant_name_to_use = tenant_name
+
+            # Determine if device is online - check payload.is_active first, then telemetry timestamp
+            is_active = payload.get("is_active", False)
+            
+            # If is_active not explicitly set, check telemetry timestamp
+            if not isinstance(is_active, bool):
+                telemetry = payload.get("telemetry") or {}
+                telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
+                if telemetry_ts:
+                    try:
+                        if isinstance(telemetry_ts, str):
+                            ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
+                            if ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=timezone.utc)
+                        else:
+                            ts = telemetry_ts
+                        is_active = ts >= cutoff
+                    except (ValueError, TypeError, AttributeError):
+                        # Fallback: check health.last_seen_at
+                        health = payload.get("health") or {}
+                        last_seen = health.get("last_seen_at")
+                        if last_seen:
+                            try:
+                                if isinstance(last_seen, str):
+                                    ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
+                                    if ts.tzinfo is None:
+                                        ts = ts.replace(tzinfo=timezone.utc)
+                                else:
+                                    ts = last_seen
+                                is_active = ts >= cutoff
+                            except (ValueError, TypeError, AttributeError):
+                                is_active = False
+                else:
+                    is_active = False
+
+            # Extract metadata from payload
+            payload_metadata = payload.get("metadata") or {}
+            if isinstance(payload_metadata, dict):
+                metadata = DeviceMetadata(
+                    http_settings=payload_metadata.get("http_settings"),
+                    mqtt_settings=payload_metadata.get("mqtt_settings"),
+                    tcp_settings=payload_metadata.get("tcp_settings"),
+                    extras=payload_metadata.get("extras") or payload,  # Put full payload in extras
+                    external_data=payload_metadata.get("external_data"),
+                    external_data_synced_at=payload_metadata.get("external_data_synced_at"),
+                )
+            else:
+                metadata = DeviceMetadata(extras=payload)
 
             # Check if device has dashboard config
             dashboard_cfg = payload.get("dashboard") or {}
@@ -357,30 +464,29 @@ def list_devices(
             device_resp = DeviceResponse(
                 id=idx,  # Synthetic ID for UI purposes
                 device_id=snap.device_id,
-                name=name or snap.device_id,
-                device_type="Snapshot Device",
-                device_type_id=0,
-                protocol="HTTP",  # Default protocol (not stored in snapshot schema)
-                tenant=tenant_name,
-                tenant_id=tenant_id,
+                name=name,
+                device_type=device_type_name,
+                device_type_id=device_type_id,
+                protocol=protocol,
+                tenant=tenant_name_to_use,
+                tenant_id=tenant_id_to_use,
                 is_active=is_active,
                 metadata=metadata,
-                provisioning_key=None,
+                provisioning_key=None,  # Snapshot devices don't have provisioning keys
                 has_dashboard=has_dashboard,
             )
             serialized_devices.append(device_resp)
 
         total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
 
-        # In snapshot mode we don't compute active/inactive counts separately
         return PaginatedDeviceResponse(
             devices=serialized_devices,
             total=total_count,
             page=page,
             limit=limit,
             total_pages=total_pages,
-            total_active=None,
-            total_inactive=None,
+            total_active=total_active_count,
+            total_inactive=total_inactive_count,
         )
 
     # ---- Default path (global admins) – existing behaviour on `devices` table ----
