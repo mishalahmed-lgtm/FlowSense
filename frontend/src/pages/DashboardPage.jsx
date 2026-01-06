@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
-import { API_BASE_URL, createApiClient } from "../api/client.js";
+import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
@@ -21,12 +20,10 @@ export default function DashboardPage() {
       setLoading(true);
       try {
         const isTenantAdmin = user?.role === "tenant_admin";
-        const url = `${API_BASE_URL}${isTenantAdmin ? "/metrics/tenant" : "/metrics"}`;
+        const metricsUrl = isTenantAdmin ? "/metrics/tenant" : "/metrics";
         
         const [metricsResp, activityResp, alertsResp] = await Promise.all([
-          axios.get(url, {
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-          }),
+          api.get(metricsUrl),
           api.get("/dashboard/activity"),
           api.get("/alerts", { params: { limit: 10, status: "open" } }).catch(() => ({ data: [] }))
         ]);
@@ -36,7 +33,8 @@ export default function DashboardPage() {
         setRecentAlerts(alertsResp.data || []);
         setError(null);
       } catch (err) {
-        setError(err.response?.data?.detail || err.message);
+        console.error("Dashboard load error:", err);
+        setError(err.response?.data?.detail || err.message || "Failed to load dashboard");
       } finally {
         setLoading(false);
       }
