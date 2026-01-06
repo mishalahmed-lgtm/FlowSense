@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from admin_auth import create_access_token, require_admin, get_current_user, hash_password, verify_password
 from config import settings
 from database import get_db
-from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest, DeviceDashboard, User, UserRole
+from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest, DeviceDashboard, User, UserRole, DeviceSnapshot
 from rule_engine import rule_engine
 from influx_client import influx_service
 
@@ -255,14 +255,98 @@ def list_devices(
     protocol: Optional[str] = Query(None, description="Filter by protocol (e.g., 'HTTP', 'MQTT')"),
     include_counts: bool = Query(True, description="Include total_active and total_inactive counts (slower)"),
 ):
-    """Return devices (filtered by tenant for tenant admins) with pagination."""
+    """Return devices with pagination.
+
+    NOTE:
+    - For tenant admins, we now read from the `devices_snapshot` table (database-only view).
+    - For global admins, we keep the existing behaviour (read from `devices` table).
+    """
     from sqlalchemy import or_
-    
-    # SIMPLE QUERY - just get devices from DB
+
+    # Special path for tenant admins: read from devices_snapshot (DB-only view)
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
+        tenant_id = current_user.tenant_id
+
+        # Base query on snapshot table
+        snapshot_query = db.query(DeviceSnapshot).filter(DeviceSnapshot.tenant_id == tenant_id)
+
+        # Server-side search filter (device_id only – snapshot has no name column)
+        if search:
+            search_term = f"%{search.lower()}%"
+            snapshot_query = snapshot_query.filter(DeviceSnapshot.device_id.ilike(search_term))
+
+        # NOTE: protocol/status filters are not applied in snapshot mode,
+        # since those fields are not first-class columns. You can extend this
+        # later by parsing them from payload JSON.
+
+        # Count BEFORE pagination
+        total_count = snapshot_query.count()
+
+        # Pagination
+        offset = (page - 1) * limit
+        snapshots = (
+            snapshot_query
+            .order_by(DeviceSnapshot.device_id)
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        # Fetch tenant name for display
+        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        tenant_name = tenant.name if tenant else f"Tenant {tenant_id}"
+
+        # Build DeviceResponse list from snapshot payload
+        serialized_devices: List[DeviceResponse] = []
+        for idx, snap in enumerate(snapshots, start=1 + offset):
+            payload = snap.payload or {}
+
+            # Best-effort name extraction from payload
+            name = None
+            if isinstance(payload, dict):
+                for key in ["name", "device_name", "deviceName", "label", "title"]:
+                    value = payload.get(key)
+                    if isinstance(value, str) and value.strip():
+                        name = value.strip()
+                        break
+
+            # Map payload into DeviceMetadata.extras so UI can still inspect it
+            metadata = DeviceMetadata(extras=payload)
+
+            device_resp = DeviceResponse(
+                id=idx,  # Synthetic ID for UI purposes
+                device_id=snap.device_id,
+                name=name or snap.device_id,
+                device_type="Snapshot Device",
+                device_type_id=0,
+                protocol="HTTP",  # Default protocol (not stored in snapshot schema)
+                tenant=tenant_name,
+                tenant_id=tenant_id,
+                is_active=True,  # Snapshot is read-only – treat as active
+                metadata=metadata,
+                provisioning_key=None,
+                has_dashboard=False,
+            )
+            serialized_devices.append(device_resp)
+
+        total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
+
+        # In snapshot mode we don't compute active/inactive counts separately
+        return PaginatedDeviceResponse(
+            devices=serialized_devices,
+            total=total_count,
+            page=page,
+            limit=limit,
+            total_pages=total_pages,
+            total_active=None,
+            total_inactive=None,
+        )
+
+    # ---- Default path (global admins) – existing behaviour on `devices` table ----
     query = db.query(Device)
-    
-    # Filter by tenant if user is tenant admin
-    if current_user.role == UserRole.TENANT_ADMIN:
+
+    # Filter by tenant if user is tenant admin (fallback path)
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
         query = query.filter(Device.tenant_id == current_user.tenant_id)
     
     # Server-side search filter

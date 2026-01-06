@@ -128,6 +128,16 @@ class Device(Base):
     alerts = relationship("Alert", back_populates="device", cascade="all, delete-orphan")
 
 
+class DeviceSnapshot(Base):
+    """Snapshot of devices per tenant (for external data imports or read-only views)."""
+    __tablename__ = "devices_snapshot"
+
+    tenant_id = Column(Integer, primary_key=True, index=True)
+    device_id = Column(String(255), primary_key=True, index=True)
+    payload = Column(JSON, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
 class ProvisioningKey(Base):
     """Device provisioning keys for authentication."""
     __tablename__ = "provisioning_keys"
