@@ -262,7 +262,9 @@ def get_device_dashboard(
 ):
     """Return dashboard configuration merged with latest telemetry."""
 
-    # Tenant admin path – prefer snapshot payload (dashboard + telemetry)
+    # Tenant admin path – prefer snapshot payload (dashboard + telemetry).
+    # IMPORTANT: Never 404 here – if we can't find a snapshot, return an empty
+    # dashboard instead of an error so the UI can still render.
     if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
         snap = (
             db.query(DeviceSnapshot)
@@ -295,6 +297,16 @@ def get_device_dashboard(
                     "event_timestamp": event_ts,
                 },
             }
+
+        # No snapshot row – return an empty dashboard shell instead of 404.
+        return {
+            "device_id": device_id,
+            "config": {"widgets": [], "layout": []},
+            "latest": {
+                "data": {},
+                "event_timestamp": None,
+            },
+        }
 
     # Default path – original behaviour using Device + DeviceDashboard + TelemetryLatest
     device = db.query(Device).filter(Device.device_id == device_id).one_or_none()
