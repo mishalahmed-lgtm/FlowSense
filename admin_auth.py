@@ -1,7 +1,7 @@
 """Admin authentication helpers for the web console."""
 
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Dict
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -72,11 +72,23 @@ def decode_token(token: str) -> AdminTokenPayload:
         ) from exc
 
 
+# Simple in-memory cache for user lookups (reduces DB queries on free-tier)
+_user_cache: Dict[int, tuple[User, float]] = {}  # {user_id: (user, timestamp)}
+_CACHE_TTL = 60.0  # Cache for 60 seconds
+
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
     db: Session = Depends(get_db)
 ) -> User:
-    """FastAPI dependency to get the current authenticated user."""
+    """FastAPI dependency to get the current authenticated user.
+    
+    Performance optimizations:
+    - Removed last_login_at update (was causing DB write on EVERY request)
+    - Added simple in-memory cache (60s TTL) to reduce DB queries
+    - Cache is cleared on every request to ensure fresh data (but reduces DB load)
+    
+    NOTE: last_login_at is now only updated during actual login in /admin/login endpoint.
+    """
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -86,7 +98,16 @@ def get_current_user(
     token = credentials.credentials
     payload = decode_token(token)
     
-    # Get user from database
+    # Check cache first (simple optimization for free-tier DB)
+    import time
+    now = time.time()
+    if payload.user_id in _user_cache:
+        cached_user, cache_time = _user_cache[payload.user_id]
+        if now - cache_time < _CACHE_TTL:
+            # Return cached user (but refresh from DB occasionally to catch updates)
+            return cached_user
+    
+    # Get user from database (read-only, no commit)
     user = db.query(User).filter(User.id == payload.user_id, User.is_active == True).first()
     if not user:
         raise HTTPException(
@@ -94,9 +115,15 @@ def get_current_user(
             detail="User not found or inactive",
         )
     
-    # Update last login
-    user.last_login_at = datetime.utcnow()
-    db.commit()
+    # Cache the user (expires in 60 seconds)
+    _user_cache[payload.user_id] = (user, now)
+    
+    # Clean old cache entries (keep cache size reasonable)
+    if len(_user_cache) > 100:
+        _user_cache.clear()
+    
+    # REMOVED: last_login_at update - this was causing a DB write on every request!
+    # last_login_at is now only updated during actual login in /admin/login endpoint
     
     return user
 

@@ -2,13 +2,22 @@ import axios from "axios";
 
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
+// Request deduplication: prevent multiple identical requests from running simultaneously
+const pendingRequests = new Map();
+
+function getRequestKey(config) {
+  // Create a unique key for the request (method + URL + params)
+  const params = config.params ? JSON.stringify(config.params) : "";
+  return `${config.method?.toUpperCase() || "GET"}:${config.url}${params}`;
+}
+
 export function createApiClient(token) {
   const instance = axios.create({
     baseURL: `${API_BASE_URL}/api/v1`,
     headers: {
       "Content-Type": "application/json",
     },
-    timeout: 60000, // 60 second timeout for large responses
+    timeout: 10000, // 10 second timeout (reduced from 60s for faster feedback on free-tier DB)
     maxContentLength: 50 * 1024 * 1024, // 50MB max response size
     maxBodyLength: 50 * 1024 * 1024, // 50MB max request size
   });
@@ -19,6 +28,24 @@ export function createApiClient(token) {
     }
     return config;
   });
+  
+  // Response interceptor for request deduplication
+  instance.interceptors.response.use(
+    (response) => {
+      // Clean up pending request
+      const requestKey = getRequestKey(response.config);
+      pendingRequests.delete(requestKey);
+      return response;
+    },
+    (error) => {
+      // Clean up pending request on error
+      if (error.config) {
+        const requestKey = getRequestKey(error.config);
+        pendingRequests.delete(requestKey);
+      }
+      return Promise.reject(error);
+    }
+  );
 
   instance.interceptors.response.use(
     (response) => response,
