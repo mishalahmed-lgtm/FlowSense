@@ -17,7 +17,7 @@ export function createApiClient(token) {
     headers: {
       "Content-Type": "application/json",
     },
-    timeout: 10000, // 10 second timeout (reduced from 60s for faster feedback on free-tier DB)
+    timeout: 30000, // 30 second timeout (free-tier DB needs more time for complex JSONB queries)
     maxContentLength: 50 * 1024 * 1024, // 50MB max response size
     maxBodyLength: 50 * 1024 * 1024, // 50MB max request size
   });

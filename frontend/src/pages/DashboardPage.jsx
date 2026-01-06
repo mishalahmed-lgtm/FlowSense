@@ -22,15 +22,36 @@ export default function DashboardPage() {
         const isTenantAdmin = user?.role === "tenant_admin";
         const metricsUrl = isTenantAdmin ? "/metrics/tenant" : "/metrics";
         
-        const [metricsResp, activityResp, alertsResp] = await Promise.all([
+        // Load data with individual error handling - don't fail entire dashboard if one endpoint times out
+        const results = await Promise.allSettled([
           api.get(metricsUrl),
           api.get("/dashboard/activity"),
-          api.get("/alerts", { params: { limit: 10, status: "open" } }).catch(() => ({ data: [] }))
+          api.get("/alerts", { params: { limit: 10, status: "open" } })
         ]);
         
-        setMetrics(metricsResp.data);
-        setActivity(activityResp.data);
-        setRecentAlerts(alertsResp.data || []);
+        // Extract data from settled promises with fallbacks
+        const metricsData = results[0].status === "fulfilled" 
+          ? results[0].value.data 
+          : { active_devices: 0, messages: { total_received: 0, total_published: 0, total_rejected: 0 }, sources: {} };
+        
+        const activityData = results[1].status === "fulfilled"
+          ? results[1].value.data
+          : { total_events: 0, buckets: [] };
+        
+        const alertsData = results[2].status === "fulfilled"
+          ? (results[2].value.data || [])
+          : [];
+        
+        if (results[0].status === "rejected") {
+          console.warn("Metrics endpoint failed:", results[0].reason);
+        }
+        if (results[1].status === "rejected") {
+          console.warn("Activity endpoint failed:", results[1].reason);
+        }
+        
+        setMetrics(metricsData);
+        setActivity(activityData);
+        setRecentAlerts(alertsData);
         setError(null);
       } catch (err) {
         console.error("Dashboard load error:", err);
