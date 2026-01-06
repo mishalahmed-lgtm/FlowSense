@@ -91,13 +91,26 @@ def list_device_health(
         for idx, snap in enumerate(snaps, start=1):
             payload = snap.payload or {}
             health = payload.get("health") or {}
+            telemetry = payload.get("telemetry") or {}
 
-            # Default status/battery
-            current_status = health.get("status", "unknown")
-            last_seen_at = health.get("last_seen_at")
+            # Status
+            current_status = health.get("status")
+            if not current_status:
+                current_status = "offline" if telemetry else "unknown"
+
+            # Last seen: prefer health.last_seen_at, then telemetry timestamps
+            last_seen_at = (
+                health.get("last_seen_at")
+                or telemetry.get("timestamp")
+                or telemetry.get("updated_at")
+            )
+
+            # Battery: prefer health.battery.level, then telemetry.data.battery
             battery_level = None
             if isinstance(health.get("battery"), dict):
                 battery_level = health["battery"].get("level")
+            if battery_level is None and isinstance(telemetry.get("data"), dict):
+                battery_level = telemetry["data"].get("battery")
 
             # Apply status filter
             if status_filter and current_status != status_filter:
@@ -299,11 +312,61 @@ def get_device_health_history(
     hours: int = Query(24, ge=1, le=720, description="Lookback window in hours (max 30 days)"),
 ):
     """Get historical health snapshots for a device."""
+
+    # Tenant admin path: read from devices_snapshot.payload.health.history if present
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
+        snap = (
+            db.query(DeviceSnapshot)
+            .filter(
+                DeviceSnapshot.tenant_id == current_user.tenant_id,
+                DeviceSnapshot.device_id == str(device_id) if isinstance(device_id, str) else device_id,
+            )
+            .one_or_none()
+        )
+        if not snap:
+            snap = (
+                db.query(DeviceSnapshot)
+                .filter(
+                    DeviceSnapshot.tenant_id == current_user.tenant_id,
+                    DeviceSnapshot.device_id == str(device_id),
+                )
+                .one_or_none()
+            )
+        if snap:
+            payload = snap.payload or {}
+            health = payload.get("health") or {}
+            history_arr = health.get("history") or []  # list of snapshots
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+            filtered = []
+            for h in history_arr:
+                ts = h.get("timestamp") or h.get("snapshot_at")
+                if ts:
+                    try:
+                        ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        if ts_dt < cutoff:
+                            continue
+                    except Exception:
+                        pass
+                filtered.append(h)
+
+            return [
+                DeviceHealthHistoryResponse(
+                    snapshot_at=h.get("timestamp") or h.get("snapshot_at") or "",
+                    status=h.get("status") or "unknown",
+                    battery_level=(h.get("battery") or {}).get("level"),
+                    message_count_1h=h.get("message_count_1h") or 0,
+                    avg_message_interval_seconds=h.get("avg_message_interval_seconds"),
+                    uptime_24h_percent=h.get("uptime_24h_percent"),
+                    connectivity_score=h.get("connectivity_score"),
+                )
+                for h in filtered
+            ]
+
+    # Admin path: original behaviour
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     
-    # Tenant admin can only access their tenant's devices
     if current_user.role == UserRole.TENANT_ADMIN:
         if device.tenant_id != current_user.tenant_id:
             raise HTTPException(
@@ -340,11 +403,73 @@ def get_device_battery_trend(
     days: int = Query(7, ge=1, le=30, description="Lookback window in days"),
 ):
     """Get battery level trend over time."""
+
+    # Tenant admin path: use devices_snapshot.payload.health.history battery levels
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
+        snap = (
+            db.query(DeviceSnapshot)
+            .filter(
+                DeviceSnapshot.tenant_id == current_user.tenant_id,
+                DeviceSnapshot.device_id == str(device_id) if isinstance(device_id, str) else device_id,
+            )
+            .one_or_none()
+        )
+        if not snap:
+            snap = (
+                db.query(DeviceSnapshot)
+                .filter(
+                    DeviceSnapshot.tenant_id == current_user.tenant_id,
+                    DeviceSnapshot.device_id == str(device_id),
+                )
+                .one_or_none()
+            )
+        if snap:
+            payload = snap.payload or {}
+            health = payload.get("health") or {}
+            history_arr = health.get("history") or []
+
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            data_points = []
+            for h in history_arr:
+                ts = h.get("timestamp") or h.get("snapshot_at")
+                if not ts:
+                    continue
+                try:
+                    ts_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if ts_dt < cutoff:
+                        continue
+                except Exception:
+                    pass
+                battery_level = None
+                if isinstance(h.get("battery"), dict):
+                    battery_level = h["battery"].get("level")
+                if battery_level is not None:
+                    data_points.append({
+                        "timestamp": ts,
+                        "battery_level": battery_level
+                    })
+
+            trend = "stable"
+            if len(data_points) > 1:
+                first = data_points[0]["battery_level"]
+                last = data_points[-1]["battery_level"]
+                if last > first:
+                    trend = "increasing"
+                elif last < first:
+                    trend = "decreasing"
+
+            return {
+                "device_id": snap.device_id,
+                "device_name": payload.get("name") or snap.device_id,
+                "data_points": data_points,
+                "trend": trend,
+            }
+
+    # Admin path: original behaviour
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     
-    # Tenant admin can only access their tenant's devices
     if current_user.role == UserRole.TENANT_ADMIN:
         if device.tenant_id != current_user.tenant_id:
             raise HTTPException(
@@ -354,7 +479,6 @@ def get_device_battery_trend(
     
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     
-    # Get battery data from health history
     history = db.query(DeviceHealthHistory).filter(
         DeviceHealthHistory.device_id == device_id,
         DeviceHealthHistory.snapshot_at >= cutoff,
