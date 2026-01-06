@@ -310,6 +310,10 @@ app.include_router(
     prefix=f"{settings.api_v1_prefix}",
 )
 app.include_router(
+    admin_router.metrics_router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
     dashboard_router.router,
     prefix=f"{settings.api_v1_prefix}",
 )

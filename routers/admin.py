@@ -19,10 +19,14 @@ from admin_auth import create_access_token, require_admin, get_current_user, has
 from config import settings
 from database import get_db
 from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest, DeviceDashboard, User, UserRole, DeviceSnapshot
+from metrics import metrics
 from rule_engine import rule_engine
 from influx_client import influx_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# Separate router for metrics endpoints (no /admin prefix)
+metrics_router = APIRouter(prefix="", tags=["metrics"])
 
 
 class LoginRequest(BaseModel):
@@ -856,6 +860,112 @@ def get_influx_sample(
 
     points = influx_service.get_bucket_sample(bucket=bucket, limit=limit)
     return [InfluxSampleItem(**p) for p in points]
+
+
+@metrics_router.get("/metrics")
+def get_metrics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get system-wide metrics (admin only)."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required"
+        )
+    
+    stats = metrics.get_stats()
+    
+    # Count active devices from database
+    active_devices = db.query(Device).filter(Device.is_active == True).count()
+    
+    return {
+        "active_devices": active_devices,
+        "messages": {
+            "total_received": stats["messages"]["total_received"],
+            "total_published": stats["messages"]["total_published"],
+            "total_rejected": stats["messages"]["total_rejected"],
+        },
+        "sources": stats.get("sources", {}),
+    }
+
+
+@metrics_router.get("/metrics/tenant")
+def get_tenant_metrics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get tenant-scoped metrics for tenant admins."""
+    if current_user.role != UserRole.TENANT_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant admin access required"
+        )
+    
+    if not current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant admin has no tenant assigned"
+        )
+    
+    # Get tenant's devices from devices_snapshot
+    tenant_devices = (
+        db.query(DeviceSnapshot)
+        .filter(DeviceSnapshot.tenant_id == current_user.tenant_id)
+        .all()
+    )
+    
+    # Count active devices (based on telemetry timestamps)
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
+    active_count = 0
+    
+    device_ids = []
+    for snap in tenant_devices:
+        device_ids.append(snap.device_id)
+        payload = snap.payload or {}
+        telemetry = payload.get("telemetry") or {}
+        telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
+        if telemetry_ts:
+            try:
+                if isinstance(telemetry_ts, str):
+                    ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                else:
+                    ts = telemetry_ts
+                if ts >= cutoff:
+                    active_count += 1
+            except (ValueError, TypeError, AttributeError):
+                pass
+    
+    # Get message counts for tenant's devices from metrics collector
+    stats = metrics.get_stats()
+    tenant_sources = metrics.get_sources_for_devices(device_ids) if device_ids else {}
+    
+    # Aggregate message counts for tenant's devices
+    total_received = sum(
+        stats["devices"].get(device_id, {}).get("received", 0)
+        for device_id in device_ids
+    )
+    total_published = sum(
+        stats["devices"].get(device_id, {}).get("published", 0)
+        for device_id in device_ids
+    )
+    total_rejected = sum(
+        stats["devices"].get(device_id, {}).get("rejected", 0)
+        for device_id in device_ids
+    )
+    
+    return {
+        "active_devices": active_count,
+        "messages": {
+            "total_received": total_received,
+            "total_published": total_published,
+            "total_rejected": total_rejected,
+        },
+        "sources": tenant_sources,
+    }
 
 
 def _get_device_or_404(device_id: str, db: Session) -> Device:
