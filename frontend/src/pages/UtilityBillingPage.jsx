@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
@@ -140,21 +140,37 @@ export default function UtilityBillingPage() {
   const loadDevices = async () => {
     try {
       const response = await api.get("/admin/devices");
-      setDevices(response.data || []);
+      // Extract devices array from paginated response
+      const devicesData = response.data?.devices || (Array.isArray(response.data) ? response.data : []);
+      setDevices(devicesData);
     } catch (err) {
       console.error("Failed to load devices:", err);
+      setDevices([]); // Ensure devices is always an array
     }
   };
+  
+  // Ensure devices is always an array
+  const safeDevices = useMemo(() => {
+    try {
+      if (!devices) return [];
+      if (Array.isArray(devices)) return devices;
+      if (devices?.devices && Array.isArray(devices.devices)) return devices.devices;
+      return [];
+    } catch (e) {
+      console.error('Error computing safeDevices:', e);
+      return [];
+    }
+  }, [devices]);
 
   const getRelevantDevices = () => {
     // For per-device reports, show all devices so users can select any device
     // The backend will filter based on which devices have utility billing data
     if (viewMode === "per-device") {
-      return devices;
+      return safeDevices;
     }
     
     // For consolidated reports, filter by device type if needed
-    return devices.filter((device) => {
+    return safeDevices.filter((device) => {
       const deviceTypeName = (device.device_type || "").toLowerCase();
       
       if (utilityKind === "electricity") {

@@ -23,47 +23,47 @@ export ACCESS_TOKEN=murabba-demo-token
 
 # Run each simulator in the background
 echo "Starting E-Scooter (ES-RP-1)..."
-nohup python "$PROJECT_ROOT/scripts/escooter_esrp1_sim.py" > /tmp/escooter_esrp1.log 2>&1 &
+nohup python "$PROJECT_ROOT/simulators/escooter_esrp1_sim.py" > /tmp/escooter_esrp1.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Smart Bin (SM1-RP)..."
-DEVICE_ID=SM1-RP nohup python "$PROJECT_ROOT/scripts/smart_bin_sim.py" > /tmp/smart_bin.log 2>&1 &
+DEVICE_ID=SM1-RP nohup python "$PROJECT_ROOT/simulators/smart_bin_sim.py" > /tmp/smart_bin.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Smart Bin (SB-RP-1)..."
-DEVICE_ID=SB-RP-1 nohup python "$PROJECT_ROOT/scripts/smart_bin_sim.py" > /tmp/smart_bin_sb.log 2>&1 &
+DEVICE_ID=SB-RP-1 nohup python "$PROJECT_ROOT/simulators/smart_bin_sim.py" > /tmp/smart_bin_sb.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Washroom (SW-RP-1)..."
-nohup python "$PROJECT_ROOT/scripts/washroom_swrp1_sim.py" > /tmp/washroom_swrp1.log 2>&1 &
+nohup python "$PROJECT_ROOT/simulators/washroom_swrp1_sim.py" > /tmp/washroom_swrp1.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Fitness Rower (SG-RP-1)..."
-nohup python "$PROJECT_ROOT/scripts/fitness_sgrp1_sim.py" > /tmp/fitness_sgrp1.log 2>&1 &
+nohup python "$PROJECT_ROOT/simulators/fitness_sgrp1_sim.py" > /tmp/fitness_sgrp1.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Noise Sensor (AN-RP-1)..."
-nohup python "$PROJECT_ROOT/scripts/noise_anrp1_sim.py" > /tmp/noise_anrp1.log 2>&1 &
+nohup python "$PROJECT_ROOT/simulators/noise_anrp1_sim.py" > /tmp/noise_anrp1.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Recycle Kiosk (SR-RP-1)..."
-nohup python "$PROJECT_ROOT/scripts/recycle_srrp1_sim.py" > /tmp/recycle_srrp1.log 2>&1 &
+nohup python "$PROJECT_ROOT/simulators/recycle_srrp1_sim.py" > /tmp/recycle_srrp1.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Digital Kiosk (DK_MP-1)..."
-KIOSK_DEVICE_ID=DK_MP-1 nohup python "$PROJECT_ROOT/scripts/digital_kiosk_sim.py" > /tmp/digital_kiosk.log 2>&1 &
+KIOSK_DEVICE_ID=DK_MP-1 nohup python "$PROJECT_ROOT/simulators/digital_kiosk_sim.py" > /tmp/digital_kiosk.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Smart Bench (BENCH-RP-1)..."
-BENCH_ID=BENCH-RP-1 nohup python "$PROJECT_ROOT/scripts/smart_bench_sim.py" > /tmp/smart_bench.log 2>&1 &
+BENCH_ID=BENCH-RP-1 nohup python "$PROJECT_ROOT/simulators/smart_bench_sim.py" > /tmp/smart_bench.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Pathway Lights (PLP-RP-1)..."
-DEVICE_ID=PLP-RP-1 nohup python "$PROJECT_ROOT/scripts/lightpole_plprp1_sim.py" > /tmp/lightpole_plprp1.log 2>&1 &
+DEVICE_ID=PLP-RP-1 nohup python "$PROJECT_ROOT/simulators/lightpole_plprp1_sim.py" > /tmp/lightpole_plprp1.log 2>&1 &
 echo "  PID: $!"
 
 echo "Starting Master Water Sensor (MW-RP-1)..."
-DEVICE_ID=MW-RP-1 ACCESS_TOKEN=murabba nohup python "$PROJECT_ROOT/scripts/master_water_sensor_sim.py" > /tmp/master_water_sensor.log 2>&1 &
+DEVICE_ID=MW-RP-1 ACCESS_TOKEN=murabba nohup python "$PROJECT_ROOT/simulators/master_water_sensor_sim.py" > /tmp/master_water_sensor.log 2>&1 &
 echo "  PID: $!"
 
 echo ""

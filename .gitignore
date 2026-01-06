@@ -87,3 +87,6 @@ coverage/
 
 test_external_api_service.py
 test_*.py
+
+# Simulators (dummy data generators)
+simulators/

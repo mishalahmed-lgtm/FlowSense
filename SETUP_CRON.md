@@ -1,22 +1,59 @@
-# Setting Up Render Cron Job for Device Sync
+# Device Sync - Background Service (FREE, No Cron Needed!)
 
 ## Overview
-The device sync is now handled by a Render Cron Job that runs hourly. This fetches:
+The device sync is now **automatically handled by the background service** that runs hourly for FREE. No Render Cron needed!
+
+This fetches:
 - Installations data (locations) from API A
 - Telemetry data from SmartTive API B
+- Randomizes missing fields
+- Builds complete device JSON with history, dashboard, fields, health
 - Sends complete device data to FlowSense
+
+## ✅ How It Works
+
+The `ExternalAPISyncService` automatically:
+1. **Runs on server startup** - Does initial sync immediately
+2. **Runs every hour** - Keeps data fresh automatically
+3. **Fetches from both APIs**:
+   - Installations API → Locations
+   - SmartTive API → Telemetry (200 concurrent requests)
+4. **Randomizes missing data** - Fills in gaps with realistic values
+5. **Sends complete device data** - All pages populate automatically
+
+## 🎉 No Setup Required!
+
+The background service is already running. Just deploy and it works!
+
+**What you get:**
+- ✅ Device Map (locations)
+- ✅ Health Page (battery, status)
+- ✅ Analytics (history/charts)
+- ✅ Dashboard (auto-generated widgets)
+- ✅ Utility (if telemetry has utility data)
+
+## Manual Testing
+
+If you want to test the sync manually, you can still run:
+```bash
+python scripts/sync_devices_complete.py
+```
+
+But the background service will do this automatically every hour!
 
 ## Option 1: Manual Setup on Render Dashboard
 
 ### Step 1: Create Cron Job
 1. Go to [Render Dashboard](https://dashboard.render.com/)
 2. Click **"New +"** → **"Cron Job"**
-3. Fill in:
+3. Fill in all fields:
    - **Name**: `flowsense-device-sync`
-   - **Environment**: Python 3
-   - **Region**: Same as your web service
+   - **Repository**: `https://github.com/mishalahmed-lgtm/FlowSense` (or connect your GitHub account and select the repo)
+   - **Environment**: `Python 3`
+   - **Region**: Same as your web service (e.g., `Oregon (US West)`)
    - **Branch**: `master`
-   - **Schedule**: `0 * * * *` (every hour)
+   - **Root Directory**: Leave empty (or `/` if required)
+   - **Schedule**: `0 * * * *` (every hour at minute 0)
    - **Build Command**: `pip install -r requirements.txt`
    - **Start Command**: `python scripts/sync_devices_complete.py`
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Modal from "../components/Modal.jsx";
@@ -13,6 +13,21 @@ export default function AnalyticsPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [devices, setDevices] = useState([]);
   const [predictions, setPredictions] = useState([]);
+  
+  // Defensive: Ensure devices and predictions are always arrays when set
+  const safeSetDevices = (data) => {
+    if (Array.isArray(data)) {
+      setDevices(data);
+    } else if (data?.devices && Array.isArray(data.devices)) {
+      setDevices(data.devices);
+    } else {
+      setDevices([]);
+    }
+  };
+  
+  const safeSetPredictions = (data) => {
+    setPredictions(Array.isArray(data) ? data : []);
+  };
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -40,6 +55,78 @@ export default function AnalyticsPage() {
     days: 30
   });
 
+  // Ensure devices and predictions are always arrays (memoized for performance)
+  const safeDevices = useMemo(() => {
+    try {
+      if (!devices) return [];
+      if (Array.isArray(devices)) return devices;
+      if (devices && typeof devices === 'object' && devices.devices && Array.isArray(devices.devices)) return devices.devices;
+      return [];
+    } catch (e) {
+      console.error('Error computing safeDevices:', e);
+      return [];
+    }
+  }, [devices]);
+  
+  const safePredictions = useMemo(() => {
+    try {
+      if (!predictions) return [];
+      if (Array.isArray(predictions)) return predictions;
+      return [];
+    } catch (e) {
+      console.error('Error computing safePredictions:', e);
+      return [];
+    }
+  }, [predictions]);
+
+  // Final safety check - ensure we always have arrays (computed with useMemo for reliability)
+  const devicesArray = useMemo(() => {
+    try {
+      if (Array.isArray(safeDevices)) return safeDevices;
+      if (Array.isArray(devices)) return devices;
+      return [];
+    } catch (e) {
+      console.error('Error in devicesArray:', e);
+      return [];
+    }
+  }, [safeDevices, devices]);
+  
+  const predictionsArray = useMemo(() => {
+    try {
+      if (Array.isArray(safePredictions)) return safePredictions;
+      if (Array.isArray(predictions)) return predictions;
+      return [];
+    } catch (e) {
+      console.error('Error in predictionsArray:', e);
+      return [];
+    }
+  }, [safePredictions, predictions]);
+
+  // Final safety check - ensure we always have arrays (computed early for render safety)
+  const finalDevicesArray = useMemo(() => {
+    try {
+      if (Array.isArray(devicesArray)) return devicesArray;
+      if (Array.isArray(safeDevices)) return safeDevices;
+      if (Array.isArray(devices)) return devices;
+      return [];
+    } catch (e) {
+      console.error('Error in finalDevicesArray:', e);
+      return [];
+    }
+  }, [devicesArray, safeDevices, devices]);
+  
+  const finalPredictionsArray = useMemo(() => {
+    try {
+      if (Array.isArray(predictionsArray)) return predictionsArray;
+      if (Array.isArray(safePredictions)) return safePredictions;
+      if (Array.isArray(predictions)) return predictions;
+      return [];
+    } catch (e) {
+      console.error('Error in finalPredictionsArray:', e);
+      return [];
+    }
+  }, [predictionsArray, safePredictions, predictions]);
+
   if (!isTenantAdmin || !hasModule("analytics")) {
     return (
       <div className="page page--centered">
@@ -59,12 +146,17 @@ export default function AnalyticsPage() {
         api.get("/analytics/models")
       ]);
       
-      setDevices(devicesRes.data);
-      setPredictions(predictionsRes.data);
-      setModels(modelsRes.data);
+      // Always ensure we set arrays using safe setters
+      safeSetDevices(devicesRes.data);
+      safeSetPredictions(predictionsRes.data);
+      setModels(Array.isArray(modelsRes.data) ? modelsRes.data : []);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load analytics data");
+      // On error, ensure arrays are still set
+      safeSetDevices([]);
+      safeSetPredictions([]);
+      setModels([]);
     } finally {
       setLoading(false);
     }
@@ -76,7 +168,7 @@ export default function AnalyticsPage() {
   }, [token]);
 
   const handleAnalyzePatterns = async () => {
-    if (devices.length === 0) {
+    if (finalDevicesArray.length === 0) {
       setError("No devices available for analysis");
       return;
     }
@@ -85,7 +177,7 @@ export default function AnalyticsPage() {
       setAnalyzingPatterns(true);
       setError(null);
       const resp = await api.post("/analytics/analyze-patterns", {
-        device_ids: devices.map(d => d.device_id),
+        device_ids: finalDevicesArray.map(d => d?.device_id).filter(Boolean),
         analysis_type: "occupancy",
         days: 7
       });
@@ -140,11 +232,12 @@ export default function AnalyticsPage() {
     }
   };
 
-  const activeDevices = devices.filter(d => d.is_active).length;
-  const anomaliesCount = predictions.filter(p => p.prediction_type === "anomaly").length;
-  const highRiskCount = predictions.filter(p => p.prediction_type === "failure_probability" && p.predicted_value > 0.7).length;
+  // Safe calculations with fallbacks - using final arrays computed earlier
+  const activeDevices = finalDevicesArray.filter(d => d?.is_active).length;
+  const anomaliesCount = finalPredictionsArray.filter(p => p?.prediction_type === "anomaly").length;
+  const highRiskCount = finalPredictionsArray.filter(p => p?.prediction_type === "failure_probability" && p?.predicted_value > 0.7).length;
 
-  if (loading && devices.length === 0) {
+  if (loading && finalDevicesArray.length === 0) {
     return (
       <div className="page page--centered">
         <div className="card">
@@ -185,7 +278,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
           <div className="metric-card__label">Active Configs</div>
-          <div className="metric-card__value">{devices.length}</div>
+          <div className="metric-card__value">{finalDevicesArray.length}</div>
         </div>
 
         <div className="metric-card">
@@ -352,7 +445,7 @@ export default function AnalyticsPage() {
                 </div>
               </div>
             </div>
-            {predictions.length === 0 ? (
+            {finalPredictionsArray.length === 0 ? (
               <div style={{ 
                 padding: "var(--space-12)", 
                 textAlign: "center", 
@@ -386,7 +479,7 @@ export default function AnalyticsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {predictions.slice(0, 10).map((pred, idx) => (
+                    {finalPredictionsArray.slice(0, 10).map((pred, idx) => (
                       <tr key={idx} style={{ transition: "background-color 0.2s ease" }}>
                         <td style={{ fontWeight: "var(--font-weight-medium)" }}>
                           {pred.device_name || pred.device_id}
@@ -473,7 +566,7 @@ export default function AnalyticsPage() {
             <button
               className="btn btn--primary"
               onClick={handleAnalyzePatterns}
-              disabled={analyzingPatterns || devices.length === 0}
+              disabled={analyzingPatterns || finalDevicesArray.length === 0}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -845,7 +938,7 @@ export default function AnalyticsPage() {
                 onChange={(e) => setCorrelationForm({ ...correlationForm, device1: e.target.value })}
               >
                 <option value="">Select device...</option>
-                {devices.map(d => <option key={d.device_id} value={d.device_id}>{d.name || d.device_id}</option>)}
+                {finalDevicesArray.map(d => <option key={d.device_id} value={d.device_id}>{d.name || d.device_id}</option>)}
               </select>
             </div>
             
@@ -868,7 +961,7 @@ export default function AnalyticsPage() {
                 onChange={(e) => setCorrelationForm({ ...correlationForm, device2: e.target.value })}
               >
                 <option value="">Select device...</option>
-                {devices.filter(d => d.device_id !== correlationForm.device1).map(d => (
+                {finalDevicesArray.filter(d => d.device_id !== correlationForm.device1).map(d => (
                   <option key={d.device_id} value={d.device_id}>{d.name || d.device_id}</option>
                 ))}
               </select>
@@ -1070,7 +1163,7 @@ export default function AnalyticsPage() {
                 padding: "var(--space-4)", 
                 backgroundColor: "var(--color-bg-secondary)" 
               }}>
-                {devices.map((device) => (
+                {finalDevicesArray.map((device) => (
                   <label key={device.id} style={{ 
                     display: "flex", 
                     alignItems: "center", 
