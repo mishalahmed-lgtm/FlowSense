@@ -112,6 +112,26 @@ def list_device_health(
             if battery_level is None and isinstance(telemetry.get("data"), dict):
                 battery_level = telemetry["data"].get("battery")
 
+            # Extract uptime percentages from health payload
+            uptime_24h = health.get("uptime_24h_percent")
+            uptime_7d = health.get("uptime_7d_percent")
+            uptime_30d = health.get("uptime_30d_percent")
+            
+            # Extract connectivity score
+            connectivity_score = health.get("connectivity_score")
+            
+            # Extract message counts if available
+            message_count_24h = health.get("message_count_24h", 0)
+            message_count_7d = health.get("message_count_7d", 0)
+            avg_message_interval_seconds = health.get("avg_message_interval_seconds")
+            
+            # Extract battery trend and estimated days remaining
+            battery_trend = None
+            estimated_battery_days_remaining = None
+            if isinstance(health.get("battery"), dict):
+                battery_trend = health["battery"].get("trend")
+                estimated_battery_days_remaining = health["battery"].get("estimated_days_remaining")
+
             # Apply status filter
             if status_filter and current_status != status_filter:
                 continue
@@ -124,18 +144,18 @@ def list_device_health(
                     device_identifier=snap.device_id,
                     current_status=current_status,
                     last_seen_at=last_seen_at,
-                    first_seen_at=None,
-                    message_count_24h=0,
-                    message_count_7d=0,
-                    avg_message_interval_seconds=None,
-                    connectivity_score=None,
+                    first_seen_at=health.get("first_seen_at"),
+                    message_count_24h=message_count_24h,
+                    message_count_7d=message_count_7d,
+                    avg_message_interval_seconds=avg_message_interval_seconds,
+                    connectivity_score=connectivity_score,
                     last_battery_level=battery_level,
-                    battery_trend=None,
-                    estimated_battery_days_remaining=None,
-                    uptime_24h_percent=None,
-                    uptime_7d_percent=None,
-                    uptime_30d_percent=None,
-                    calculated_at=None,
+                    battery_trend=battery_trend,
+                    estimated_battery_days_remaining=estimated_battery_days_remaining,
+                    uptime_24h_percent=uptime_24h,
+                    uptime_7d_percent=uptime_7d,
+                    uptime_30d_percent=uptime_30d,
+                    calculated_at=health.get("calculated_at"),
                 )
             )
 
@@ -235,12 +255,37 @@ def get_device_health(
         if snap:
             payload = snap.payload or {}
             health = payload.get("health") or {}
-            current_status = health.get("status", "unknown")
-            last_seen_at = health.get("last_seen_at")
-            first_seen_at = None
+            telemetry = payload.get("telemetry") or {}
+            
+            current_status = health.get("status")
+            if not current_status:
+                current_status = "offline" if telemetry else "unknown"
+            
+            last_seen_at = (
+                health.get("last_seen_at")
+                or telemetry.get("timestamp")
+                or telemetry.get("updated_at")
+            )
+            
             battery_level = None
             if isinstance(health.get("battery"), dict):
                 battery_level = health["battery"].get("level")
+            if battery_level is None and isinstance(telemetry.get("data"), dict):
+                battery_level = telemetry["data"].get("battery")
+            
+            # Extract all health metrics from payload
+            uptime_24h = health.get("uptime_24h_percent")
+            uptime_7d = health.get("uptime_7d_percent")
+            uptime_30d = health.get("uptime_30d_percent")
+            connectivity_score = health.get("connectivity_score")
+            message_count_24h = health.get("message_count_24h", 0)
+            message_count_7d = health.get("message_count_7d", 0)
+            avg_message_interval_seconds = health.get("avg_message_interval_seconds")
+            battery_trend = None
+            estimated_battery_days_remaining = None
+            if isinstance(health.get("battery"), dict):
+                battery_trend = health["battery"].get("trend")
+                estimated_battery_days_remaining = health["battery"].get("estimated_days_remaining")
 
             return DeviceHealthResponse(
                 device_id=0,
@@ -248,18 +293,18 @@ def get_device_health(
                 device_identifier=snap.device_id,
                 current_status=current_status,
                 last_seen_at=last_seen_at,
-                first_seen_at=first_seen_at,
-                message_count_24h=0,
-                message_count_7d=0,
-                avg_message_interval_seconds=None,
-                connectivity_score=None,
+                first_seen_at=health.get("first_seen_at"),
+                message_count_24h=message_count_24h,
+                message_count_7d=message_count_7d,
+                avg_message_interval_seconds=avg_message_interval_seconds,
+                connectivity_score=connectivity_score,
                 last_battery_level=battery_level,
-                battery_trend=None,
-                estimated_battery_days_remaining=None,
-                uptime_24h_percent=None,
-                uptime_7d_percent=None,
-                uptime_30d_percent=None,
-                calculated_at=None,
+                battery_trend=battery_trend,
+                estimated_battery_days_remaining=estimated_battery_days_remaining,
+                uptime_24h_percent=uptime_24h,
+                uptime_7d_percent=uptime_7d,
+                uptime_30d_percent=uptime_30d,
+                calculated_at=health.get("calculated_at"),
             )
 
     # Admin path: original behaviour

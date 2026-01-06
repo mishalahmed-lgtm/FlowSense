@@ -34,6 +34,7 @@ from models import (
     TelemetryTimeseries,
     User,
     UserRole,
+    DeviceSnapshot,
 )
 
 router = APIRouter(prefix="/admin/utility", tags=["utility"])
@@ -467,15 +468,64 @@ def get_all_devices_energy_consumption(
         "active_power_l3",  # Energy meters (kW, will convert)
     ]
     
-    device_query = db.query(Device).join(Tenant)
-    
-    # Tenant admins can only access their own tenant's data
-    if current_user.role == UserRole.TENANT_ADMIN:
-        device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
-    elif tenant_id is not None:
-        device_query = device_query.filter(Device.tenant_id == tenant_id)
-    
-    devices = device_query.filter(Device.is_active == True).all()
+    # Tenant admin path: read from devices_snapshot
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
+        tenant_id_filter = current_user.tenant_id
+        snaps = (
+            db.query(DeviceSnapshot)
+            .filter(DeviceSnapshot.tenant_id == tenant_id_filter)
+            .all()
+        )
+        
+        # Convert snapshots to device-like objects for processing
+        devices = []
+        for snap in snaps:
+            payload = snap.payload or {}
+            telemetry = payload.get("telemetry") or {}
+            telemetry_data = telemetry.get("data") or {}
+            
+            # Check if device has any power fields
+            has_power_field = False
+            for power_field in POWER_FIELDS:
+                # Check nested paths (e.g., battery.loadPowerW)
+                if "." in power_field:
+                    parts = power_field.split(".")
+                    value = telemetry_data
+                    for part in parts:
+                        if isinstance(value, dict):
+                            value = value.get(part)
+                        else:
+                            value = None
+                            break
+                    if value is not None:
+                        has_power_field = True
+                        break
+                elif power_field in telemetry_data:
+                    has_power_field = True
+                    break
+            
+            if has_power_field:
+                # Create a mock device object for processing
+                class MockDevice:
+                    def __init__(self, snap, payload):
+                        self.id = hash(snap.device_id) % (2**31)  # Synthetic ID
+                        self.device_id = snap.device_id
+                        self.name = payload.get("name") or snap.device_id
+                        self.tenant_id = snap.tenant_id
+                        self.snapshot = snap
+                        self.payload = payload
+                
+                devices.append(MockDevice(snap, payload))
+    else:
+        device_query = db.query(Device).join(Tenant)
+        
+        # Tenant admins can only access their own tenant's data
+        if current_user.role == UserRole.TENANT_ADMIN:
+            device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
+        elif tenant_id is not None:
+            device_query = device_query.filter(Device.tenant_id == tenant_id)
+        
+        devices = device_query.filter(Device.is_active == True).all()
     
     # Get tenant country for rate calculation
     # Try to get tenant from query first, then from devices
@@ -498,20 +548,63 @@ def get_all_devices_energy_consumption(
     results: List[AllDevicesEnergyConsumption] = []
     
     for device in devices:
+        # Check if this is a snapshot device (has snapshot attribute)
+        is_snapshot_device = hasattr(device, 'snapshot')
+        
         # Try each power field pattern
         for power_field in POWER_FIELDS:
-            # Query telemetry for this field
-            samples = (
-                db.query(TelemetryTimeseries)
-                .filter(
-                    TelemetryTimeseries.device_id == device.id,
-                    TelemetryTimeseries.key == power_field,
-                    TelemetryTimeseries.ts >= period_start,
-                    TelemetryTimeseries.ts < period_end,
+            samples = []
+            
+            if is_snapshot_device:
+                # Read from snapshot payload history
+                payload = device.payload or {}
+                history = payload.get("history") or {}
+                
+                # Get history for this power field (support nested paths)
+                field_history = None
+                if "." in power_field:
+                    parts = power_field.split(".")
+                    field_history = history.get(parts[-1])  # Use last part as key
+                else:
+                    field_history = history.get(power_field)
+                
+                if field_history and isinstance(field_history, list):
+                    # Filter by date range
+                    for point in field_history:
+                        ts_str = point.get("timestamp") or point.get("ts")
+                        if not ts_str:
+                            continue
+                        try:
+                            if isinstance(ts_str, str):
+                                ts = datetime.fromisoformat(ts_str.replace('Z', '+00:00'))
+                                if ts.tzinfo is None:
+                                    ts = ts.replace(tzinfo=timezone.utc)
+                            else:
+                                ts = ts_str
+                            
+                            if period_start <= ts < period_end:
+                                value = point.get("value")
+                                if value is not None:
+                                    class MockSample:
+                                        def __init__(self, ts, value):
+                                            self.ts = ts
+                                            self.value = value
+                                    samples.append(MockSample(ts, value))
+                        except (ValueError, TypeError, AttributeError):
+                            continue
+            else:
+                # Query telemetry for this field from TelemetryTimeseries
+                samples = (
+                    db.query(TelemetryTimeseries)
+                    .filter(
+                        TelemetryTimeseries.device_id == device.id,
+                        TelemetryTimeseries.key == power_field,
+                        TelemetryTimeseries.ts >= period_start,
+                        TelemetryTimeseries.ts < period_end,
+                    )
+                    .order_by(TelemetryTimeseries.ts.asc())
+                    .all()
                 )
-                .order_by(TelemetryTimeseries.ts.asc())
-                .all()
-            )
             
             if not samples:
                 continue  # No data for this field

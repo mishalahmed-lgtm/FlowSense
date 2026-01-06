@@ -298,6 +298,9 @@ def list_devices(
 
         # Build DeviceResponse list from snapshot payload
         serialized_devices: List[DeviceResponse] = []
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
+        
         for idx, snap in enumerate(snapshots, start=1 + offset):
             payload = snap.payload or {}
 
@@ -310,8 +313,42 @@ def list_devices(
                         name = value.strip()
                         break
 
+            # Determine if device is online based on telemetry timestamp
+            is_active = False
+            telemetry = payload.get("telemetry") or {}
+            telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
+            if telemetry_ts:
+                try:
+                    if isinstance(telemetry_ts, str):
+                        # Parse ISO timestamp
+                        ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                    else:
+                        ts = telemetry_ts
+                    is_active = ts >= cutoff
+                except (ValueError, TypeError, AttributeError):
+                    # Fallback: check health.last_seen_at
+                    health = payload.get("health") or {}
+                    last_seen = health.get("last_seen_at")
+                    if last_seen:
+                        try:
+                            if isinstance(last_seen, str):
+                                ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
+                                if ts.tzinfo is None:
+                                    ts = ts.replace(tzinfo=timezone.utc)
+                            else:
+                                ts = last_seen
+                            is_active = ts >= cutoff
+                        except (ValueError, TypeError, AttributeError):
+                            pass
+
             # Map payload into DeviceMetadata.extras so UI can still inspect it
             metadata = DeviceMetadata(extras=payload)
+
+            # Check if device has dashboard config
+            dashboard_cfg = payload.get("dashboard") or {}
+            has_dashboard = bool(dashboard_cfg.get("widgets") and len(dashboard_cfg.get("widgets", [])) > 0)
 
             device_resp = DeviceResponse(
                 id=idx,  # Synthetic ID for UI purposes
@@ -322,10 +359,10 @@ def list_devices(
                 protocol="HTTP",  # Default protocol (not stored in snapshot schema)
                 tenant=tenant_name,
                 tenant_id=tenant_id,
-                is_active=True,  # Snapshot is read-only – treat as active
+                is_active=is_active,
                 metadata=metadata,
                 provisioning_key=None,
-                has_dashboard=False,
+                has_dashboard=has_dashboard,
             )
             serialized_devices.append(device_resp)
 
