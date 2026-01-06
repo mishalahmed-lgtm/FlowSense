@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from admin_auth import require_admin, get_current_user
 from database import get_db
-from models import Device, DeviceDashboard, TelemetryLatest, TelemetryTimeseries, User, UserRole
+from models import Device, DeviceDashboard, TelemetryLatest, TelemetryTimeseries, User, UserRole, DeviceSnapshot
 from influx_client import influx_service
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -34,19 +34,46 @@ def get_device_latest_telemetry(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Return latest telemetry snapshot for a device."""
+    """Return latest telemetry snapshot for a device.
+
+    Behaviour:
+    - For tenant admins: prefer data from `devices_snapshot` (payload.telemetry).
+    - Otherwise: fall back to `TelemetryLatest` table as before.
+    """
+
+    # Tenant admin path – use snapshot table (database-only mode)
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
+        snap = (
+            db.query(DeviceSnapshot)
+            .filter(
+                DeviceSnapshot.tenant_id == current_user.tenant_id,
+                DeviceSnapshot.device_id == device_id,
+            )
+            .one_or_none()
+        )
+        if snap:
+            payload = snap.payload or {}
+            telemetry = payload.get("telemetry") or {}
+            data = telemetry.get("data") or {}
+            event_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
+            return {
+                "device_id": device_id,
+                "data": data,
+                "event_timestamp": event_ts,
+            }
+
+    # Default path – original behaviour using Device + TelemetryLatest
     device = db.query(Device).filter(Device.device_id == device_id).one_or_none()
     if not device:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Device not found",
         )
-    
-    # Tenant admins can only access their own tenant's devices
+
     if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only access devices from your own tenant"
+            detail="You can only access devices from your own tenant",
         )
 
     latest = (
@@ -137,18 +164,45 @@ def get_device_history(
     db: Session = Depends(get_db),
 ):
     """Return simple time-series history for a given device and key."""
+
+    # Tenant admin path – use history from devices_snapshot.payload.history
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
+        snap = (
+            db.query(DeviceSnapshot)
+            .filter(
+                DeviceSnapshot.tenant_id == current_user.tenant_id,
+                DeviceSnapshot.device_id == device_id,
+            )
+            .one_or_none()
+        )
+        if snap:
+            payload = snap.payload or {}
+            history = payload.get("history") or {}
+            series = history.get(key) or []
+            # series is expected as [{timestamp, value}, ...]
+            points = [
+                {"ts": p.get("timestamp"), "value": p.get("value")}
+                for p in series
+                if p.get("timestamp") is not None
+            ]
+            return {
+                "device_id": device_id,
+                "key": key,
+                "points": points,
+            }
+
+    # Default path – original behaviour using Device + TelemetryTimeseries/Influx
     device = db.query(Device).filter(Device.device_id == device_id).one_or_none()
     if not device:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Device not found",
         )
-    
-    # Tenant admins can only access their own tenant's devices
+
     if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only access devices from your own tenant"
+            detail="You can only access devices from your own tenant",
         )
 
     # Prefer InfluxDB time-series database when available for history queries
@@ -207,18 +261,53 @@ def get_device_dashboard(
     db: Session = Depends(get_db),
 ):
     """Return dashboard configuration merged with latest telemetry."""
+
+    # Tenant admin path – prefer snapshot payload (dashboard + telemetry)
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
+        snap = (
+            db.query(DeviceSnapshot)
+            .filter(
+                DeviceSnapshot.tenant_id == current_user.tenant_id,
+                DeviceSnapshot.device_id == device_id,
+            )
+            .one_or_none()
+        )
+        if snap:
+            payload = snap.payload or {}
+            dashboard_cfg = payload.get("dashboard") or {}
+            widgets = dashboard_cfg.get("widgets") or []
+            layout = dashboard_cfg.get("layout") or []
+
+            telemetry = payload.get("telemetry") or {}
+            latest_payload = telemetry.get("data") or {}
+            event_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
+
+            config = {
+                "widgets": widgets,
+                "layout": layout,
+            }
+
+            return {
+                "device_id": device_id,
+                "config": config,
+                "latest": {
+                    "data": latest_payload,
+                    "event_timestamp": event_ts,
+                },
+            }
+
+    # Default path – original behaviour using Device + DeviceDashboard + TelemetryLatest
     device = db.query(Device).filter(Device.device_id == device_id).one_or_none()
     if not device:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Device not found",
         )
-    
-    # Tenant admins can only access their own tenant's devices
+
     if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="You can only access devices from your own tenant"
+            detail="You can only access devices from your own tenant",
         )
 
     dashboard = (
