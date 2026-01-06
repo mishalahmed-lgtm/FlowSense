@@ -7,7 +7,7 @@ from sqlalchemy import func
 from pydantic import BaseModel
 
 from database import get_db
-from models import Device, DeviceHealthMetrics, DeviceHealthHistory, User, UserRole, TelemetryLatest
+from models import Device, DeviceHealthMetrics, DeviceHealthHistory, User, UserRole, TelemetryLatest, DeviceSnapshot
 from admin_auth import get_current_user, require_module
 
 router = APIRouter()
@@ -64,31 +64,85 @@ def list_device_health(
     db: Session = Depends(get_db),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by status: online, offline, degraded"),
 ):
-    """List health metrics for all devices (tenant-scoped for tenant admins)."""
+    """List health metrics for all devices.
+
+    For tenant admins:
+    - Read health from devices_snapshot.payload.health (database-only snapshot)
+    - Battery and status come from payload.health
+
+    For admins:
+    - Use existing DeviceHealthMetrics as before
+    """
+    # Tenant admin path: use snapshot table
     if current_user.role == UserRole.TENANT_ADMIN:
-        # Tenant admin: only their tenant's devices
         if not current_user.tenant_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Tenant admin has no tenant assigned"
             )
+
+        snaps = (
+            db.query(DeviceSnapshot)
+            .filter(DeviceSnapshot.tenant_id == current_user.tenant_id)
+            .all()
+        )
+
+        results: List[DeviceHealthResponse] = []
+        for idx, snap in enumerate(snaps, start=1):
+            payload = snap.payload or {}
+            health = payload.get("health") or {}
+
+            # Default status/battery
+            current_status = health.get("status", "unknown")
+            last_seen_at = health.get("last_seen_at")
+            battery_level = None
+            if isinstance(health.get("battery"), dict):
+                battery_level = health["battery"].get("level")
+
+            # Apply status filter
+            if status_filter and current_status != status_filter:
+                continue
+
+            # Build response (synthetic device_id for UI)
+            results.append(
+                DeviceHealthResponse(
+                    device_id=idx,
+                    device_name=payload.get("name") or snap.device_id,
+                    device_identifier=snap.device_id,
+                    current_status=current_status,
+                    last_seen_at=last_seen_at,
+                    first_seen_at=None,
+                    message_count_24h=0,
+                    message_count_7d=0,
+                    avg_message_interval_seconds=None,
+                    connectivity_score=None,
+                    last_battery_level=battery_level,
+                    battery_trend=None,
+                    estimated_battery_days_remaining=None,
+                    uptime_24h_percent=None,
+                    uptime_7d_percent=None,
+                    uptime_30d_percent=None,
+                    calculated_at=None,
+                )
+            )
+
+        return results
+
+    # Admin path: original behaviour
+    if current_user.role == UserRole.TENANT_ADMIN:
+        # Should not reach here, but keep tenant filter as safety
         query = db.query(Device).filter(Device.tenant_id == current_user.tenant_id)
     else:
-        # Admin: all devices
         query = db.query(Device)
-    
-    # Return all devices (consistent with /devices endpoint)
-    # Status filtering is done later based on health metrics
+
     devices = query.all()
-    
     results = []
     for device in devices:
         health = db.query(DeviceHealthMetrics).filter(
             DeviceHealthMetrics.device_id == device.id
         ).first()
-        
+
         if not health:
-            # Return default values if no health data yet
             health_data = {
                 "device_id": device.id,
                 "device_name": device.name or device.device_id,
@@ -128,13 +182,12 @@ def list_device_health(
                 "uptime_30d_percent": health.uptime_30d_percent,
                 "calculated_at": health.calculated_at.isoformat() if health.calculated_at else None,
             }
-        
-        # Apply status filter
+
         if status_filter and health_data["current_status"] != status_filter:
             continue
-        
+
         results.append(DeviceHealthResponse(**health_data))
-    
+
     return results
 
 
@@ -145,17 +198,67 @@ def get_device_health(
     db: Session = Depends(get_db),
 ):
     """Get detailed health metrics for a specific device."""
+
+    # Tenant admin path: use devices_snapshot payload
+    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
+        snap = (
+            db.query(DeviceSnapshot)
+            .filter(
+                DeviceSnapshot.tenant_id == current_user.tenant_id,
+                DeviceSnapshot.device_id == str(device_id) if isinstance(device_id, str) else device_id,
+            )
+            .one_or_none()
+        )
+        # device_id here is numeric (path param), but snapshot uses string device_id; allow either
+        if not snap:
+            snap = (
+                db.query(DeviceSnapshot)
+                .filter(
+                    DeviceSnapshot.tenant_id == current_user.tenant_id,
+                    DeviceSnapshot.device_id == str(device_id),
+                )
+                .one_or_none()
+            )
+        if snap:
+            payload = snap.payload or {}
+            health = payload.get("health") or {}
+            current_status = health.get("status", "unknown")
+            last_seen_at = health.get("last_seen_at")
+            first_seen_at = None
+            battery_level = None
+            if isinstance(health.get("battery"), dict):
+                battery_level = health["battery"].get("level")
+
+            return DeviceHealthResponse(
+                device_id=0,
+                device_name=payload.get("name") or snap.device_id,
+                device_identifier=snap.device_id,
+                current_status=current_status,
+                last_seen_at=last_seen_at,
+                first_seen_at=first_seen_at,
+                message_count_24h=0,
+                message_count_7d=0,
+                avg_message_interval_seconds=None,
+                connectivity_score=None,
+                last_battery_level=battery_level,
+                battery_trend=None,
+                estimated_battery_days_remaining=None,
+                uptime_24h_percent=None,
+                uptime_7d_percent=None,
+                uptime_30d_percent=None,
+                calculated_at=None,
+            )
+
+    # Admin path: original behaviour
     device = db.query(Device).filter(Device.id == device_id).first()
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     
-    # Tenant admin can only access their tenant's devices
-    if current_user.role == UserRole.TENANT_ADMIN:
-        if device.tenant_id != current_user.tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Not allowed to access this device"
-            )
+    if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not allowed to access this device"
+        )
     
     health = db.query(DeviceHealthMetrics).filter(
         DeviceHealthMetrics.device_id == device_id
