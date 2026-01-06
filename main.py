@@ -219,11 +219,13 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Failed to start DALI server: {e}. Continuing without DALI...")
     
     # Start external API sync service (fetches data from external APIs automatically)
-    try:
-        external_api_sync_service.start()
-        logger.info("External API sync service started")
-    except Exception as e:
-        logger.warning(f"Failed to start external API sync service: {e}. Continuing without auto-sync...")
+    # DISABLED: Auto-sync disabled - frontend now only reads from database
+    # try:
+    #     external_api_sync_service.start()
+    #     logger.info("External API sync service started")
+    # except Exception as e:
+    #     logger.warning(f"Failed to start external API sync service: {e}. Continuing without auto-sync...")
+    logger.info("External API sync service DISABLED - using database-only mode")
     
     yield
     
@@ -247,8 +249,8 @@ async def lifespan(app: FastAPI):
     logger.info("DALI server stopped")
     mqtt_handler.disconnect()
     logger.info("MQTT handler stopped")
-    external_api_sync_service.stop()
-    logger.info("External API sync service stopped")
+    # external_api_sync_service.stop()  # Disabled - service not running
+    # logger.info("External API sync service stopped")
     await tcp_ingestion_server.stop()
 
 
