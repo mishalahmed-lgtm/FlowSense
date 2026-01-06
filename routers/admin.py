@@ -265,78 +265,111 @@ def list_devices(
     - For tenant admins, we now read from the `devices_snapshot` table (database-only view).
     - For global admins, we keep the existing behaviour (read from `devices` table).
     """
-    from sqlalchemy import or_
-
-    # Special path for tenant admins: read from devices_snapshot (DB-only view)
-    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
-        tenant_id = current_user.tenant_id
-
-        # Base query on snapshot table
-        snapshot_query = db.query(DeviceSnapshot).filter(DeviceSnapshot.tenant_id == tenant_id)
-
-        # Server-side search filter (device_id only – snapshot has no name column)
-        if search:
-            search_term = f"%{search.lower()}%"
-            snapshot_query = snapshot_query.filter(DeviceSnapshot.device_id.ilike(search_term))
-
-        # NOTE: protocol/status filters are not applied in snapshot mode,
-        # since those fields are not first-class columns. You can extend this
-        # later by parsing them from payload JSON.
-
-        # Count BEFORE pagination
-        total_count = snapshot_query.count()
-
-        # Pagination
-        offset = (page - 1) * limit
-        snapshots = (
-            snapshot_query
-            .order_by(DeviceSnapshot.device_id)
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
-
-        # Fetch tenant name for display
-        tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-        tenant_name = tenant.name if tenant else f"Tenant {tenant_id}"
-
-        # Build DeviceResponse list from snapshot payload
-        serialized_devices: List[DeviceResponse] = []
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
+    try:
+        logger.info(f"list_devices called: user={current_user.email}, role={current_user.role}, tenant_id={current_user.tenant_id}, page={page}, limit={limit}")
         
-        # Count active/inactive using SQL aggregation (never load all devices)
-        total_active_count = None
-        total_inactive_count = None
-        if include_counts:
-            # Use PostgreSQL JSONB queries to count active/inactive devices
-            # Count devices where payload->>'is_active' = 'true' OR telemetry timestamp is recent
-            cutoff_iso = cutoff.isoformat()
+        from sqlalchemy import or_
+
+        # Special path for tenant admins: read from devices_snapshot (DB-only view)
+        if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
+            tenant_id = current_user.tenant_id
+            logger.info(f"Tenant admin path: tenant_id={tenant_id}")
+
+            # Base query on snapshot table
+            snapshot_query = db.query(DeviceSnapshot).filter(DeviceSnapshot.tenant_id == tenant_id)
+
+            # Server-side search filter (device_id only – snapshot has no name column)
+            if search:
+                search_term = f"%{search.lower()}%"
+                snapshot_query = snapshot_query.filter(DeviceSnapshot.device_id.ilike(search_term))
+                logger.info(f"Applied search filter: {search}")
+
+            # NOTE: protocol/status filters are not applied in snapshot mode,
+            # since those fields are not first-class columns. You can extend this
+            # later by parsing them from payload JSON.
+
+            # Count BEFORE pagination
+            logger.info("Counting total devices...")
+            total_count = snapshot_query.count()
+            logger.info(f"Total devices found: {total_count}")
+
+            # Pagination
+            offset = (page - 1) * limit
+            logger.info(f"Fetching devices: offset={offset}, limit={limit}")
+            snapshots = (
+                snapshot_query
+                .order_by(DeviceSnapshot.device_id)
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            logger.info(f"Fetched {len(snapshots)} devices from database")
+
+            # Fetch tenant name for display
+            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+            tenant_name = tenant.name if tenant else f"Tenant {tenant_id}"
+
+            # Build DeviceResponse list from snapshot payload
+            serialized_devices: List[DeviceResponse] = []
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
             
-            # Count active: payload.is_active = true OR telemetry.timestamp >= cutoff
-            # Handle both boolean true and string "true" in JSONB
-            active_query = text("""
-                SELECT COUNT(*) 
-                FROM devices_snapshot 
-                WHERE tenant_id = :tenant_id
-                  AND (
-                    (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
-                    OR payload->'is_active' = 'true'::jsonb
-                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
-                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff::timestamptz
-                    OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff::timestamptz
-                  )
-            """)
-            active_result = db.execute(active_query, {"tenant_id": tenant_id, "cutoff": cutoff_iso}).scalar()
-            total_active_count = active_result or 0
-            
-            # Total count
-            total_count_query = db.query(func.count(DeviceSnapshot.device_id)).filter(
-                DeviceSnapshot.tenant_id == tenant_id
-            ).scalar()
-            
-            # Inactive = total - active
-            total_inactive_count = (total_count_query or 0) - total_active_count
+            # Count active/inactive using SQL aggregation (never load all devices)
+            total_active_count = None
+            total_inactive_count = None
+            if include_counts:
+                logger.info("Calculating active/inactive counts...")
+                # Use PostgreSQL JSONB queries to count active/inactive devices
+                # Count devices where payload->>'is_active' = 'true' OR telemetry timestamp is recent
+                cutoff_iso = cutoff.isoformat()
+                
+                # Count active: payload.is_active = true OR telemetry.timestamp >= cutoff
+                # Handle both boolean true and string "true" in JSONB
+                # Use NULLIF and COALESCE to safely handle null JSONB paths
+                active_query = text("""
+                    SELECT COUNT(*) 
+                    FROM devices_snapshot 
+                    WHERE tenant_id = :tenant_id
+                      AND (
+                        (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
+                        OR payload->'is_active' = 'true'::jsonb
+                        OR (
+                          (payload->'telemetry'->>'timestamp') IS NOT NULL 
+                          AND (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
+                        )
+                        OR (
+                          (payload->'telemetry'->>'updated_at') IS NOT NULL 
+                          AND (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff::timestamptz
+                        )
+                        OR (
+                          (payload->'health'->>'last_seen_at') IS NOT NULL 
+                          AND (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff::timestamptz
+                        )
+                      )
+                """)
+                try:
+                    active_result = db.execute(active_query, {"tenant_id": tenant_id, "cutoff": cutoff_iso}).scalar()
+                    total_active_count = active_result or 0
+                    logger.info(f"Active devices count: {total_active_count}")
+                except Exception as e:
+                    logger.error(f"Error counting active devices: {e}", exc_info=True)
+                    # Fallback: set to None to skip counts
+                    total_active_count = None
+                    total_inactive_count = None
+                
+                if total_active_count is not None:
+                    # Total count
+                    try:
+                        total_count_query = db.query(func.count(DeviceSnapshot.device_id)).filter(
+                            DeviceSnapshot.tenant_id == tenant_id
+                        ).scalar()
+                        
+                        # Inactive = total - active
+                        total_inactive_count = (total_count_query or 0) - total_active_count
+                        logger.info(f"Inactive devices count: {total_inactive_count}")
+                    except Exception as e:
+                        logger.error(f"Error counting total devices: {e}", exc_info=True)
+                        total_inactive_count = None
         
         for idx, snap in enumerate(snapshots, start=1 + offset):
             payload = snap.payload or {}
@@ -457,110 +490,118 @@ def list_devices(
             total_inactive=total_inactive_count,
         )
 
-    # ---- Default path (global admins) – existing behaviour on `devices` table ----
-    query = db.query(Device)
+        # ---- Default path (global admins) – existing behaviour on `devices` table ----
+        logger.info("Global admin path: using devices table")
+        query = db.query(Device)
 
-    # Filter by tenant if user is tenant admin (fallback path)
-    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
-        query = query.filter(Device.tenant_id == current_user.tenant_id)
-    
-    # Server-side search filter
-    if search:
-        search_term = f"%{search.lower()}%"
-        query = query.filter(
-            or_(
-                Device.device_id.ilike(search_term),
-                Device.name.ilike(search_term)
+        # Filter by tenant if user is tenant admin (fallback path)
+        if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
+            query = query.filter(Device.tenant_id == current_user.tenant_id)
+        
+        # Server-side search filter
+        if search:
+            search_term = f"%{search.lower()}%"
+            query = query.filter(
+                or_(
+                    Device.device_id.ilike(search_term),
+                    Device.name.ilike(search_term)
+                )
             )
+        
+        # Server-side protocol filter
+        if protocol:
+            query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
+        
+        # Simple count - just count IDs
+        total_count = query.count()
+        
+        # Skip active/inactive counts for now - they're slow
+        total_active_count = None
+        total_inactive_count = None
+        
+        # Apply pagination and get devices
+        offset = (page - 1) * limit
+        devices = query.offset(offset).limit(limit).all()
+
+        # Check live status: device is active if EITHER:
+        # 1. It sent telemetry in the past 5 hours 5 minutes, OR
+        # 2. It has external_data_synced_at in device_metadata within past 5 hours 5 minutes
+        # Use PostgreSQL JSON queries for efficiency (no Python JSON parsing)
+        live_map: Dict[int, bool] = {}
+        
+        if devices:
+            device_ids = [device.id for device in devices]
+            
+            # Check telemetry latest records - single efficient query
+            latest_records = (
+                db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
+                .filter(TelemetryLatest.device_id.in_(device_ids))
+                .all()
+            )
+            latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
+            
+            # Also check for devices with recent external_data_synced_at using native PostgreSQL JSON query
+            # This is efficient - PostgreSQL extracts JSON at database level, no Python parsing
+            cutoff_iso = (datetime.now(timezone.utc) - timedelta(seconds=18300)).isoformat()
+            
+            # Raw SQL query using PostgreSQL JSON operators for efficiency
+            external_sync_query = text("""
+                SELECT id 
+                FROM devices 
+                WHERE id = ANY(:device_ids)
+                  AND device_metadata IS NOT NULL
+                  AND device_metadata::jsonb->>'external_data_synced_at' >= :cutoff_iso
+            """)
+            
+            external_synced_devices = db.execute(
+                external_sync_query,
+                {"device_ids": device_ids, "cutoff_iso": cutoff_iso}
+            ).fetchall()
+            external_synced_device_ids = {row[0] for row in external_synced_devices}
+            
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
+            
+            for device in devices:
+                # Check telemetry first
+                updated_at = latest_by_device_id.get(device.id)
+                has_recent_telemetry = bool(updated_at and updated_at >= cutoff)
+                
+                # Check if device has recent external sync
+                has_recent_external = device.id in external_synced_device_ids
+                
+                # Device is active if it has EITHER recent telemetry OR recent external data
+                is_live = has_recent_telemetry or has_recent_external
+                live_map[device.id] = is_live
+
+        # Serialize devices with live status
+        serialized_devices = [
+            _serialize_device(device, is_live=live_map.get(device.id, False)) for device in devices
+        ]
+        
+        # Apply server-side status filter if requested
+        if status:
+            is_active_filter = status.lower() == "active"
+            serialized_devices = [d for d in serialized_devices if d.is_active == is_active_filter]
+    
+        # Return paginated response with metadata
+        total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
+        return PaginatedDeviceResponse(
+            devices=serialized_devices,
+            total=total_count,
+            page=page,
+            limit=limit,
+            total_pages=total_pages,
+            total_active=total_active_count,
+            total_inactive=total_inactive_count
         )
     
-    # Server-side protocol filter
-    if protocol:
-        query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-    
-    # Simple count - just count IDs
-    total_count = query.count()
-    
-    # Skip active/inactive counts for now - they're slow
-    total_active_count = None
-    total_inactive_count = None
-    
-    # Apply pagination and get devices
-    offset = (page - 1) * limit
-    devices = query.offset(offset).limit(limit).all()
-
-    # Check live status: device is active if EITHER:
-    # 1. It sent telemetry in the past 5 hours 5 minutes, OR
-    # 2. It has external_data_synced_at in device_metadata within past 5 hours 5 minutes
-    # Use PostgreSQL JSON queries for efficiency (no Python JSON parsing)
-    live_map: Dict[int, bool] = {}
-    
-    if devices:
-        device_ids = [device.id for device in devices]
-        
-        # Check telemetry latest records - single efficient query
-        latest_records = (
-            db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
-            .filter(TelemetryLatest.device_id.in_(device_ids))
-            .all()
+    except Exception as e:
+        logger.error(f"Error in list_devices: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch devices: {str(e)}"
         )
-        latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
-        
-        # Also check for devices with recent external_data_synced_at using native PostgreSQL JSON query
-        # This is efficient - PostgreSQL extracts JSON at database level, no Python parsing
-        cutoff_iso = (datetime.now(timezone.utc) - timedelta(seconds=18300)).isoformat()
-        
-        # Raw SQL query using PostgreSQL JSON operators for efficiency
-        external_sync_query = text("""
-            SELECT id 
-            FROM devices 
-            WHERE id = ANY(:device_ids)
-              AND device_metadata IS NOT NULL
-              AND device_metadata::jsonb->>'external_data_synced_at' >= :cutoff_iso
-        """)
-        
-        external_synced_devices = db.execute(
-            external_sync_query,
-            {"device_ids": device_ids, "cutoff_iso": cutoff_iso}
-        ).fetchall()
-        external_synced_device_ids = {row[0] for row in external_synced_devices}
-        
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
-        
-        for device in devices:
-            # Check telemetry first
-            updated_at = latest_by_device_id.get(device.id)
-            has_recent_telemetry = bool(updated_at and updated_at >= cutoff)
-            
-            # Check if device has recent external sync
-            has_recent_external = device.id in external_synced_device_ids
-            
-            # Device is active if it has EITHER recent telemetry OR recent external data
-            is_live = has_recent_telemetry or has_recent_external
-            live_map[device.id] = is_live
-
-    # Serialize devices with live status
-    serialized_devices = [
-        _serialize_device(device, is_live=live_map.get(device.id, False)) for device in devices
-    ]
-    
-    # Apply server-side status filter if requested
-    if status:
-        is_active_filter = status.lower() == "active"
-        serialized_devices = [d for d in serialized_devices if d.is_active == is_active_filter]
-    
-    # Return paginated response with metadata
-    total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
-    return PaginatedDeviceResponse(
-        devices=serialized_devices,
-        total=total_count,
-        page=page,
-        limit=limit,
-        total_pages=total_pages,
-        total_active=total_active_count,
-        total_inactive=total_inactive_count
-    )
 
 
 @router.post("/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
@@ -970,72 +1011,110 @@ def get_tenant_metrics(
     db: Session = Depends(get_db),
 ):
     """Get tenant-scoped metrics for tenant admins."""
-    if current_user.role != UserRole.TENANT_ADMIN:
+    try:
+        logger.info(f"get_tenant_metrics called: user={current_user.email}, tenant_id={current_user.tenant_id}")
+        
+        if current_user.role != UserRole.TENANT_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tenant admin access required"
+            )
+        
+        if not current_user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Tenant admin has no tenant assigned"
+            )
+        
+        # Use SQL aggregation - never load all devices into memory
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
+        cutoff_iso = cutoff.isoformat()
+        
+        # Count active devices using SQL aggregation
+        # Handle both boolean true and string "true" in JSONB
+        # Use NULL checks to safely handle null JSONB paths
+        active_query = text("""
+            SELECT COUNT(*) 
+            FROM devices_snapshot 
+            WHERE tenant_id = :tenant_id
+              AND (
+                (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
+                OR payload->'is_active' = 'true'::jsonb
+                OR (
+                  (payload->'telemetry'->>'timestamp') IS NOT NULL 
+                  AND (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
+                )
+                OR (
+                  (payload->'telemetry'->>'updated_at') IS NOT NULL 
+                  AND (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff::timestamptz
+                )
+                OR (
+                  (payload->'health'->>'last_seen_at') IS NOT NULL 
+                  AND (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff::timestamptz
+                )
+              )
+        """)
+        try:
+            active_count = db.execute(active_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).scalar() or 0
+            logger.info(f"Active devices count: {active_count}")
+        except Exception as e:
+            logger.error(f"Error counting active devices in metrics: {e}", exc_info=True)
+            active_count = 0
+        
+        # Get device IDs only (not full payloads) for metrics aggregation
+        try:
+            device_ids_result = db.query(DeviceSnapshot.device_id).filter(
+                DeviceSnapshot.tenant_id == current_user.tenant_id
+            ).all()
+            device_ids = [row[0] for row in device_ids_result]
+            logger.info(f"Found {len(device_ids)} devices for tenant")
+        except Exception as e:
+            logger.error(f"Error fetching device IDs: {e}", exc_info=True)
+            device_ids = []
+        
+        # Get message counts for tenant's devices from metrics collector
+        try:
+            stats = metrics.get_stats()
+            tenant_sources = metrics.get_sources_for_devices(device_ids) if device_ids else {}
+            
+            # Aggregate message counts for tenant's devices
+            total_received = sum(
+                stats["devices"].get(device_id, {}).get("received", 0)
+                for device_id in device_ids
+            )
+            total_published = sum(
+                stats["devices"].get(device_id, {}).get("published", 0)
+                for device_id in device_ids
+            )
+            total_rejected = sum(
+                stats["devices"].get(device_id, {}).get("rejected", 0)
+                for device_id in device_ids
+            )
+        except Exception as e:
+            logger.error(f"Error getting metrics stats: {e}", exc_info=True)
+            total_received = 0
+            total_published = 0
+            total_rejected = 0
+            tenant_sources = {}
+        
+        return {
+            "active_devices": active_count,
+            "messages": {
+                "total_received": total_received,
+                "total_published": total_published,
+                "total_rejected": total_rejected,
+            },
+            "sources": tenant_sources,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in get_tenant_metrics: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tenant admin access required"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch tenant metrics: {str(e)}"
         )
-    
-    if not current_user.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Tenant admin has no tenant assigned"
-        )
-    
-    # Use SQL aggregation - never load all devices into memory
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
-    cutoff_iso = cutoff.isoformat()
-    
-    # Count active devices using SQL aggregation
-    # Handle both boolean true and string "true" in JSONB
-    active_query = text("""
-        SELECT COUNT(*) 
-        FROM devices_snapshot 
-        WHERE tenant_id = :tenant_id
-          AND (
-            (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
-            OR payload->'is_active' = 'true'::jsonb
-            OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
-            OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff::timestamptz
-            OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff::timestamptz
-          )
-    """)
-    active_count = db.execute(active_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).scalar() or 0
-    
-    # Get device IDs only (not full payloads) for metrics aggregation
-    device_ids_result = db.query(DeviceSnapshot.device_id).filter(
-        DeviceSnapshot.tenant_id == current_user.tenant_id
-    ).all()
-    device_ids = [row[0] for row in device_ids_result]
-    
-    # Get message counts for tenant's devices from metrics collector
-    stats = metrics.get_stats()
-    tenant_sources = metrics.get_sources_for_devices(device_ids) if device_ids else {}
-    
-    # Aggregate message counts for tenant's devices
-    total_received = sum(
-        stats["devices"].get(device_id, {}).get("received", 0)
-        for device_id in device_ids
-    )
-    total_published = sum(
-        stats["devices"].get(device_id, {}).get("published", 0)
-        for device_id in device_ids
-    )
-    total_rejected = sum(
-        stats["devices"].get(device_id, {}).get("rejected", 0)
-        for device_id in device_ids
-    )
-    
-    return {
-        "active_devices": active_count,
-        "messages": {
-            "total_received": total_received,
-            "total_published": total_published,
-            "total_rejected": total_rejected,
-        },
-        "sources": tenant_sources,
-    }
 
 
 def _get_device_or_404(device_id: str, db: Session) -> Device:
