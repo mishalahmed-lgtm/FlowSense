@@ -415,17 +415,14 @@ async def create_complete_device(
 ):
     """Create or update a device with complete data structure (device, telemetry, history, dashboard, health).
     
-    Accepts the complete device JSON structure that includes:
-    - Device info (device_id, name, device_type, location, metadata)
-    - Current telemetry (telemetry.data)
-    - History (history.{field} arrays)
-    - Field metadata (fields array)
-    - Dashboard config (dashboard.widgets)
-    - Health metrics (health)
-    
-    This endpoint populates all FlowSense tables in one call.
+    DISABLED: External device creation disabled - use database-only mode.
     """
-    check_endpoint_permission(integration, "devices")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="External device creation is disabled. Please use the admin API to create devices."
+    )
+    # DISABLED CODE BELOW
+    # check_endpoint_permission(integration, "devices")
     user = get_user_from_integration(integration, db)
     
     if not user.tenant_id:
@@ -723,7 +720,13 @@ async def receive_installations(
     integration: ExternalIntegration = Depends(get_external_integration),
     db: Session = Depends(get_db),
 ):
-    """Receive installations data from external API and auto-create devices.
+    """DISABLED: External device creation disabled - use database-only mode."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="External device creation is disabled. Please use the admin API to create devices."
+    )
+    # DISABLED CODE BELOW
+    # """Receive installations data from external API and auto-create devices.
     
     Accepts data in format:
     [
