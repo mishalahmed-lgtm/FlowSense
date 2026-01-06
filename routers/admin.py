@@ -1014,14 +1014,14 @@ def get_tenant_metrics(
             detail="Tenant admin has no tenant assigned"
         )
     
-    # Get tenant's devices from devices_snapshot
+    # Get tenant's devices from devices_snapshot - ALL data comes from here
     tenant_devices = (
         db.query(DeviceSnapshot)
         .filter(DeviceSnapshot.tenant_id == current_user.tenant_id)
         .all()
     )
     
-    # Count active devices (based on telemetry timestamps)
+    # Count active devices - check payload.is_active first, then telemetry timestamps
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
     active_count = 0
@@ -1030,20 +1030,45 @@ def get_tenant_metrics(
     for snap in tenant_devices:
         device_ids.append(snap.device_id)
         payload = snap.payload or {}
-        telemetry = payload.get("telemetry") or {}
-        telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
-        if telemetry_ts:
-            try:
-                if isinstance(telemetry_ts, str):
-                    ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
-                    if ts.tzinfo is None:
-                        ts = ts.replace(tzinfo=timezone.utc)
-                else:
-                    ts = telemetry_ts
-                if ts >= cutoff:
-                    active_count += 1
-            except (ValueError, TypeError, AttributeError):
-                pass
+        if not isinstance(payload, dict):
+            payload = {}
+        
+        # Check payload.is_active first (explicit flag from devices_snapshot)
+        is_active = payload.get("is_active", False)
+        
+        # If not explicitly set, check telemetry timestamp
+        if not isinstance(is_active, bool):
+            telemetry = payload.get("telemetry") or {}
+            telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
+            if telemetry_ts:
+                try:
+                    if isinstance(telemetry_ts, str):
+                        ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                    else:
+                        ts = telemetry_ts
+                    is_active = ts >= cutoff
+                except (ValueError, TypeError, AttributeError):
+                    # Fallback: check health.last_seen_at
+                    health = payload.get("health") or {}
+                    last_seen = health.get("last_seen_at")
+                    if last_seen:
+                        try:
+                            if isinstance(last_seen, str):
+                                ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
+                                if ts.tzinfo is None:
+                                    ts = ts.replace(tzinfo=timezone.utc)
+                            else:
+                                ts = last_seen
+                            is_active = ts >= cutoff
+                        except (ValueError, TypeError, AttributeError):
+                            is_active = False
+                    else:
+                        is_active = False
+        
+        if is_active:
+            active_count += 1
     
     # Get message counts for tenant's devices from metrics collector
     stats = metrics.get_stats()
