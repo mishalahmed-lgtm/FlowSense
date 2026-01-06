@@ -81,15 +81,69 @@ def list_device_health(
                 detail="Tenant admin has no tenant assigned"
             )
 
-        snaps = (
-            db.query(DeviceSnapshot)
-            .filter(DeviceSnapshot.tenant_id == current_user.tenant_id)
-            .all()
-        )
+        # Only return unhealthy/offline devices (limit 100) - don't load all devices
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
+        cutoff_iso = cutoff.isoformat()
+        
+        # Query only devices that are offline or have issues (limit to 100 for performance)
+        # Use JSONB queries to filter in SQL instead of loading all devices
+        from sqlalchemy import text
+        
+        # Get offline devices: payload.is_active != true AND telemetry timestamp < cutoff
+        offline_query = text("""
+            SELECT device_id, payload
+            FROM devices_snapshot
+            WHERE tenant_id = :tenant_id
+              AND (
+                (payload->>'is_active')::boolean != true
+                OR (payload->'telemetry'->>'timestamp')::timestamptz < :cutoff
+                OR (payload->'telemetry'->>'updated_at')::timestamptz < :cutoff
+                OR (payload->'health'->>'last_seen_at')::timestamptz < :cutoff
+                OR (payload->'telemetry'->>'timestamp') IS NULL
+              )
+            ORDER BY created_at DESC
+            LIMIT 100
+        """)
+        
+        offline_rows = db.execute(offline_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).fetchall()
+        
+        # If status_filter is 'online', get online devices instead
+        if status_filter == "online":
+            online_query = text("""
+                SELECT device_id, payload
+                FROM devices_snapshot
+                WHERE tenant_id = :tenant_id
+                  AND (
+                    (payload->>'is_active')::boolean = true
+                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff
+                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff
+                    OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff
+                  )
+                ORDER BY created_at DESC
+                LIMIT 100
+            """)
+            rows = db.execute(online_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).fetchall()
+        elif status_filter:
+            # Filtered by status - use offline query and filter in Python (small result set)
+            rows = offline_rows
+        else:
+            # No filter - return offline devices (most important to show)
+            rows = offline_rows
 
         results: List[DeviceHealthResponse] = []
-        for idx, snap in enumerate(snaps, start=1):
-            payload = snap.payload or {}
+        for idx, (device_id, payload_json) in enumerate(rows, start=1):
+            # Parse payload JSON
+            import json
+            if isinstance(payload_json, dict):
+                payload = payload_json
+            else:
+                try:
+                    payload = json.loads(payload_json) if isinstance(payload_json, str) else payload_json or {}
+                except (json.JSONDecodeError, TypeError):
+                    payload = {}
+            
+            # payload already parsed above
             health = payload.get("health") or {}
             telemetry = payload.get("telemetry") or {}
 
@@ -140,8 +194,8 @@ def list_device_health(
             results.append(
                 DeviceHealthResponse(
                     device_id=idx,
-                    device_name=payload.get("name") or snap.device_id,
-                    device_identifier=snap.device_id,
+                    device_name=payload.get("name") or device_id,
+                    device_identifier=device_id,
                     current_status=current_status,
                     last_seen_at=last_seen_at,
                     first_seen_at=health.get("first_seen_at"),

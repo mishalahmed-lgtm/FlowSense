@@ -305,63 +305,36 @@ def list_devices(
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
         
-        # Count active/inactive across ALL devices (not just current page) if include_counts is True
+        # Count active/inactive using SQL aggregation (never load all devices)
         total_active_count = None
         total_inactive_count = None
         if include_counts:
-            # Query all snapshots for this tenant to count active/inactive
-            all_snaps = db.query(DeviceSnapshot).filter(DeviceSnapshot.tenant_id == tenant_id).all()
-            active_count = 0
-            inactive_count = 0
+            # Use PostgreSQL JSONB queries to count active/inactive devices
+            # Count devices where payload->>'is_active' = 'true' OR telemetry timestamp is recent
+            cutoff_iso = cutoff.isoformat()
             
-            for snap in all_snaps:
-                payload = snap.payload or {}
-                if not isinstance(payload, dict):
-                    payload = {}
-                
-                # Check payload.is_active first (explicit flag from devices_snapshot)
-                is_active = payload.get("is_active", False)
-                
-                # If not explicitly set, check telemetry timestamp
-                if not isinstance(is_active, bool):
-                    telemetry = payload.get("telemetry") or {}
-                    telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
-                    is_active = False
-                    
-                    if telemetry_ts:
-                        try:
-                            if isinstance(telemetry_ts, str):
-                                ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
-                                if ts.tzinfo is None:
-                                    ts = ts.replace(tzinfo=timezone.utc)
-                            else:
-                                ts = telemetry_ts
-                            is_active = ts >= cutoff
-                        except (ValueError, TypeError, AttributeError):
-                            # Fallback: check health.last_seen_at
-                            health = payload.get("health") or {}
-                            last_seen = health.get("last_seen_at")
-                            if last_seen:
-                                try:
-                                    if isinstance(last_seen, str):
-                                        ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
-                                        if ts.tzinfo is None:
-                                            ts = ts.replace(tzinfo=timezone.utc)
-                                    else:
-                                        ts = last_seen
-                                    is_active = ts >= cutoff
-                                except (ValueError, TypeError, AttributeError):
-                                    is_active = False
-                    else:
-                        is_active = False
-                
-                if is_active:
-                    active_count += 1
-                else:
-                    inactive_count += 1
+            # Count active: payload.is_active = true OR telemetry.timestamp >= cutoff
+            active_query = text("""
+                SELECT COUNT(*) 
+                FROM devices_snapshot 
+                WHERE tenant_id = :tenant_id
+                  AND (
+                    (payload->>'is_active')::boolean = true
+                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff
+                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff
+                    OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff
+                  )
+            """)
+            active_result = db.execute(active_query, {"tenant_id": tenant_id, "cutoff": cutoff_iso}).scalar()
+            total_active_count = active_result or 0
             
-            total_active_count = active_count
-            total_inactive_count = inactive_count
+            # Total count
+            total_count_query = db.query(func.count(DeviceSnapshot.device_id)).filter(
+                DeviceSnapshot.tenant_id == tenant_id
+            ).scalar()
+            
+            # Inactive = total - active
+            total_inactive_count = (total_count_query or 0) - total_active_count
         
         for idx, snap in enumerate(snapshots, start=1 + offset):
             payload = snap.payload or {}
@@ -396,18 +369,11 @@ def list_devices(
             if payload.get("protocol"):
                 protocol = payload["protocol"]
 
-            # Extract tenant info from payload (if available)
-            payload_tenant_id = payload.get("tenant_id")
+            # SECURITY: Never trust payload.tenant_id - always use current_user.tenant_id
+            # Extract tenant name from payload if available, but always use authenticated tenant_id
             payload_tenant_name = payload.get("tenant_name")
-            if payload_tenant_id:
-                tenant_id_to_use = payload_tenant_id
-            else:
-                tenant_id_to_use = tenant_id
-            
-            if payload_tenant_name:
-                tenant_name_to_use = payload_tenant_name
-            else:
-                tenant_name_to_use = tenant_name
+            tenant_id_to_use = tenant_id  # Always use authenticated tenant_id
+            tenant_name_to_use = payload_tenant_name if payload_tenant_name else tenant_name
 
             # Determine if device is online - check payload.is_active first, then telemetry timestamp
             is_active = payload.get("is_active", False)
@@ -1014,61 +980,30 @@ def get_tenant_metrics(
             detail="Tenant admin has no tenant assigned"
         )
     
-    # Get tenant's devices from devices_snapshot - ALL data comes from here
-    tenant_devices = (
-        db.query(DeviceSnapshot)
-        .filter(DeviceSnapshot.tenant_id == current_user.tenant_id)
-        .all()
-    )
-    
-    # Count active devices - check payload.is_active first, then telemetry timestamps
+    # Use SQL aggregation - never load all devices into memory
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
-    active_count = 0
+    cutoff_iso = cutoff.isoformat()
     
-    device_ids = []
-    for snap in tenant_devices:
-        device_ids.append(snap.device_id)
-        payload = snap.payload or {}
-        if not isinstance(payload, dict):
-            payload = {}
-        
-        # Check payload.is_active first (explicit flag from devices_snapshot)
-        is_active = payload.get("is_active", False)
-        
-        # If not explicitly set, check telemetry timestamp
-        if not isinstance(is_active, bool):
-            telemetry = payload.get("telemetry") or {}
-            telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
-            if telemetry_ts:
-                try:
-                    if isinstance(telemetry_ts, str):
-                        ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
-                        if ts.tzinfo is None:
-                            ts = ts.replace(tzinfo=timezone.utc)
-                    else:
-                        ts = telemetry_ts
-                    is_active = ts >= cutoff
-                except (ValueError, TypeError, AttributeError):
-                    # Fallback: check health.last_seen_at
-                    health = payload.get("health") or {}
-                    last_seen = health.get("last_seen_at")
-                    if last_seen:
-                        try:
-                            if isinstance(last_seen, str):
-                                ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
-                                if ts.tzinfo is None:
-                                    ts = ts.replace(tzinfo=timezone.utc)
-                            else:
-                                ts = last_seen
-                            is_active = ts >= cutoff
-                        except (ValueError, TypeError, AttributeError):
-                            is_active = False
-                    else:
-                        is_active = False
-        
-        if is_active:
-            active_count += 1
+    # Count active devices using SQL aggregation
+    active_query = text("""
+        SELECT COUNT(*) 
+        FROM devices_snapshot 
+        WHERE tenant_id = :tenant_id
+          AND (
+            (payload->>'is_active')::boolean = true
+            OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff
+            OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff
+            OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff
+          )
+    """)
+    active_count = db.execute(active_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).scalar() or 0
+    
+    # Get device IDs only (not full payloads) for metrics aggregation
+    device_ids_result = db.query(DeviceSnapshot.device_id).filter(
+        DeviceSnapshot.tenant_id == current_user.tenant_id
+    ).all()
+    device_ids = [row[0] for row in device_ids_result]
     
     # Get message counts for tenant's devices from metrics collector
     stats = metrics.get_stats()

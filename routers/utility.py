@@ -468,54 +468,54 @@ def get_all_devices_energy_consumption(
         "active_power_l3",  # Energy meters (kW, will convert)
     ]
     
-    # Tenant admin path: read from devices_snapshot
+    # Tenant admin path: use JSONB queries to find devices with power fields (never load all devices)
     if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
-        tenant_id_filter = current_user.tenant_id
-        snaps = (
-            db.query(DeviceSnapshot)
-            .filter(DeviceSnapshot.tenant_id == tenant_id_filter)
-            .all()
-        )
+        from sqlalchemy import text
         
-        # Convert snapshots to device-like objects for processing
+        # Build JSONB query to find devices with any power field in telemetry.data
+        # This filters in SQL instead of loading all 2000 devices
+        power_field_conditions = []
+        for power_field in POWER_FIELDS:
+            if "." in power_field:
+                # Nested path like "battery.loadPowerW"
+                parts = power_field.split(".")
+                json_path = "->".join([f"'{p}'" for p in parts])
+                power_field_conditions.append(f"(payload->'telemetry'->'data'->{json_path}) IS NOT NULL")
+            else:
+                # Top-level field
+                power_field_conditions.append(f"(payload->'telemetry'->'data'->>'{power_field}') IS NOT NULL")
+        
+        # Query only devices that have at least one power field
+        devices_query = text(f"""
+            SELECT device_id, payload
+            FROM devices_snapshot
+            WHERE tenant_id = :tenant_id
+              AND ({' OR '.join(power_field_conditions)})
+        """)
+        
+        device_rows = db.execute(devices_query, {"tenant_id": current_user.tenant_id}).fetchall()
+        
+        # Convert to device-like objects (only devices with power fields)
         devices = []
-        for snap in snaps:
-            payload = snap.payload or {}
-            telemetry = payload.get("telemetry") or {}
-            telemetry_data = telemetry.get("data") or {}
+        for device_id, payload_json in device_rows:
+            import json
+            if isinstance(payload_json, dict):
+                payload = payload_json
+            else:
+                try:
+                    payload = json.loads(payload_json) if isinstance(payload_json, str) else payload_json or {}
+                except (json.JSONDecodeError, TypeError):
+                    payload = {}
             
-            # Check if device has any power fields
-            has_power_field = False
-            for power_field in POWER_FIELDS:
-                # Check nested paths (e.g., battery.loadPowerW)
-                if "." in power_field:
-                    parts = power_field.split(".")
-                    value = telemetry_data
-                    for part in parts:
-                        if isinstance(value, dict):
-                            value = value.get(part)
-                        else:
-                            value = None
-                            break
-                    if value is not None:
-                        has_power_field = True
-                        break
-                elif power_field in telemetry_data:
-                    has_power_field = True
-                    break
+            class MockDevice:
+                def __init__(self, device_id, payload):
+                    self.id = hash(device_id) % (2**31)  # Synthetic ID
+                    self.device_id = device_id
+                    self.name = payload.get("name") or device_id
+                    self.tenant_id = current_user.tenant_id
+                    self.payload = payload
             
-            if has_power_field:
-                # Create a mock device object for processing
-                class MockDevice:
-                    def __init__(self, snap, payload):
-                        self.id = hash(snap.device_id) % (2**31)  # Synthetic ID
-                        self.device_id = snap.device_id
-                        self.name = payload.get("name") or snap.device_id
-                        self.tenant_id = snap.tenant_id
-                        self.snapshot = snap
-                        self.payload = payload
-                
-                devices.append(MockDevice(snap, payload))
+            devices.append(MockDevice(device_id, payload))
     else:
         device_query = db.query(Device).join(Tenant)
         

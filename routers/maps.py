@@ -40,76 +40,92 @@ def get_devices_for_map(
     
     result = []
     
-    # Tenant admin path: read from devices_snapshot
+    # Tenant admin path: use JSONB queries to extract location in SQL (never load all devices)
     if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
-        snaps = (
-            db.query(DeviceSnapshot)
-            .filter(DeviceSnapshot.tenant_id == current_user.tenant_id)
-            .all()
-        )
+        from sqlalchemy import text
         
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(seconds=600)  # 10 minutes
+        cutoff_iso = cutoff.isoformat()
         
-        for snap in snaps:
-            payload = snap.payload or {}
-            telemetry = payload.get("telemetry") or {}
-            telemetry_data = telemetry.get("data") or {}
+        # Use PostgreSQL JSONB to extract location directly in SQL - only get devices with location
+        location_query = text("""
+            SELECT 
+                device_id,
+                payload->>'name' as name,
+                COALESCE(
+                    (payload->'telemetry'->'data'->'location'->>'latitude')::float,
+                    (payload->'telemetry'->'data'->'location'->>'lat')::float,
+                    (payload->'telemetry'->'data'->>'latitude')::float,
+                    (payload->'telemetry'->'data'->>'lat')::float
+                ) as latitude,
+                COALESCE(
+                    (payload->'telemetry'->'data'->'location'->>'longitude')::float,
+                    (payload->'telemetry'->'data'->'location'->>'lng')::float,
+                    (payload->'telemetry'->'data'->'location'->>'lon')::float,
+                    (payload->'telemetry'->'data'->>'longitude')::float,
+                    (payload->'telemetry'->'data'->>'lng')::float,
+                    (payload->'telemetry'->'data'->>'lon')::float
+                ) as longitude,
+                COALESCE(
+                    (payload->'telemetry'->>'timestamp'),
+                    (payload->'telemetry'->>'updated_at'),
+                    (payload->'health'->>'last_seen_at')
+                ) as last_seen_str,
+                payload->'telemetry'->'data' as telemetry_data
+            FROM devices_snapshot
+            WHERE tenant_id = :tenant_id
+              AND (
+                (payload->'telemetry'->'data'->'location'->>'latitude') IS NOT NULL
+                OR (payload->'telemetry'->'data'->'location'->>'lat') IS NOT NULL
+                OR (payload->'telemetry'->'data'->>'latitude') IS NOT NULL
+                OR (payload->'telemetry'->'data'->>'lat') IS NOT NULL
+              )
+              AND (
+                (payload->'telemetry'->'data'->'location'->>'longitude') IS NOT NULL
+                OR (payload->'telemetry'->'data'->'location'->>'lng') IS NOT NULL
+                OR (payload->'telemetry'->'data'->'location'->>'lon') IS NOT NULL
+                OR (payload->'telemetry'->'data'->>'longitude') IS NOT NULL
+                OR (payload->'telemetry'->'data'->>'lng') IS NOT NULL
+                OR (payload->'telemetry'->'data'->>'lon') IS NOT NULL
+              )
+        """)
+        
+        rows = db.execute(location_query, {"tenant_id": current_user.tenant_id}).fetchall()
+        
+        for row in rows:
+            device_id, name, latitude, longitude, last_seen_str, telemetry_data = row
             
-            # Extract location from telemetry data
-            latitude = None
-            longitude = None
-            
-            if isinstance(telemetry_data, dict):
-                # Check nested location object
-                if "location" in telemetry_data and isinstance(telemetry_data["location"], dict):
-                    loc_obj = telemetry_data["location"]
-                    latitude = loc_obj.get("latitude") or loc_obj.get("lat")
-                    longitude = loc_obj.get("longitude") or loc_obj.get("lng") or loc_obj.get("lon")
-                # Check top-level latitude/longitude
-                elif "latitude" in telemetry_data:
-                    latitude = telemetry_data.get("latitude")
-                    longitude = telemetry_data.get("longitude")
-                # Check top-level lat/lng/lon
-                elif "lat" in telemetry_data:
-                    latitude = telemetry_data.get("lat")
-                    longitude = telemetry_data.get("lon") or telemetry_data.get("lng")
-            
-            # Skip if no location
             if latitude is None or longitude is None:
                 continue
             
-            # Determine status from telemetry timestamp
+            # Determine status from timestamp
             status = "inactive"
             last_seen = None
-            telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
-            if telemetry_ts:
+            if last_seen_str:
                 try:
-                    if isinstance(telemetry_ts, str):
-                        ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
+                    if isinstance(last_seen_str, str):
+                        ts = datetime.fromisoformat(last_seen_str.replace('Z', '+00:00'))
                         if ts.tzinfo is None:
                             ts = ts.replace(tzinfo=timezone.utc)
                     else:
-                        ts = telemetry_ts
+                        ts = last_seen_str
                     
                     time_diff = (now - ts).total_seconds()
                     if time_diff < 600:  # Active if seen in last 10 minutes
                         status = "active"
-                    last_seen = ts.isoformat()
+                    last_seen = ts.isoformat() if hasattr(ts, 'isoformat') else str(ts)
                 except (ValueError, TypeError, AttributeError):
                     pass
             
-            # Get device name
-            name = payload.get("name") or snap.device_id
-            
             result.append(DeviceLocation(
-                device_id=snap.device_id,
-                device_name=name,
-                latitude=latitude,
-                longitude=longitude,
+                device_id=device_id,
+                device_name=name or device_id,
+                latitude=float(latitude),
+                longitude=float(longitude),
                 status=status,
                 last_seen=last_seen,
-                latest_data=telemetry_data,
+                latest_data=telemetry_data if isinstance(telemetry_data, dict) else {},
             ))
     else:
         # Admin path: original behaviour
