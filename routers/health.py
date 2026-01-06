@@ -91,15 +91,17 @@ def list_device_health(
         from sqlalchemy import text
         
         # Get offline devices: payload.is_active != true AND telemetry timestamp < cutoff
+        # Handle both boolean and string values in JSONB
         offline_query = text("""
             SELECT device_id, payload
             FROM devices_snapshot
             WHERE tenant_id = :tenant_id
               AND (
-                (payload->>'is_active')::boolean != true
-                OR (payload->'telemetry'->>'timestamp')::timestamptz < :cutoff
-                OR (payload->'telemetry'->>'updated_at')::timestamptz < :cutoff
-                OR (payload->'health'->>'last_seen_at')::timestamptz < :cutoff
+                (payload->>'is_active')::text NOT IN ('true', 'True', 'TRUE')
+                AND (payload->'is_active' != 'true'::jsonb OR payload->'is_active' IS NULL)
+                OR (payload->'telemetry'->>'timestamp')::timestamptz < :cutoff::timestamptz
+                OR (payload->'telemetry'->>'updated_at')::timestamptz < :cutoff::timestamptz
+                OR (payload->'health'->>'last_seen_at')::timestamptz < :cutoff::timestamptz
                 OR (payload->'telemetry'->>'timestamp') IS NULL
               )
             ORDER BY created_at DESC
@@ -115,10 +117,11 @@ def list_device_health(
                 FROM devices_snapshot
                 WHERE tenant_id = :tenant_id
                   AND (
-                    (payload->>'is_active')::boolean = true
-                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff
-                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff
-                    OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff
+                    (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
+                    OR payload->'is_active' = 'true'::jsonb
+                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
+                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff::timestamptz
+                    OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff::timestamptz
                   )
                 ORDER BY created_at DESC
                 LIMIT 100

@@ -314,15 +314,17 @@ def list_devices(
             cutoff_iso = cutoff.isoformat()
             
             # Count active: payload.is_active = true OR telemetry.timestamp >= cutoff
+            # Handle both boolean true and string "true" in JSONB
             active_query = text("""
                 SELECT COUNT(*) 
                 FROM devices_snapshot 
                 WHERE tenant_id = :tenant_id
                   AND (
-                    (payload->>'is_active')::boolean = true
-                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff
-                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff
-                    OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff
+                    (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
+                    OR payload->'is_active' = 'true'::jsonb
+                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
+                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff::timestamptz
+                    OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff::timestamptz
                   )
             """)
             active_result = db.execute(active_query, {"tenant_id": tenant_id, "cutoff": cutoff_iso}).scalar()
@@ -986,15 +988,17 @@ def get_tenant_metrics(
     cutoff_iso = cutoff.isoformat()
     
     # Count active devices using SQL aggregation
+    # Handle both boolean true and string "true" in JSONB
     active_query = text("""
         SELECT COUNT(*) 
         FROM devices_snapshot 
         WHERE tenant_id = :tenant_id
           AND (
-            (payload->>'is_active')::boolean = true
-            OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff
-            OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff
-            OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff
+            (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
+            OR payload->'is_active' = 'true'::jsonb
+            OR (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
+            OR (payload->'telemetry'->>'updated_at')::timestamptz >= :cutoff::timestamptz
+            OR (payload->'health'->>'last_seen_at')::timestamptz >= :cutoff::timestamptz
           )
     """)
     active_count = db.execute(active_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).scalar() or 0
