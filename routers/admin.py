@@ -478,15 +478,15 @@ def list_devices(
 
         total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
 
-            return PaginatedDeviceResponse(
-                devices=serialized_devices,
-                total=total_count,
-                page=page,
-                limit=limit,
-                total_pages=total_pages,
-                total_active=total_active_count,
-                total_inactive=total_inactive_count,
-            )
+        return PaginatedDeviceResponse(
+            devices=serialized_devices,
+            total=total_count,
+            page=page,
+            limit=limit,
+            total_pages=total_pages,
+            total_active=total_active_count,
+            total_inactive=total_inactive_count,
+        )
 
         # ---- Default path (global admins) – existing behaviour on `devices` table ----
         logger.info("Global admin path: using devices table")
