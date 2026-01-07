@@ -535,15 +535,15 @@ def get_all_devices_energy_consumption(
             
             devices.append(MockDevice(device_id, payload))
     else:
-    device_query = db.query(Device).join(Tenant)
-    
-    # Tenant admins can only access their own tenant's data
-    if current_user.role == UserRole.TENANT_ADMIN:
-        device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
-    elif tenant_id is not None:
-        device_query = device_query.filter(Device.tenant_id == tenant_id)
-    
-    devices = device_query.filter(Device.is_active == True).all()
+        device_query = db.query(Device).join(Tenant)
+        
+        # Tenant admins can only access their own tenant's data
+        if current_user.role == UserRole.TENANT_ADMIN:
+            device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
+        elif tenant_id is not None:
+            device_query = device_query.filter(Device.tenant_id == tenant_id)
+        
+        devices = device_query.filter(Device.is_active == True).all()
     
     # Get tenant country for rate calculation
     # Try to get tenant from query first, then from devices
@@ -612,8 +612,8 @@ def get_all_devices_energy_consumption(
                             continue
             else:
                 # Query telemetry for this field from TelemetryTimeseries
-            samples = (
-                db.query(TelemetryTimeseries)
+                samples = (
+                    db.query(TelemetryTimeseries)
                 .filter(
                     TelemetryTimeseries.device_id == device.id,
                     TelemetryTimeseries.key == power_field,
