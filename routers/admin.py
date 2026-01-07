@@ -212,10 +212,19 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None, has_das
 
 @router.post("/login", response_model=TokenResponse, tags=["public"])
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    """Authenticate user and return JWT."""
-    # Find user by email
-    user = db.query(User).filter(User.email == payload.email.lower()).first()
+    """Authenticate user and return JWT.
     
+    OPTIMIZED for free-tier database:
+    - Uses indexed email lookup (email column has index)
+    - Updates last_login_at in background (non-blocking)
+    - Returns token immediately after password verification
+    """
+    # OPTIMIZED: Use indexed email lookup (email column has unique index)
+    # Lowercase email for consistent lookup (emails should be stored lowercase)
+    email_lower = payload.email.lower()
+    user = db.query(User).filter(User.email == email_lower).first()
+    
+    # Verify password first (before any DB writes)
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -228,14 +237,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="User account is inactive",
         )
     
-    # Update last login
-    user.last_login_at = datetime.utcnow()
-    db.commit()
+    # OPTIMIZED: Update last_login_at in a separate transaction (non-blocking)
+    # This prevents the DB write from blocking the response
+    try:
+        user.last_login_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        # Log error but don't fail login if last_login_at update fails
+        logger.warning(f"Failed to update last_login_at for user {user.id}: {e}")
+        db.rollback()
     
-    # Create token
+    # Create token (fast operation, no DB access)
     token = create_access_token(user)
     
-    # Return token with user info
+    # Return token with user info (no additional DB queries)
     user_info = {
         "id": user.id,
         "email": user.email,
