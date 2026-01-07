@@ -478,6 +478,112 @@ def list_devices(
 
         total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
 
+            return PaginatedDeviceResponse(
+                devices=serialized_devices,
+                total=total_count,
+                page=page,
+                limit=limit,
+                total_pages=total_pages,
+                total_active=total_active_count,
+                total_inactive=total_inactive_count,
+            )
+
+        # ---- Default path (global admins) – existing behaviour on `devices` table ----
+        logger.info("Global admin path: using devices table")
+        query = db.query(Device)
+        
+        # Filter by tenant if user is tenant admin (fallback path)
+        if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
+            query = query.filter(Device.tenant_id == current_user.tenant_id)
+        
+        # Server-side search filter
+        if search:
+            search_term = f"%{search.lower()}%"
+            query = query.filter(
+                or_(
+                    Device.device_id.ilike(search_term),
+                    Device.name.ilike(search_term)
+                )
+            )
+        
+        # Server-side protocol filter
+        if protocol:
+            query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
+        
+        # Simple count - just count IDs
+        total_count = query.count()
+        
+        # Skip active/inactive counts for now - they're slow
+        total_active_count = None
+        total_inactive_count = None
+        
+        # Apply pagination and get devices
+        offset = (page - 1) * limit
+        devices = query.offset(offset).limit(limit).all()
+
+        # Check live status: device is active if EITHER:
+        # 1. It sent telemetry in the past 5 hours 5 minutes, OR
+        # 2. It has external_data_synced_at in device_metadata within past 5 hours 5 minutes
+        # Use PostgreSQL JSON queries for efficiency (no Python JSON parsing)
+        live_map: Dict[int, bool] = {}
+        
+        if devices:
+            device_ids = [device.id for device in devices]
+            
+            # Check telemetry latest records - single efficient query
+            latest_records = (
+                db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
+                .filter(TelemetryLatest.device_id.in_(device_ids))
+                .all()
+            )
+            latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
+            
+            # Also check for devices with recent external_data_synced_at using native PostgreSQL JSON query
+            # This is efficient - PostgreSQL extracts JSON at database level, no Python parsing
+            cutoff_iso = (datetime.now(timezone.utc) - timedelta(seconds=18300)).isoformat()
+            
+            # Raw SQL query using PostgreSQL JSON operators for efficiency
+            external_sync_query = text("""
+                SELECT id 
+                FROM devices 
+                WHERE id = ANY(:device_ids)
+                  AND device_metadata IS NOT NULL
+                  AND device_metadata::jsonb->>'external_data_synced_at' >= :cutoff_iso
+            """)
+            
+            external_synced_devices = db.execute(
+                external_sync_query,
+                {"device_ids": device_ids, "cutoff_iso": cutoff_iso}
+            ).fetchall()
+            external_synced_device_ids = {row[0] for row in external_synced_devices}
+            
+            now = datetime.now(timezone.utc)
+            cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
+            
+            for device in devices:
+                # Check telemetry first
+                updated_at = latest_by_device_id.get(device.id)
+                has_recent_telemetry = bool(updated_at and updated_at >= cutoff)
+                
+                # Check if device has recent external sync
+                has_recent_external = device.id in external_synced_device_ids
+                
+                # Device is active if it has EITHER recent telemetry OR recent external data
+                is_live = has_recent_telemetry or has_recent_external
+                live_map[device.id] = is_live
+
+        # Serialize devices with live status
+        serialized_devices = [
+            _serialize_device(device, is_live=live_map.get(device.id, False)) for device in devices
+        ]
+        
+        # Apply server-side status filter if requested
+        if status:
+            is_active_filter = status.lower() == "active"
+            serialized_devices = [d for d in serialized_devices if d.is_active == is_active_filter]
+        
+        # Return paginated response with metadata
+        total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
         return PaginatedDeviceResponse(
             devices=serialized_devices,
             total=total_count,
@@ -485,121 +591,14 @@ def list_devices(
             limit=limit,
             total_pages=total_pages,
             total_active=total_active_count,
-            total_inactive=total_inactive_count,
+            total_inactive=total_inactive_count
         )
-
-        # ---- Default path (global admins) – existing behaviour on `devices` table ----
-        logger.info("Global admin path: using devices table")
-    query = db.query(Device)
-    
-        # Filter by tenant if user is tenant admin (fallback path)
-        if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
-        query = query.filter(Device.tenant_id == current_user.tenant_id)
-    
-    # Server-side search filter
-    if search:
-        search_term = f"%{search.lower()}%"
-        query = query.filter(
-            or_(
-                Device.device_id.ilike(search_term),
-                Device.name.ilike(search_term)
-            )
-        )
-    
-    # Server-side protocol filter
-    if protocol:
-        query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-    
-    # Simple count - just count IDs
-    total_count = query.count()
-    
-    # Skip active/inactive counts for now - they're slow
-    total_active_count = None
-    total_inactive_count = None
-    
-    # Apply pagination and get devices
-    offset = (page - 1) * limit
-    devices = query.offset(offset).limit(limit).all()
-
-    # Check live status: device is active if EITHER:
-    # 1. It sent telemetry in the past 5 hours 5 minutes, OR
-    # 2. It has external_data_synced_at in device_metadata within past 5 hours 5 minutes
-    # Use PostgreSQL JSON queries for efficiency (no Python JSON parsing)
-    live_map: Dict[int, bool] = {}
-    
-    if devices:
-        device_ids = [device.id for device in devices]
-        
-        # Check telemetry latest records - single efficient query
-        latest_records = (
-            db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
-            .filter(TelemetryLatest.device_id.in_(device_ids))
-            .all()
-        )
-        latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
-        
-        # Also check for devices with recent external_data_synced_at using native PostgreSQL JSON query
-        # This is efficient - PostgreSQL extracts JSON at database level, no Python parsing
-        cutoff_iso = (datetime.now(timezone.utc) - timedelta(seconds=18300)).isoformat()
-        
-        # Raw SQL query using PostgreSQL JSON operators for efficiency
-        external_sync_query = text("""
-            SELECT id 
-            FROM devices 
-            WHERE id = ANY(:device_ids)
-              AND device_metadata IS NOT NULL
-              AND device_metadata::jsonb->>'external_data_synced_at' >= :cutoff_iso
-        """)
-        
-        external_synced_devices = db.execute(
-            external_sync_query,
-            {"device_ids": device_ids, "cutoff_iso": cutoff_iso}
-        ).fetchall()
-        external_synced_device_ids = {row[0] for row in external_synced_devices}
-        
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
-        
-        for device in devices:
-            # Check telemetry first
-            updated_at = latest_by_device_id.get(device.id)
-            has_recent_telemetry = bool(updated_at and updated_at >= cutoff)
-            
-            # Check if device has recent external sync
-            has_recent_external = device.id in external_synced_device_ids
-            
-            # Device is active if it has EITHER recent telemetry OR recent external data
-            is_live = has_recent_telemetry or has_recent_external
-            live_map[device.id] = is_live
-
-    # Serialize devices with live status
-    serialized_devices = [
-        _serialize_device(device, is_live=live_map.get(device.id, False)) for device in devices
-    ]
-    
-    # Apply server-side status filter if requested
-    if status:
-        is_active_filter = status.lower() == "active"
-        serialized_devices = [d for d in serialized_devices if d.is_active == is_active_filter]
-    
-    # Return paginated response with metadata
-    total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
-    return PaginatedDeviceResponse(
-        devices=serialized_devices,
-        total=total_count,
-        page=page,
-        limit=limit,
-        total_pages=total_pages,
-        total_active=total_active_count,
-        total_inactive=total_inactive_count
-    )
-    
     except Exception as e:
         logger.error(f"Error in list_devices: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch devices: {str(e)}"
-    )
+        )
 
 
 @router.post("/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
