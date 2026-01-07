@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from urllib.parse import urlparse
-from fastapi import APIRouter, Depends, HTTPException, Security, status, Header, Request
+from fastapi import APIRouter, Depends, HTTPException, Security, status, Header, Request, Query
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
