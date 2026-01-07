@@ -163,25 +163,35 @@ def get_health_data(
     integration: ExternalIntegration = Depends(get_external_integration),
     db: Session = Depends(get_db),
     status_filter: Optional[str] = None,
+    limit: int = Query(1000, ge=1, le=10000, description="Maximum devices to return"),
 ):
-    """Get health data for all devices in the tenant (requires 'health' permission)."""
+    """Get health data for devices in the tenant (requires 'health' permission).
+    
+    OPTIMIZED: Uses JOIN to avoid N+1 queries and limit to prevent loading all 2000+ devices.
+    """
     check_endpoint_permission(integration, "health")
     user = get_user_from_integration(integration, db)
     
     if not user.tenant_id:
         return []
     
-    # Get all devices for the tenant
-    devices = db.query(Device).filter(
-        Device.tenant_id == user.tenant_id
-    ).all()
+    # OPTIMIZED: Use JOIN to get devices + health in ONE query (eliminates N+1 problem)
+    # LEFT JOIN ensures we get devices even without health metrics
+    query = (
+        db.query(Device, DeviceHealthMetrics)
+        .outerjoin(DeviceHealthMetrics, Device.id == DeviceHealthMetrics.device_id)
+        .filter(Device.tenant_id == user.tenant_id)
+    )
+    
+    # Apply status filter in SQL (not in Python loop)
+    if status_filter:
+        query = query.filter(DeviceHealthMetrics.current_status == status_filter)
+    
+    # Limit results to prevent loading all devices
+    device_health_pairs = query.limit(limit).all()
     
     results = []
-    for device in devices:
-        health = db.query(DeviceHealthMetrics).filter(
-            DeviceHealthMetrics.device_id == device.id
-        ).first()
-        
+    for device, health in device_health_pairs:
         if not health:
             health_data = {
                 "device_id": device.device_id,
@@ -205,10 +215,6 @@ def get_health_data(
                 "uptime_24h_percent": health.uptime_24h_percent,
             }
         
-        # Apply status filter
-        if status_filter and health_data["current_status"] != status_filter:
-            continue
-        
         results.append(DeviceHealthResponse(**health_data))
     
     return results
@@ -218,18 +224,34 @@ def get_health_data(
 def get_devices(
     integration: ExternalIntegration = Depends(get_external_integration),
     db: Session = Depends(get_db),
+    page: int = Query(1, ge=1, description="Page number (1-indexed)"),
+    limit: int = Query(1000, ge=1, le=10000, description="Devices per page"),
 ):
-    """Get list of devices in the tenant (requires 'devices' permission)."""
+    """Get list of devices in the tenant (requires 'devices' permission).
+    
+    OPTIMIZED: Added pagination to prevent loading all 2000+ devices at once.
+    Uses eager loading to avoid N+1 queries on device_type relationship.
+    """
     check_endpoint_permission(integration, "devices")
     user = get_user_from_integration(integration, db)
     
     if not user.tenant_id:
         return []
     
-    devices = db.query(Device).filter(
-        Device.tenant_id == user.tenant_id
-    ).all()
+    # OPTIMIZED: Add pagination and eager load device_type (prevents N+1 query)
+    from sqlalchemy.orm import joinedload
     
+    offset = (page - 1) * limit
+    devices = (
+        db.query(Device)
+        .options(joinedload(Device.device_type))  # Eager load to avoid N+1
+        .filter(Device.tenant_id == user.tenant_id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    
+    # Serialize efficiently
     results = []
     for device in devices:
         device_type_name = device.device_type.name if device.device_type else None
@@ -250,45 +272,42 @@ def get_telemetry_data(
     integration: ExternalIntegration = Depends(get_external_integration),
     db: Session = Depends(get_db),
     device_id: Optional[str] = None,
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=1000, description="Maximum records to return"),
 ):
-    """Get latest telemetry data (requires 'data' permission)."""
+    """Get latest telemetry data (requires 'data' permission).
+    
+    OPTIMIZED: Uses JOIN to avoid N+1 queries when fetching device info.
+    """
     check_endpoint_permission(integration, "data")
     user = get_user_from_integration(integration, db)
     
     if not user.tenant_id:
         return []
     
-    # Build query
-    query = db.query(TelemetryLatest).join(Device).filter(
-        Device.tenant_id == user.tenant_id
+    # OPTIMIZED: Join Device in main query to avoid N+1 lookups
+    query = (
+        db.query(TelemetryLatest, Device)
+        .join(Device, TelemetryLatest.device_id == Device.id)
+        .filter(Device.tenant_id == user.tenant_id)
     )
     
     if device_id:
         query = query.filter(Device.device_id == device_id)
     
-    # Get latest telemetry
-    telemetry_records = query.order_by(
-        TelemetryLatest.timestamp.desc()
+    # Get latest telemetry with device info in ONE query
+    telemetry_device_pairs = query.order_by(
+        TelemetryLatest.updated_at.desc()
     ).limit(limit).all()
     
     results = []
-    for record in telemetry_records:
-        device = db.query(Device).filter(Device.id == record.device_id).first()
-        if not device:
-            continue
-        
-        # Parse payload JSON
-        import json
-        try:
-            payload_data = json.loads(record.payload) if isinstance(record.payload, str) else record.payload
-        except:
-            payload_data = {}
+    for record, device in telemetry_device_pairs:
+        # Parse payload JSON (data is already JSONB, no parsing needed)
+        payload_data = record.data if isinstance(record.data, dict) else {}
         
         results.append(TelemetryDataResponse(
             device_id=device.device_id,
             device_name=device.name or device.device_id,
-            timestamp=record.timestamp.isoformat() if record.timestamp else "",
+            timestamp=record.event_timestamp.isoformat() if record.event_timestamp else "",
             data=payload_data,
         ))
     
