@@ -174,8 +174,10 @@ class ExternalAPISyncService:
         import string
         from datetime import timedelta
         
-        CONCURRENCY = 10  # Leaves 10 DB connections free for frontend/API
-        BATCH_SIZE = 1000  # Process devices in batches
+        # CRITICAL FOR RENDER FREE TIER: Only 1 DB connection allowed
+        # Set concurrency to 1 to prevent connection exhaustion
+        CONCURRENCY = 1  # MUST be 1 for free tier (only 1 connection available)
+        BATCH_SIZE = 100  # Process devices in smaller batches
         sem = asyncio.Semaphore(CONCURRENCY)
         synced_count = 0
         failed_count = 0
@@ -340,8 +342,13 @@ class ExternalAPISyncService:
         
         def write_device_to_db(device_db_id: int, device_id: str, device_name: str, tenant_id: int, 
                                telemetry_data: dict, location_data: dict = None):
-            """Write device data directly to database. Returns 'online' or 'offline' or 'failed'."""
-            # Create new session for this write (thread-safe)
+            """Write device data directly to database. Returns 'online' or 'offline' or 'failed'.
+            
+            WARNING: This creates a NEW database session for EACH device.
+            For 2000 devices, this creates 2000 separate connections.
+            On Render free tier (1 connection limit), CONCURRENCY MUST be 1.
+            """
+            # Create new session for this write (required for async/threading safety)
             write_db = SessionLocal()
             try:
                 # Get device type

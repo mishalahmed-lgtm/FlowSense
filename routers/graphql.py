@@ -269,32 +269,43 @@ def create_graphql_router() -> GraphQLRouter:
         """Get GraphQL context with authentication.
         
         FastAPI will inject Request and Response automatically.
+        
+        NOTE: Session is reused from connection pool (not creating new connections).
+        Session is closed after response is sent (managed by Strawberry GraphQL lifecycle).
         """
         from admin_auth import decode_token
-        from database import SessionLocal
+        from database import get_db
         
         auth_header = request.headers.get("Authorization", "")
         current_user = None
-        db_session = SessionLocal()
         
-        if auth_header.startswith("Bearer "):
-            token = auth_header.replace("Bearer ", "")
-            try:
-                payload = decode_token(token)
-                current_user = db_session.query(User).filter(
-                    User.id == payload.user_id,
-                    User.is_active == True
-                ).first()
-            except Exception as e:
-                logger.debug(f"GraphQL authentication failed: {e}")
+        # Use FastAPI's get_db dependency for proper session management
+        # This ensures sessions are properly closed after the request
+        db_session = next(get_db())
         
-        # Return context dict (strawberry expects this format)
-        return {
-            "request": request,
-            "response": response,
-            "db": db_session,
-            "current_user": current_user
-        }
+        try:
+            if auth_header.startswith("Bearer "):
+                token = auth_header.replace("Bearer ", "")
+                try:
+                    payload = decode_token(token)
+                    current_user = db_session.query(User).filter(
+                        User.id == payload.user_id,
+                        User.is_active == True
+                    ).first()
+                except Exception as e:
+                    logger.debug(f"GraphQL authentication failed: {e}")
+            
+            # Return context dict (strawberry expects this format)
+            return {
+                "request": request,
+                "response": response,
+                "db": db_session,
+                "current_user": current_user
+            }
+        except Exception:
+            # Ensure session is closed on error
+            db_session.close()
+            raise
     
     router = GraphQLRouter(
         schema=schema,
