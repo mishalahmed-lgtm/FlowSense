@@ -224,47 +224,39 @@ def list_alerts(
     db: Session = Depends(get_db),
 ):
     """List alerts."""
-    query = db.query(Alert)
+    from services.alert_service import AlertService
     
-    # Tenant admins can only see alerts for their tenant
-    if current_user.role == UserRole.TENANT_ADMIN:
-        query = query.filter(Alert.tenant_id == current_user.tenant_id)
+    alert_service = AlertService(db)
+    alerts = alert_service.get_alerts(
+        user=current_user,
+        device_id=device_id,
+        status=status,
+        priority=priority,
+        limit=limit,
+        offset=offset,
+    )
     
-    if device_id:
-        query = query.filter(Alert.device_id == device_id)
-    if status:
-        query = query.filter(Alert.status == status)
-    if priority:
-        query = query.filter(Alert.priority == priority)
+    return [AlertResponse(**alert) for alert in alerts]
+
+
+@router.get("/recent", response_model=List[AlertResponse])
+def get_recent_alerts(
+    limit: int = Query(10, ge=1, le=100),
+    status: Optional[AlertStatus] = Query(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get recent alerts for dashboard."""
+    from services.alert_service import AlertService
     
-    alerts = query.options(
-        # Load related data
-    ).order_by(Alert.triggered_at.desc()).offset(offset).limit(limit).all()
+    alert_service = AlertService(db)
+    alerts = alert_service.get_recent_alerts(
+        user=current_user,
+        limit=limit,
+        status=status,
+    )
     
-    # Add device/tenant names
-    result = []
-    for alert in alerts:
-        alert_dict = {
-            "id": alert.id,
-            "rule_id": alert.rule_id,
-            "device_id": alert.device_id,
-            "tenant_id": alert.tenant_id,
-            "title": alert.title,
-            "message": alert.message,
-            "priority": alert.priority.value if hasattr(alert.priority, 'value') else alert.priority,
-            "status": alert.status.value if hasattr(alert.status, 'value') else alert.status,
-            "trigger_data": alert.trigger_data,
-            "triggered_at": alert.triggered_at,
-            "acknowledged_at": alert.acknowledged_at,
-            "resolved_at": alert.resolved_at,
-            "escalated": alert.escalated,
-            "aggregated_count": alert.aggregated_count,
-            "device_name": alert.device.name or alert.device.device_id if alert.device else None,
-            "tenant_name": alert.tenant.name if alert.tenant else None,
-        }
-        result.append(AlertResponse(**alert_dict))
-    
-    return result
+    return [AlertResponse(**alert) for alert in alerts]
 
 
 @router.get("/{alert_id}", response_model=AlertResponse)
@@ -274,34 +266,15 @@ def get_alert(
     db: Session = Depends(get_db),
 ):
     """Get a specific alert."""
-    alert = db.query(Alert).filter(Alert.id == alert_id).first()
+    from services.alert_service import AlertService
+    
+    alert_service = AlertService(db)
+    alert = alert_service.get_alert_by_id(alert_id, current_user)
+    
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     
-    # Tenant admins can only see alerts for their tenant
-    if current_user.role == UserRole.TENANT_ADMIN and alert.tenant_id != current_user.tenant_id:
-        raise HTTPException(status_code=403, detail="Cannot access alerts from other tenants")
-    
-    alert_dict = {
-        "id": alert.id,
-        "rule_id": alert.rule_id,
-        "device_id": alert.device_id,
-        "tenant_id": alert.tenant_id,
-        "title": alert.title,
-        "message": alert.message,
-        "priority": alert.priority.value if hasattr(alert.priority, 'value') else alert.priority,
-        "status": alert.status.value if hasattr(alert.status, 'value') else alert.status,
-        "trigger_data": alert.trigger_data,
-        "triggered_at": alert.triggered_at,
-        "acknowledged_at": alert.acknowledged_at,
-        "resolved_at": alert.resolved_at,
-        "escalated": alert.escalated,
-        "aggregated_count": alert.aggregated_count,
-        "device_name": alert.device.name or alert.device.device_id if alert.device else None,
-        "tenant_name": alert.tenant.name if alert.tenant else None,
-    }
-    
-    return AlertResponse(**alert_dict)
+    return AlertResponse(**alert)
 
 
 @router.post("/{alert_id}/acknowledge", response_model=AlertResponse)

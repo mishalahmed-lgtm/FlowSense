@@ -170,10 +170,10 @@ def process_message_batch(messages: List[Dict[str, Any]]) -> None:
                 latest.event_timestamp = event_ts
                 latest.updated_at = now
             else:
-                latest = TelemetryLatest(
-                    device_id=device.id,
-                    data=payload,
-                    event_timestamp=event_ts,
+            latest = TelemetryLatest(
+                device_id=device.id,
+                data=payload,
+                event_timestamp=event_ts,
                     updated_at=now
                 )
                 telemetry_latest_to_add.append(latest)
@@ -182,25 +182,25 @@ def process_message_batch(messages: List[Dict[str, Any]]) -> None:
             # Upsert device health (in-memory)
             if device.id in health_map:
                 health = health_map[device.id]
-            else:
-                health = DeviceHealthMetrics(device_id=device.id)
+        else:
+            health = DeviceHealthMetrics(device_id=device.id)
                 health_to_add.append(health)
                 health_map[device.id] = health
             
             health.last_seen_at = now
             health.current_status = "online"
-            health.calculated_at = now
-            if not health.first_seen_at:
+        health.calculated_at = now
+        if not health.first_seen_at:
                 health.first_seen_at = now
-            
+        
             # Prepare time-series inserts (bulk)
-            for item in _flatten_payload(payload):
-                ts_row = TelemetryTimeseries(
-                    device_id=device.id,
-                    ts=event_ts,
-                    key=item["key"],
-                    value=item["value"],
-                )
+        for item in _flatten_payload(payload):
+            ts_row = TelemetryTimeseries(
+                device_id=device.id,
+                ts=event_ts,
+                key=item["key"],
+                value=item["value"],
+            )
                 telemetry_timeseries_to_add.append(ts_row)
         
         # Step 5: Bulk insert new records
@@ -272,7 +272,8 @@ def process_message_batch(messages: List[Dict[str, Any]]) -> None:
                         device_id=device_id_str,
                         data=payload,
                         timestamp=event_ts.isoformat() if event_ts else None,
-                        db=ws_db
+                        db=ws_db,
+                        tenant_id=device.tenant_id  # Pass tenant_id for dashboard subscriptions
                     )
                 finally:
                     ws_db.close()
@@ -401,7 +402,7 @@ def run_worker() -> None:
                     if not device_id:
                         logger.warning("Skipping message without device_id: %s", value)
                         continue
-                    
+
                     message_batch.append({
                         "device_id": device_id,
                         "payload": payload,
@@ -425,7 +426,7 @@ def run_worker() -> None:
                     process_message_batch(message_batch)
                     message_batch = []  # Clear batch
                     last_flush_time = time.time()
-                except Exception as exc:
+                    except Exception as exc:
                     logger.exception(f"Failed to process batch of {len(message_batch)} messages: {exc}")
                     # Clear batch to avoid reprocessing same failed messages indefinitely
                     message_batch = []
@@ -433,7 +434,7 @@ def run_worker() -> None:
             
             # Small sleep to avoid busy loop when no messages
             if not records:
-                time.sleep(0.1)
+            time.sleep(0.1)
                 
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt, shutting down worker.")

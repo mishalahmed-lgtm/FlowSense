@@ -58,6 +58,18 @@ class DeviceHealthHistoryResponse(BaseModel):
         from_attributes = True
 
 
+@router.get("/devices/health/summary")
+def get_device_health_summary(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get device health summary (online/offline/unhealthy counts)."""
+    from services.device_service import DeviceService
+    
+    device_service = DeviceService(db)
+    return device_service.get_device_health_summary(current_user)
+
+
 @router.get("/devices/health", response_model=List[DeviceHealthResponse])
 def list_device_health(
     current_user: User = Depends(get_current_user),
@@ -224,14 +236,14 @@ def list_device_health(
         query = db.query(Device).filter(Device.tenant_id == current_user.tenant_id)
     else:
         query = db.query(Device)
-
+    
     devices = query.all()
     results = []
     for device in devices:
         health = db.query(DeviceHealthMetrics).filter(
             DeviceHealthMetrics.device_id == device.id
         ).first()
-
+        
         if not health:
             health_data = {
                 "device_id": device.id,
@@ -272,12 +284,12 @@ def list_device_health(
                 "uptime_30d_percent": health.uptime_30d_percent,
                 "calculated_at": health.calculated_at.isoformat() if health.calculated_at else None,
             }
-
+        
         if status_filter and health_data["current_status"] != status_filter:
             continue
-
+        
         results.append(DeviceHealthResponse(**health_data))
-
+    
     return results
 
 
@@ -370,10 +382,10 @@ def get_device_health(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     
     if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not allowed to access this device"
-        )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not allowed to access this device"
+            )
     
     health = db.query(DeviceHealthMetrics).filter(
         DeviceHealthMetrics.device_id == device_id

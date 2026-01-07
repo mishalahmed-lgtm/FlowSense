@@ -79,14 +79,9 @@ async def login_for_access_token(
     # Calculate expiration
     expires_in = settings.admin_jwt_exp_minutes * 60  # Convert to seconds
     
-    # OPTIMIZED: Update last login (non-blocking, don't fail if it errors)
-    try:
-        user.last_login_at = datetime.utcnow()
-        db.commit()
-    except Exception as e:
-        # Log error but don't fail login if last_login_at update fails
-        logger.warning(f"Failed to update last_login_at for user {user.id}: {e}")
-        db.rollback()
+    # Update last login
+    user.last_login_at = datetime.utcnow()
+    db.commit()
     
     return TokenResponse(
         access_token=access_token,

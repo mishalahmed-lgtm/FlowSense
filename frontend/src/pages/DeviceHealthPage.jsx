@@ -26,6 +26,7 @@ export default function DeviceHealthPage() {
   const [batteryFilterMode, setBatteryFilterMode] = useState("days"); // "days" or "dateRange"
   const [batteryFromDate, setBatteryFromDate] = useState("");
   const [batteryToDate, setBatteryToDate] = useState("");
+  const [healthSummary, setHealthSummary] = useState(null);
 
   // Only tenant admins with health module can access
   if (!isTenantAdmin || !hasModule("health")) {
@@ -37,6 +38,15 @@ export default function DeviceHealthPage() {
       </div>
     );
   }
+
+  const loadHealthSummary = async () => {
+    try {
+      const response = await api.get("/devices/health/summary");
+      setHealthSummary(response.data);
+    } catch (err) {
+      console.error("Failed to load health summary:", err);
+    }
+  };
 
   const loadDevices = async () => {
     try {
@@ -57,6 +67,7 @@ export default function DeviceHealthPage() {
 
   useEffect(() => {
     if (!token) return;
+    loadHealthSummary();
     loadDevices();
   }, [token, statusFilter]);
 
@@ -252,6 +263,30 @@ export default function DeviceHealthPage() {
       {error && (
         <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
           {error}
+        </div>
+      )}
+
+      {healthSummary && (
+        <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+          <h3 style={{ marginBottom: "var(--space-4)" }}>Health Summary</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-4)" }}>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>Online Devices</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#10b981" }}>{healthSummary.online_count || 0}</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>Offline Devices</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#ef4444" }}>{healthSummary.offline_count || 0}</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>Unhealthy Devices</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "bold", color: "#f97316" }}>{healthSummary.unhealthy_count || 0}</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>Total Devices</div>
+              <div style={{ fontSize: "1.5rem", fontWeight: "bold" }}>{healthSummary.total_count || 0}</div>
+            </div>
+          </div>
         </div>
       )}
 

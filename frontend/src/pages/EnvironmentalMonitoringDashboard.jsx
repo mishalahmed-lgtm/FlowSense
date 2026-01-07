@@ -73,6 +73,7 @@ export default function EnvironmentalMonitoringDashboard() {
     },
     sensorStatus: [],
   });
+  const [envSummary, setEnvSummary] = useState(null);
 
   useEffect(() => {
     if (!token) return;
@@ -81,10 +82,21 @@ export default function EnvironmentalMonitoringDashboard() {
     return () => clearInterval(interval);
   }, [token, timeRange]);
 
+  const loadEnvironmentalSummary = async () => {
+    try {
+      const hours = timeRange === "24h" ? 24 : timeRange === "7d" ? 168 : 720;
+      const response = await api.get("/admin/environmental/summary", { params: { hours } });
+      setEnvSummary(response.data);
+    } catch (err) {
+      console.error("Failed to load environmental summary:", err);
+    }
+  };
+
   const loadEnvironmentalData = async () => {
     setLoading(true);
     setError(null);
     try {
+      await loadEnvironmentalSummary();
       // Get all devices for the tenant
       const devicesResp = await api.get("/admin/devices", { params: { limit: 1000 } });
       // Handle paginated response format
@@ -447,6 +459,38 @@ export default function EnvironmentalMonitoringDashboard() {
       {error && (
         <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
           {error}
+        </div>
+      )}
+
+      {envSummary && (
+        <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+          <h3 style={{ marginBottom: "var(--space-4)" }}>Environmental Summary</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--space-4)" }}>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>PM2.5 Average</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.pm25_avg.toFixed(2)} μg/m³</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>PM10 Average</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.pm10_avg.toFixed(2)} μg/m³</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>CO₂ Average</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.co2_avg.toFixed(2)} ppm</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>Temperature</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.temperature_avg.toFixed(2)} °C</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>Humidity</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.humidity_avg.toFixed(2)} %</div>
+            </div>
+            <div>
+              <div className="text-muted" style={{ fontSize: "0.875rem" }}>AQI</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold", color: getAQICategory(envSummary.aqi).color }}>{envSummary.aqi}</div>
+            </div>
+          </div>
         </div>
       )}
 

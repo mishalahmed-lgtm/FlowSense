@@ -40,6 +40,24 @@ from models import (
 router = APIRouter(prefix="/admin/utility", tags=["utility"])
 
 
+@router.get("/consumption/summary")
+def get_utility_consumption_summary(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    start_date: Optional[datetime] = Query(None),
+    end_date: Optional[datetime] = Query(None),
+):
+    """Get utility consumption summary for tenant."""
+    from services.utility_service import UtilityService
+    
+    utility_service = UtilityService(db)
+    return utility_service.get_utility_consumption(
+        user=current_user,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
 class UtilityConsumptionPreview(BaseModel):
     tenant_id: int
     tenant_name: str
@@ -517,15 +535,15 @@ def get_all_devices_energy_consumption(
             
             devices.append(MockDevice(device_id, payload))
     else:
-        device_query = db.query(Device).join(Tenant)
-        
-        # Tenant admins can only access their own tenant's data
-        if current_user.role == UserRole.TENANT_ADMIN:
-            device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
-        elif tenant_id is not None:
-            device_query = device_query.filter(Device.tenant_id == tenant_id)
-        
-        devices = device_query.filter(Device.is_active == True).all()
+    device_query = db.query(Device).join(Tenant)
+    
+    # Tenant admins can only access their own tenant's data
+    if current_user.role == UserRole.TENANT_ADMIN:
+        device_query = device_query.filter(Device.tenant_id == current_user.tenant_id)
+    elif tenant_id is not None:
+        device_query = device_query.filter(Device.tenant_id == tenant_id)
+    
+    devices = device_query.filter(Device.is_active == True).all()
     
     # Get tenant country for rate calculation
     # Try to get tenant from query first, then from devices
@@ -594,17 +612,17 @@ def get_all_devices_energy_consumption(
                             continue
             else:
                 # Query telemetry for this field from TelemetryTimeseries
-                samples = (
-                    db.query(TelemetryTimeseries)
-                    .filter(
-                        TelemetryTimeseries.device_id == device.id,
-                        TelemetryTimeseries.key == power_field,
-                        TelemetryTimeseries.ts >= period_start,
-                        TelemetryTimeseries.ts < period_end,
-                    )
-                    .order_by(TelemetryTimeseries.ts.asc())
-                    .all()
+            samples = (
+                db.query(TelemetryTimeseries)
+                .filter(
+                    TelemetryTimeseries.device_id == device.id,
+                    TelemetryTimeseries.key == power_field,
+                    TelemetryTimeseries.ts >= period_start,
+                    TelemetryTimeseries.ts < period_end,
                 )
+                .order_by(TelemetryTimeseries.ts.asc())
+                .all()
+            )
             
             if not samples:
                 continue  # No data for this field

@@ -18,13 +18,14 @@ from models import (
 logger = logging.getLogger(__name__)
 
 # Try to import telemetry producer (may not be available in all contexts)
+# DISABLED: Kafka is not running, use direct DB + WebSocket instead
 try:
     from kafka_producer import telemetry_producer
     from rule_engine import rule_engine
-    TELEMETRY_AVAILABLE = True
+    TELEMETRY_AVAILABLE = False  # Force disable Kafka for faster processing
 except ImportError:
     TELEMETRY_AVAILABLE = False
-    logger.warning("Telemetry producer not available, POST /external/data will be limited")
+    logger.warning("Telemetry producer not available, POST /external/data will use direct DB write")
 
 router = APIRouter(prefix="/external", tags=["external-api"])
 
@@ -758,7 +759,7 @@ async def receive_installations(
     #             "createdAt": "2025-01-10"
     #         }
     #     ]
-
+    
     #     Devices are automatically created with HTTP protocol since data comes via HTTP.
     #     """
     # Check for "installations", "devices", or "data" permission
@@ -1248,13 +1249,20 @@ async def send_telemetry_data_internal(
             )
             
             if not success:
-                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to process telemetry data")
+                # Kafka failed, use fallback
+                logger.warning(f"[External API] Kafka publish failed, using fallback for device: {device.device_id}")
+                raise Exception("Kafka publish failed")
             
             logger.info(f"[External API] Telemetry published for device: {device.device_id}")
+            return {"status": "accepted", "device_id": device.device_id, "message": "Telemetry data received and queued"}
         except Exception as e:
-            logger.error(f"Error publishing telemetry via external API: {e}", exc_info=True)
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to process telemetry: {str(e)}")
-    else:
+            # Kafka failed or unavailable - fall back to direct DB write + WebSocket
+            logger.warning(f"[External API] Kafka error ({e}), using direct DB write + WebSocket broadcast")
+            # Fall through to else block below
+    
+    # Fallback: Write directly to DB and broadcast via WebSocket (when Kafka unavailable or fails)
+    if True:  # Always use fallback when Kafka fails
+        # Fallback: Write directly to DB and broadcast via WebSocket (when Kafka unavailable)
         from models import TelemetryLatest, DeviceHealthMetrics
         latest = db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
         event_ts = datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if timestamp else datetime.now(timezone.utc)
@@ -1284,6 +1292,21 @@ async def send_telemetry_data_internal(
             health.first_seen_at = health.last_seen_at
         
         db.commit()
+        
+        # Broadcast via WebSocket so frontend gets live updates
+        try:
+            from routers.websocket import broadcast_telemetry_update_async
+            # Since we're in an async context, we can await
+            await broadcast_telemetry_update_async(
+                device_id=device.device_id,
+                tenant_id=device.tenant_id,
+                data=payload.data,
+                timestamp=event_ts.isoformat(),
+            )
+            logger.info(f"[External API] ✓ Broadcasted telemetry via WebSocket for device: {device.device_id}")
+        except Exception as e:
+            logger.error(f"[External API] ✗ Failed to broadcast via WebSocket: {e}", exc_info=True)
+        
         logger.info(f"[External API] Telemetry stored (Kafka unavailable) for device: {device.device_id}")
     
     return {"status": "accepted", "device_id": device.device_id, "message": "Telemetry data received and processed"}

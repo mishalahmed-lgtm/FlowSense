@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useDashboardWebSocket } from "../hooks/useWebSocket.js";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
@@ -14,7 +15,9 @@ export default function DashboardPage() {
   const [recentAlerts, setRecentAlerts] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [wsConnected, setWsConnected] = useState(false);
 
+  // Initial load from database (one-time, even if empty)
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
@@ -64,6 +67,87 @@ export default function DashboardPage() {
     if (!token) return;
     loadData();
   }, [token, user]);
+
+  // WebSocket message handler - handles live updates
+  const handleWebSocketMessage = useCallback((message) => {
+    console.log("WebSocket message received:", message);
+    
+    // Ignore ping/pong messages
+    if (message.type === "ping" || message.type === "pong") {
+      return;
+    }
+    
+    if (message.type === "initial_state") {
+      // Initial state from WebSocket (sent on connect)
+      if (message.metrics) {
+        setMetrics(message.metrics);
+      }
+      if (message.devices) {
+        // Could update device list if needed
+      }
+      if (message.activity) {
+        setActivity(message.activity);
+      }
+      return;
+    }
+    
+    if (message.type === "telemetry" || message.type === "telemetry_update") {
+      // Live telemetry update - update metrics if needed
+      console.log("Live telemetry update:", message.device_id, message.data);
+      
+      // Update metrics locally (increment message counts)
+      setMetrics(prev => {
+        // Initialize metrics if null
+        if (!prev) {
+          const newMetrics = {
+            active_devices: 0,
+            messages: {
+              total_received: 1,
+              total_published: 1,
+              total_rejected: 0,
+            },
+            sources: {},
+          };
+          console.log("📊 Initializing metrics from WebSocket:", newMetrics);
+          return newMetrics;
+        }
+        const updated = {
+          ...prev,
+          messages: {
+            ...prev.messages,
+            total_received: (prev.messages?.total_received || 0) + 1,
+            total_published: (prev.messages?.total_published || 0) + 1,
+            total_rejected: prev.messages?.total_rejected || 0,
+          }
+        };
+        console.log("📊 Updating metrics:", {
+          old: prev.messages,
+          new: updated.messages
+        });
+        return updated;
+      });
+    }
+  }, []);
+
+  // WebSocket error handler - memoized to prevent reconnections
+  const handleWebSocketError = useCallback((err) => {
+    console.error("WebSocket error:", err);
+    setError("WebSocket connection error - using fallback polling");
+  }, []);
+
+  // Connect WebSocket for live updates
+  const { connected: wsConnectedState, error: wsError } = useDashboardWebSocket(
+    token,
+    handleWebSocketMessage,
+    handleWebSocketError
+  );
+
+  useEffect(() => {
+    setWsConnected(wsConnectedState);
+    if (wsConnectedState) {
+      console.log("✓ Dashboard WebSocket connected - receiving live updates");
+    }
+  }, [wsConnectedState]);
 
   // Format chart data for recharts
   const chartData = activity?.buckets?.map(bucket => ({
@@ -203,6 +287,34 @@ export default function DashboardPage() {
           {error}
             </p>
           </div>
+        </div>
+      )}
+
+      {/* WebSocket Connection Status */}
+      {!loading && (
+        <div style={{
+          position: "fixed",
+          top: "var(--space-4)",
+          right: "var(--space-4)",
+          padding: "var(--space-2) var(--space-3)",
+          borderRadius: "var(--radius-md)",
+          backgroundColor: wsConnected ? "var(--color-success-bg)" : "var(--color-warning-bg)",
+          color: wsConnected ? "var(--color-success-text)" : "var(--color-warning-text)",
+          fontSize: "var(--font-size-xs)",
+          display: "flex",
+          alignItems: "center",
+          gap: "var(--space-2)",
+          zIndex: 1000,
+          boxShadow: "var(--shadow-sm)"
+        }}>
+          <div style={{
+            width: "8px",
+            height: "8px",
+            borderRadius: "50%",
+            backgroundColor: wsConnected ? "var(--color-success)" : "var(--color-warning)",
+            animation: wsConnected ? "pulse 2s infinite" : "none"
+          }} />
+          {wsConnected ? "Live Updates Active" : "Connecting..."}
         </div>
       )}
 

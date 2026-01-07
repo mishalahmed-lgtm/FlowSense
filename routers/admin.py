@@ -212,19 +212,10 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None, has_das
 
 @router.post("/login", response_model=TokenResponse, tags=["public"])
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    """Authenticate user and return JWT.
+    """Authenticate user and return JWT."""
+    # Find user by email
+    user = db.query(User).filter(User.email == payload.email.lower()).first()
     
-    OPTIMIZED for free-tier database:
-    - Uses indexed email lookup (email column has index)
-    - Updates last_login_at in background (non-blocking)
-    - Returns token immediately after password verification
-    """
-    # OPTIMIZED: Use indexed email lookup (email column has unique index)
-    # Lowercase email for consistent lookup (emails should be stored lowercase)
-    email_lower = payload.email.lower()
-    user = db.query(User).filter(User.email == email_lower).first()
-    
-    # Verify password first (before any DB writes)
     if not user or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -237,20 +228,14 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             detail="User account is inactive",
         )
     
-    # OPTIMIZED: Update last_login_at in a separate transaction (non-blocking)
-    # This prevents the DB write from blocking the response
-    try:
-        user.last_login_at = datetime.utcnow()
-        db.commit()
-    except Exception as e:
-        # Log error but don't fail login if last_login_at update fails
-        logger.warning(f"Failed to update last_login_at for user {user.id}: {e}")
-        db.rollback()
+    # Update last login
+    user.last_login_at = datetime.utcnow()
+    db.commit()
     
-    # Create token (fast operation, no DB access)
+    # Create token
     token = create_access_token(user)
     
-    # Return token with user info (no additional DB queries)
+    # Return token with user info
     user_info = {
         "id": user.id,
         "email": user.email,
@@ -274,323 +259,63 @@ def list_devices(
     protocol: Optional[str] = Query(None, description="Filter by protocol (e.g., 'HTTP', 'MQTT')"),
     include_counts: bool = Query(True, description="Include total_active and total_inactive counts (slower)"),
 ):
-    """Return devices with pagination.
+    """Return devices with pagination - uses service layer for sequential DB queries.
 
     NOTE:
-    - For tenant admins, we now read from the `devices_snapshot` table (database-only view).
-    - For global admins, we keep the existing behaviour (read from `devices` table).
+    - All queries run sequentially through DeviceService
+    - For tenant admins, we read from the `devices_snapshot` table (database-only view).
+    - For global admins, we read from the `devices` table.
     """
     try:
         logger.info(f"list_devices called: user={current_user.email}, role={current_user.role}, tenant_id={current_user.tenant_id}, page={page}, limit={limit}")
         
-        # Special path for tenant admins: read from devices_snapshot (DB-only view)
-        if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
-            tenant_id = current_user.tenant_id
-            logger.info(f"Tenant admin path: tenant_id={tenant_id}")
-
-            # Base query on snapshot table
-            snapshot_query = db.query(DeviceSnapshot).filter(DeviceSnapshot.tenant_id == tenant_id)
-
-            # Server-side search filter (device_id only – snapshot has no name column)
-            if search:
-                search_term = f"%{search.lower()}%"
-                snapshot_query = snapshot_query.filter(DeviceSnapshot.device_id.ilike(search_term))
-                logger.info(f"Applied search filter: {search}")
-
-            # NOTE: protocol/status filters are not applied in snapshot mode,
-            # since those fields are not first-class columns. You can extend this
-            # later by parsing them from payload JSON.
-
-            # Count BEFORE pagination
-            logger.info("Counting total devices...")
-            total_count = snapshot_query.count()
-            logger.info(f"Total devices found: {total_count}")
-
-            # Pagination
-            offset = (page - 1) * limit
-            logger.info(f"Fetching devices: offset={offset}, limit={limit}")
-            snapshots = (
-                snapshot_query
-                .order_by(DeviceSnapshot.device_id)
-                .offset(offset)
-                .limit(limit)
-                .all()
-            )
-            logger.info(f"Fetched {len(snapshots)} devices from database")
-
-            # Fetch tenant name for display
-            tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-            tenant_name = tenant.name if tenant else f"Tenant {tenant_id}"
-
-            # Build DeviceResponse list from snapshot payload
-            serialized_devices: List[DeviceResponse] = []
-            now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
-            
-            # Count active/inactive using SQL aggregation (never load all devices)
-            total_active_count = None
-            total_inactive_count = None
-            if include_counts:
-                logger.info("Calculating active/inactive counts...")
-                # OPTIMIZED: Simplified query for free-tier DB (0.1% CPU)
-                # Complex JSONB queries with multiple OR conditions timeout on free-tier
-                # Use simplest possible query: only check is_active flag
-                try:
-                    # Simple query: only check top-level is_active (fastest)
-                    active_query = text("""
-                        SELECT COUNT(*) 
-                        FROM devices_snapshot 
-                        WHERE tenant_id = :tenant_id
-                          AND (payload->>'is_active')::text = 'true'
-                    """)
-                    active_result = db.execute(active_query, {"tenant_id": tenant_id}).scalar()
-                    total_active_count = active_result or 0
-                    logger.info(f"Active devices count: {total_active_count}")
-                    
-                    # Total count (simple count, no JSONB operations)
-                    total_count_query = db.query(func.count(DeviceSnapshot.device_id)).filter(
-                        DeviceSnapshot.tenant_id == tenant_id
-                    ).scalar()
-                    
-                    # Inactive = total - active
-                    total_inactive_count = (total_count_query or 0) - total_active_count
-                    logger.info(f"Inactive devices count: {total_inactive_count}")
-                except Exception as e:
-                    logger.error(f"Error counting devices: {e}", exc_info=True)
-                    # Fallback: set to None to skip counts (don't block the request)
-                    total_active_count = None
-                    total_inactive_count = None
+        # Use service layer for sequential DB queries
+        from services import DeviceService
+        device_service = DeviceService(db)
         
-        for idx, snap in enumerate(snapshots, start=1 + offset):
-            payload = snap.payload or {}
-            if not isinstance(payload, dict):
-                payload = {}
-
-            # Extract ALL fields from payload - everything comes from devices_snapshot
-            # Name extraction
-            name = (
-                payload.get("name") or 
-                payload.get("device_name") or 
-                payload.get("deviceName") or 
-                payload.get("label") or 
-                payload.get("title") or 
-                snap.device_id
-            )
-
-            # Extract device_type from payload
-            device_type_name = "Snapshot Device"
-            device_type_id = 0
-            protocol = "HTTP"
-            
-            device_type_obj = payload.get("device_type")
-            if isinstance(device_type_obj, dict):
-                device_type_name = device_type_obj.get("name") or device_type_name
-                protocol = device_type_obj.get("protocol") or protocol
-                device_type_id = device_type_obj.get("id") or 0
-            elif isinstance(device_type_obj, str):
-                device_type_name = device_type_obj
-            
-            # Protocol can also be top-level
-            if payload.get("protocol"):
-                protocol = payload["protocol"]
-
-            # SECURITY: Never trust payload.tenant_id - always use current_user.tenant_id
-            # Extract tenant name from payload if available, but always use authenticated tenant_id
-            payload_tenant_name = payload.get("tenant_name")
-            tenant_id_to_use = tenant_id  # Always use authenticated tenant_id
-            tenant_name_to_use = payload_tenant_name if payload_tenant_name else tenant_name
-
-            # Determine if device is online - check payload.is_active first, then telemetry timestamp
-            is_active = payload.get("is_active", False)
-            
-            # If is_active not explicitly set, check telemetry timestamp
-            if not isinstance(is_active, bool):
-                telemetry = payload.get("telemetry") or {}
-                telemetry_ts = telemetry.get("timestamp") or telemetry.get("updated_at")
-                if telemetry_ts:
-                    try:
-                        if isinstance(telemetry_ts, str):
-                            ts = datetime.fromisoformat(telemetry_ts.replace('Z', '+00:00'))
-                            if ts.tzinfo is None:
-                                ts = ts.replace(tzinfo=timezone.utc)
-                        else:
-                            ts = telemetry_ts
-                        is_active = ts >= cutoff
-                    except (ValueError, TypeError, AttributeError):
-                        # Fallback: check health.last_seen_at
-                        health = payload.get("health") or {}
-                        last_seen = health.get("last_seen_at")
-                        if last_seen:
-                            try:
-                                if isinstance(last_seen, str):
-                                    ts = datetime.fromisoformat(last_seen.replace('Z', '+00:00'))
-                                    if ts.tzinfo is None:
-                                        ts = ts.replace(tzinfo=timezone.utc)
-                                else:
-                                    ts = last_seen
-                                is_active = ts >= cutoff
-                            except (ValueError, TypeError, AttributeError):
-                                is_active = False
-                else:
-                    is_active = False
-
-            # Extract metadata from payload
-            payload_metadata = payload.get("metadata") or {}
-            if isinstance(payload_metadata, dict):
-                metadata = DeviceMetadata(
-                    http_settings=payload_metadata.get("http_settings"),
-                    mqtt_settings=payload_metadata.get("mqtt_settings"),
-                    tcp_settings=payload_metadata.get("tcp_settings"),
-                    extras=payload_metadata.get("extras") or payload,  # Put full payload in extras
-                    external_data=payload_metadata.get("external_data"),
-                    external_data_synced_at=payload_metadata.get("external_data_synced_at"),
-                )
-            else:
-                metadata = DeviceMetadata(extras=payload)
-
-            # Check if device has dashboard config
-            dashboard_cfg = payload.get("dashboard") or {}
-            has_dashboard = bool(dashboard_cfg.get("widgets") and len(dashboard_cfg.get("widgets", [])) > 0)
-
-            device_resp = DeviceResponse(
-                id=idx,  # Synthetic ID for UI purposes
-                device_id=snap.device_id,
-                name=name,
-                device_type=device_type_name,
-                device_type_id=device_type_id,
-                protocol=protocol,
-                tenant=tenant_name_to_use,
-                tenant_id=tenant_id_to_use,
-                is_active=is_active,
-                metadata=metadata,
-                provisioning_key=None,  # Snapshot devices don't have provisioning keys
-                has_dashboard=has_dashboard,
-            )
-            serialized_devices.append(device_resp)
-
-        total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
-
-        return PaginatedDeviceResponse(
-            devices=serialized_devices,
-            total=total_count,
+        result = device_service.get_devices_paginated(
+            user=current_user,
             page=page,
             limit=limit,
-            total_pages=total_pages,
-            total_active=total_active_count,
-            total_inactive=total_inactive_count,
+            search=search,
+            status=status,
+            protocol=protocol,
+            include_counts=include_counts,
         )
-
-        # ---- Default path (global admins) – existing behaviour on `devices` table ----
-        logger.info("Global admin path: using devices table")
-        query = db.query(Device)
         
-        # Filter by tenant if user is tenant admin (fallback path)
-        if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
-            query = query.filter(Device.tenant_id == current_user.tenant_id)
+        logger.info(f"DeviceService executed {device_service.get_query_count()} sequential queries")
         
-        # Server-side search filter
-        if search:
-            search_term = f"%{search.lower()}%"
-            query = query.filter(
-                or_(
-                    Device.device_id.ilike(search_term),
-                    Device.name.ilike(search_term)
-                )
-            )
-        
-        # Server-side protocol filter
-        if protocol:
-            query = query.join(DeviceType).filter(DeviceType.protocol.ilike(f"%{protocol}%"))
-        
-        # Simple count - just count IDs
-        total_count = query.count()
-        
-        # Skip active/inactive counts for now - they're slow
-        total_active_count = None
-        total_inactive_count = None
-        
-        # Apply pagination and get devices
-        offset = (page - 1) * limit
-        devices = query.offset(offset).limit(limit).all()
-
-        # Check live status: device is active if EITHER:
-        # 1. It sent telemetry in the past 5 hours 5 minutes, OR
-        # 2. It has external_data_synced_at in device_metadata within past 5 hours 5 minutes
-        # Use PostgreSQL JSON queries for efficiency (no Python JSON parsing)
-        live_map: Dict[int, bool] = {}
-        
-        if devices:
-            device_ids = [device.id for device in devices]
-            
-            # Check telemetry latest records - single efficient query
-            latest_records = (
-                db.query(TelemetryLatest.device_id, TelemetryLatest.updated_at)
-                .filter(TelemetryLatest.device_id.in_(device_ids))
-                .all()
-            )
-            latest_by_device_id = {record.device_id: record.updated_at for record in latest_records}
-            
-            # Also check for devices with recent external_data_synced_at using native PostgreSQL JSON query
-            # This is efficient - PostgreSQL extracts JSON at database level, no Python parsing
-            cutoff_iso = (datetime.now(timezone.utc) - timedelta(seconds=18300)).isoformat()
-            
-            # Raw SQL query using PostgreSQL JSON operators for efficiency
-            external_sync_query = text("""
-                SELECT id 
-                FROM devices 
-                WHERE id = ANY(:device_ids)
-                  AND device_metadata IS NOT NULL
-                  AND device_metadata::jsonb->>'external_data_synced_at' >= :cutoff_iso
-            """)
-            
-            external_synced_devices = db.execute(
-                external_sync_query,
-                {"device_ids": device_ids, "cutoff_iso": cutoff_iso}
-            ).fetchall()
-            external_synced_device_ids = {row[0] for row in external_synced_devices}
-            
-            now = datetime.now(timezone.utc)
-            cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes (305 minutes)
-            
-            for device in devices:
-                # Check telemetry first
-                updated_at = latest_by_device_id.get(device.id)
-                has_recent_telemetry = bool(updated_at and updated_at >= cutoff)
-                
-                # Check if device has recent external sync
-                has_recent_external = device.id in external_synced_device_ids
-                
-                # Device is active if it has EITHER recent telemetry OR recent external data
-                is_live = has_recent_telemetry or has_recent_external
-                live_map[device.id] = is_live
-
-        # Serialize devices with live status
-        serialized_devices = [
-            _serialize_device(device, is_live=live_map.get(device.id, False)) for device in devices
-        ]
-        
-        # Apply server-side status filter if requested
-        if status:
-            is_active_filter = status.lower() == "active"
-            serialized_devices = [d for d in serialized_devices if d.is_active == is_active_filter]
-        
-        # Return paginated response with metadata
-        total_pages = math.ceil(total_count / limit) if total_count > 0 else 1
-        return PaginatedDeviceResponse(
-            devices=serialized_devices,
-            total=total_count,
-            page=page,
-            limit=limit,
-            total_pages=total_pages,
-            total_active=total_active_count,
-            total_inactive=total_inactive_count
-        )
+        return PaginatedDeviceResponse(**result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in list_devices: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch devices: {str(e)}"
         )
+
+
+# Helper function for old code (if needed elsewhere)
+def _serialize_device_old(device: Device, is_live: bool) -> DeviceResponse:
+    """DEPRECATED: Old serialization logic - now handled by DeviceService."""
+    return DeviceResponse(
+        id=device.id,
+        device_id=device.device_id,
+        name=device.name or device.device_id,
+        device_type=device.device_type.name if device.device_type else "Unknown",
+        device_type_id=device.device_type_id or 0,
+        protocol=device.device_type.protocol if device.device_type else "HTTP",
+        tenant=device.tenant.name if device.tenant else "Unknown",
+        tenant_id=device.tenant_id,
+        is_active=is_live,
+        metadata=device.metadata or {},
+        provisioning_key=None,
+        has_dashboard=False,
+    )
+
+
+# Old list_devices implementation removed - now using DeviceService for sequential queries
 
 
 @router.post("/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
@@ -971,27 +696,21 @@ def get_metrics(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get system-wide metrics (admin only)."""
+    """Get system-wide metrics (admin only) - uses service layer for sequential queries."""
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
         )
     
-    stats = metrics.get_stats()
+    # Use service layer for sequential DB queries
+    from services import MetricsService
+    metrics_service = MetricsService(db)
     
-    # Count active devices from database
-    active_devices = db.query(Device).filter(Device.is_active == True).count()
+    result = metrics_service.get_global_metrics()
+    logger.info(f"MetricsService executed {metrics_service.get_query_count()} sequential queries")
     
-    return {
-        "active_devices": active_devices,
-        "messages": {
-            "total_received": stats["messages"]["total_received"],
-            "total_published": stats["messages"]["total_published"],
-            "total_rejected": stats["messages"]["total_rejected"],
-        },
-        "sources": stats.get("sources", {}),
-    }
+    return result
 
 
 @metrics_router.get("/metrics/tenant")
@@ -999,88 +718,18 @@ def get_tenant_metrics(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get tenant-scoped metrics for tenant admins."""
+    """Get tenant-scoped metrics for tenant admins - uses service layer for sequential queries."""
     try:
         logger.info(f"get_tenant_metrics called: user={current_user.email}, tenant_id={current_user.tenant_id}")
         
-        if current_user.role != UserRole.TENANT_ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Tenant admin access required"
-            )
+        # Use service layer for sequential DB queries
+        from services import MetricsService
+        metrics_service = MetricsService(db)
         
-        if not current_user.tenant_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Tenant admin has no tenant assigned"
-            )
+        result = metrics_service.get_tenant_metrics(current_user)
+        logger.info(f"MetricsService executed {metrics_service.get_query_count()} sequential queries")
         
-        # Use SQL aggregation - never load all devices into memory
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
-        cutoff_iso = cutoff.isoformat()
-        
-        # OPTIMIZED: Simplified active device count query for free-tier DB performance
-        # Use the simplest possible JSONB query to avoid timeout
-        # On free-tier (0.1% CPU), complex JSONB queries can take 30+ seconds
-        try:
-            # Use simplest query: only check top-level is_active flag (fastest)
-            # Skip timestamp checks to avoid complex JSONB operations
-            active_query = text("""
-                SELECT COUNT(*) 
-                FROM devices_snapshot 
-                WHERE tenant_id = :tenant_id
-                  AND (payload->>'is_active')::text = 'true'
-            """)
-            
-            # Set query timeout to prevent hanging (5 seconds max)
-            # If query takes longer, return 0 to avoid blocking
-            try:
-                active_count = db.execute(active_query, {"tenant_id": current_user.tenant_id}).scalar() or 0
-            except Exception as query_error:
-                logger.warning(f"Active count query timed out or failed: {query_error}, returning 0")
-                active_count = 0
-            
-            logger.info(f"Active devices count: {active_count}")
-        except Exception as e:
-            logger.error(f"Error counting active devices in metrics: {e}", exc_info=True)
-            active_count = 0
-        
-        # OPTIMIZED: Skip fetching all device IDs (2000+ rows) - too slow on free-tier DB
-        # Instead, get metrics stats first, then filter by tenant's devices if needed
-        # This avoids loading all 2000 device_ids into memory
-        try:
-            stats = metrics.get_stats()
-            
-            # OPTIMIZED: Only fetch device IDs if we need to filter metrics
-            # For now, return aggregate stats without device-level filtering (much faster)
-            # If device-level filtering is needed, we can add it later with pagination
-            device_ids = []  # Skip loading all device IDs (performance optimization)
-            tenant_sources = {}
-            
-            # Return aggregate message counts (not device-specific to avoid loading 2000 IDs)
-            # This is much faster on free-tier database
-            total_received = stats.get("total_received", 0) if isinstance(stats.get("total_received"), int) else 0
-            total_published = stats.get("total_published", 0) if isinstance(stats.get("total_published"), int) else 0
-            total_rejected = stats.get("total_rejected", 0) if isinstance(stats.get("total_rejected"), int) else 0
-            
-            logger.info(f"Metrics stats: received={total_received}, published={total_published}, rejected={total_rejected}")
-        except Exception as e:
-            logger.error(f"Error getting metrics stats: {e}", exc_info=True)
-            total_received = 0
-            total_published = 0
-            total_rejected = 0
-            tenant_sources = {}
-        
-        return {
-            "active_devices": active_count,
-            "messages": {
-                "total_received": total_received,
-                "total_published": total_published,
-                "total_rejected": total_rejected,
-            },
-            "sources": tenant_sources,
-        }
+        return result
     except HTTPException:
         raise
     except Exception as e:

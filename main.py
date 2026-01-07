@@ -15,6 +15,7 @@ from routers import dashboard as dashboard_router
 from routers import utility as utility_router
 from routers import user_management as user_management_router
 from routers import alerts as alerts_router
+from routers import environmental as environmental_router
 from routers import fota as fota_router
 from routers import health as health_router
 from routers import analytics as analytics_router
@@ -324,6 +325,10 @@ app.include_router(
     prefix=f"{settings.api_v1_prefix}",
 )
 app.include_router(
+    environmental_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
     user_management_router.router,
     prefix=f"{settings.api_v1_prefix}",
 )
@@ -409,7 +414,7 @@ async def health_check():
     
     health_status = {
         "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         "checks": {
             "api": "ok",
             "database": "unknown",
