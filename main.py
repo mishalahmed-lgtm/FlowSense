@@ -391,7 +391,7 @@ async def root():
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["public"])
 async def health_check():
     """
     Public health check endpoint (no authentication required).
@@ -502,13 +502,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     )
 
 
-@app.get("/health")
-async def health():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "mqtt_connected": mqtt_handler.is_connected
-    }
+# Removed duplicate /health endpoint - using comprehensive one above that checks database
 
 
     raise HTTPException(status_code=status.HTTP_410_GONE, detail="External API sync service has been removed. Frontend now only reads from database.")
