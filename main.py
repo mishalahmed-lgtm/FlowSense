@@ -391,6 +391,70 @@ async def root():
     }
 
 
+@app.get("/health")
+async def health_check():
+    """
+    Public health check endpoint (no authentication required).
+    
+    Checks:
+    - API is running
+    - PostgreSQL database connection is working
+    - Connection pool status
+    
+    Returns:
+    - 200 OK if all checks pass
+    - 503 Service Unavailable if database is unreachable
+    """
+    from sqlalchemy import text
+    
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "checks": {
+            "api": "ok",
+            "database": "unknown",
+        }
+    }
+    
+    # Check database connection
+    db = SessionLocal()
+    try:
+        # Simple query to test connection
+        result = db.execute(text("SELECT 1")).scalar()
+        
+        if result == 1:
+            health_status["checks"]["database"] = "ok"
+            
+            # Add connection pool info (optional, useful for debugging)
+            try:
+                health_status["pool"] = {
+                    "size": engine.pool.size(),
+                    "checked_out": engine.pool.checkedout(),
+                    "overflow": engine.pool.overflow(),
+                }
+            except Exception:
+                pass  # Pool info is optional
+        else:
+            health_status["status"] = "degraded"
+            health_status["checks"]["database"] = "unexpected_response"
+            
+    except Exception as e:
+        health_status["status"] = "unhealthy"
+        health_status["checks"]["database"] = "error"
+        health_status["error"] = str(e)
+        logger.error(f"Health check database error: {e}")
+        
+        # Return 503 Service Unavailable if database is down
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=health_status
+        )
+    finally:
+        db.close()
+    
+    return health_status
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     """Handle HTTPExceptions with CORS headers."""
