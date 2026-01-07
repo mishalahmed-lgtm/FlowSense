@@ -42,6 +42,14 @@ function getAQICategory(aqi) {
   return { label: "Hazardous", color: "#7c2d12", level: "hazardous" };
 }
 
+function getNoiseCategory(noiseLevel) {
+  if (noiseLevel <= 40) return { label: "Quiet", color: "#10b981", description: "Safe for all" };
+  if (noiseLevel <= 60) return { label: "Moderate", color: "#facc15", description: "Comfortable" };
+  if (noiseLevel <= 80) return { label: "Loud", color: "#f97316", description: "Harmful for sensitive" };
+  if (noiseLevel <= 100) return { label: "Very Loud", color: "#ef4444", description: "Hearing risk" };
+  return { label: "Dangerous", color: "#991b1b", description: "Immediate harm" };
+}
+
 export default function EnvironmentalMonitoringDashboard() {
   const { token, isTenantAdmin } = useAuth();
   const api = useMemo(() => createApiClient(token), [token]);
@@ -60,6 +68,7 @@ export default function EnvironmentalMonitoringDashboard() {
       temperature: null,
       humidity: null,
     },
+    trends: [],
     noise: {
       level: null,
       peak: null,
@@ -537,7 +546,91 @@ export default function EnvironmentalMonitoringDashboard() {
             </div>
           )}
 
-          {/* Summary Metrics */}
+          {/* Noise Level Status Card */}
+          {envSummary && envSummary.noise_avg > 0 && (
+            <div className="card" style={{ marginBottom: "var(--space-6)", background: `linear-gradient(135deg, ${getNoiseCategory(envSummary.noise_avg).color}15 0%, ${getNoiseCategory(envSummary.noise_avg).color}05 100%)`, border: `2px solid ${getNoiseCategory(envSummary.noise_avg).color}40` }}>
+              <div className="card__body" style={{ textAlign: "center", padding: "var(--space-8)" }}>
+                <div style={{ fontSize: "var(--font-size-4xl)", fontWeight: "var(--font-weight-bold)", color: getNoiseCategory(envSummary.noise_avg).color, marginBottom: "var(--space-2)" }}>
+                  {envSummary.noise_avg.toFixed(1)} dB
+                </div>
+                <div style={{ fontSize: "var(--font-size-xl)", fontWeight: "var(--font-weight-semibold)", color: getNoiseCategory(envSummary.noise_avg).color, marginBottom: "var(--space-2)" }}>
+                  Noise Level: {getNoiseCategory(envSummary.noise_avg).label}
+                </div>
+                <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
+                  {getNoiseCategory(envSummary.noise_avg).description}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Metric Cards - Humidity, Air Quality, Noise, Rain */}
+          <div className="metrics-grid" style={{ marginBottom: "var(--space-3)", gridTemplateColumns: "repeat(4, 1fr)" }}>
+            {envSummary && (
+              <>
+                {/* Humidity Card */}
+                <div className="metric-card">
+                  <div className="metric-card__header">
+                    <span className="metric-card__label">Humidity</span>
+                    <Icon name="droplet" size="lg" />
+                  </div>
+                  <div className="metric-card__value">
+                    {envSummary.humidity_avg.toFixed(1)}
+                    <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> %</span>
+                  </div>
+                  <div className="metric-card__footer">
+                    {envSummary.humidity_avg < 30 ? "Dry" : envSummary.humidity_avg < 60 ? "Comfortable" : "Humid"}
+                  </div>
+                </div>
+
+                {/* Air Quality Card */}
+                <div className="metric-card">
+                  <div className="metric-card__header">
+                    <span className="metric-card__label">Air Quality</span>
+                    <Icon name="wind" size="lg" />
+                  </div>
+                  <div className="metric-card__value" style={{ color: getAQICategory(envSummary.aqi).color }}>
+                    {envSummary.aqi}
+                    <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> AQI</span>
+                  </div>
+                  <div className="metric-card__footer">
+                    {getAQICategory(envSummary.aqi).label}
+                  </div>
+                </div>
+
+                {/* Noise Level Card */}
+                <div className="metric-card">
+                  <div className="metric-card__header">
+                    <span className="metric-card__label">Noise Level</span>
+                    <Icon name="volume-2" size="lg" />
+                  </div>
+                  <div className="metric-card__value">
+                    {envSummary.noise_avg ? envSummary.noise_avg.toFixed(1) : 0}
+                    <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> dB</span>
+                  </div>
+                  <div className="metric-card__footer">
+                    {envSummary.noise_avg ? getNoiseCategory(envSummary.noise_avg).label : "No data"}
+                  </div>
+                </div>
+
+                {/* Rain/Precipitation Card */}
+                <div className="metric-card">
+                  <div className="metric-card__header">
+                    <span className="metric-card__label">Precipitation</span>
+                    <Icon name="cloud-rain" size="lg" />
+                  </div>
+                  <div className="metric-card__value">
+                    {envSummary.rain_avg ? envSummary.rain_avg.toFixed(1) : 0}
+                    <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> mm</span>
+                  </div>
+                  <div className="metric-card__footer">
+                    {envSummary.rain_avg > 10 ? "Heavy rain" : envSummary.rain_avg > 2 ? "Light rain" : "Dry"}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Old Summary Metrics */}
           <div className="metrics-grid" style={{ marginBottom: "var(--space-6)", gridTemplateColumns: "repeat(4, 1fr)" }}>
             {envData.weather.temperature !== null && (
               <div className="metric-card">
@@ -574,19 +667,6 @@ export default function EnvironmentalMonitoringDashboard() {
                 )}
               </div>
             )}
-
-            <div className="metric-card">
-              <div className="metric-card__header">
-                <span className="metric-card__label">Active Sensors</span>
-                <Icon name="devices" size="lg" />
-              </div>
-              <div className="metric-card__value">
-                {envData.sensorStatus.reduce((sum, s) => sum + s.active, 0)}
-              </div>
-              <div className="metric-card__footer">
-                Total: {envData.sensorStatus.reduce((sum, s) => sum + s.count, 0)} sensors
-              </div>
-            </div>
 
             {envData.airQuality.aqi !== null && (
               <div className="metric-card">
@@ -737,6 +817,57 @@ export default function EnvironmentalMonitoringDashboard() {
             </div>
           )}
 
+          {/* Environmental History Graph */}
+          {envSummary && envData.trends && (() => {
+            const trendsObj = envData.trends || {};
+            if (trendsObj.temperature && Array.isArray(trendsObj.temperature) && trendsObj.temperature.length > 0) {
+              const trendsArray = trendsObj.temperature.map((temp, idx) => ({
+                timestamp: `T${idx + 1}`,
+                temperature: temp || null,
+                humidity: (trendsObj.humidity && Array.isArray(trendsObj.humidity) && trendsObj.humidity[idx]) || null,
+                pm25: (trendsObj.pm25 && Array.isArray(trendsObj.pm25) && trendsObj.pm25[idx]) || null,
+                noise: (trendsObj.noise && Array.isArray(trendsObj.noise) && trendsObj.noise[idx]) || null,
+              }));
+              if (trendsArray.length > 0) {
+                return (
+                  <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+                    <h3 style={{ marginBottom: "var(--space-4)" }}>Environmental History</h3>
+                    <div style={{ height: "300px", minWidth: 0 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={trendsArray}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="timestamp" />
+                          <YAxis />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="temperature" stroke="#ef4444" name="Temperature (°C)" />
+                          <Line type="monotone" dataKey="humidity" stroke="#3b82f6" name="Humidity (%)" />
+                          <Line type="monotone" dataKey="pm25" stroke="#a855f7" name="PM2.5 (μg/m³)" />
+                          <Line type="monotone" dataKey="noise" stroke="#f59e0b" name="Noise (dB)" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                );
+              }
+            }
+            return (
+              <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+                <div className="card__header">
+                  <h3 className="card__title">Historical Trends</h3>
+                </div>
+                <div className="card__body">
+                  <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-secondary)" }}>
+                    <Icon name="trending" size={48} style={{ opacity: 0.3, marginBottom: "var(--space-3)" }} />
+                    <p>Historical trend charts will appear here once time-series data is available.</p>
+                    <p style={{ fontSize: "var(--font-size-sm)", marginTop: "var(--space-2)" }}>
+                      Data aggregation for {timeRange} period
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Sensor Status Grid */}
           <div className="card" style={{ marginBottom: "var(--space-6)" }}>
             <div className="card__header">
@@ -775,24 +906,6 @@ export default function EnvironmentalMonitoringDashboard() {
               </div>
             </div>
           </div>
-
-          {/* Placeholder for Historical Trends */}
-          {envData.trends.pm25.length === 0 && (
-            <div className="card">
-              <div className="card__header">
-                <h3 className="card__title">Historical Trends</h3>
-              </div>
-              <div className="card__body">
-                <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-secondary)" }}>
-                  <Icon name="trending" size={48} style={{ opacity: 0.3, marginBottom: "var(--space-3)" }} />
-                  <p>Historical trend charts will appear here once time-series data is available.</p>
-                  <p style={{ fontSize: "var(--font-size-sm)", marginTop: "var(--space-2)" }}>
-                    Data aggregation for {timeRange} period
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
     </div>

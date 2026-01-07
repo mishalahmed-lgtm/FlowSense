@@ -17,6 +17,8 @@ export default function DeviceHealthPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [limitFilter, setLimitFilter] = useState(50);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [deviceHistory, setDeviceHistory] = useState([]);
@@ -51,9 +53,12 @@ export default function DeviceHealthPage() {
   const loadDevices = async () => {
     try {
       setLoading(true);
-      const params = {};
+      const params = { limit: limitFilter };
       if (statusFilter !== "all") {
         params.status = statusFilter;
+      }
+      if (searchQuery) {
+        params.search = searchQuery;
       }
       const response = await api.get("/devices/health", { params });
       setDevices(response.data);
@@ -69,7 +74,7 @@ export default function DeviceHealthPage() {
     if (!token) return;
     loadHealthSummary();
     loadDevices();
-  }, [token, statusFilter]);
+  }, [token, statusFilter, searchQuery, limitFilter]);
 
   const loadBatteryTrend = async (deviceId, days, fromDate = null, toDate = null) => {
     try {
@@ -242,7 +247,15 @@ export default function DeviceHealthPage() {
             Uptime, connectivity, and battery trends across your devices
           </p>
         </div>
-        <div className="page-header__actions" style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+        <div className="page-header__actions" style={{ display: "flex", gap: "var(--space-3)", alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            type="text"
+            className="form-input"
+            placeholder="Search devices..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{ minWidth: "200px", maxWidth: "300px" }}
+          />
           <select
             className="form-select"
             value={statusFilter}
@@ -253,6 +266,18 @@ export default function DeviceHealthPage() {
             <option value="online">Online</option>
             <option value="degraded">Degraded</option>
             <option value="offline">Offline</option>
+          </select>
+          <select
+            className="form-select"
+            value={limitFilter}
+            onChange={(e) => setLimitFilter(Number(e.target.value))}
+            style={{ minWidth: "120px" }}
+          >
+            <option value="10">Show 10</option>
+            <option value="25">Show 25</option>
+            <option value="50">Show 50</option>
+            <option value="100">Show 100</option>
+            <option value="200">Show 200</option>
           </select>
           <button className="btn btn--secondary" onClick={loadDevices}>
             Refresh
