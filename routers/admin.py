@@ -268,8 +268,6 @@ def list_devices(
     try:
         logger.info(f"list_devices called: user={current_user.email}, role={current_user.role}, tenant_id={current_user.tenant_id}, page={page}, limit={limit}")
         
-    from sqlalchemy import or_
-    
         # Special path for tenant admins: read from devices_snapshot (DB-only view)
         if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id is not None:
             tenant_id = current_user.tenant_id
@@ -601,7 +599,7 @@ def list_devices(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch devices: {str(e)}"
-        )
+    )
 
 
 @router.post("/devices", response_model=DeviceResponse, status_code=status.HTTP_201_CREATED)
