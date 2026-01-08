@@ -284,24 +284,24 @@ def create_graphql_router() -> GraphQLRouter:
         db_session = next(get_db())
         
         try:
-        if auth_header.startswith("Bearer "):
-            token = auth_header.replace("Bearer ", "")
-            try:
-                payload = decode_token(token)
-                current_user = db_session.query(User).filter(
-                    User.id == payload.user_id,
-                    User.is_active == True
-                ).first()
-            except Exception as e:
-                logger.debug(f"GraphQL authentication failed: {e}")
-        
-        # Return context dict (strawberry expects this format)
-        return {
-            "request": request,
-            "response": response,
-            "db": db_session,
-            "current_user": current_user
-        }
+            if auth_header.startswith("Bearer "):
+                token = auth_header.replace("Bearer ", "")
+                try:
+                    payload = decode_token(token)
+                    current_user = db_session.query(User).filter(
+                        User.id == payload.user_id,
+                        User.is_active == True
+                    ).first()
+                except Exception as e:
+                    logger.debug(f"GraphQL authentication failed: {e}")
+            
+            # Return context dict (strawberry expects this format)
+            return {
+                "request": request,
+                "response": response,
+                "db": db_session,
+                "current_user": current_user
+            }
         except Exception:
             # Ensure session is closed on error
             db_session.close()

@@ -114,8 +114,8 @@ def get_event_activity(
     try:
         logger.info(f"get_event_activity called: user={current_user.email}, role={current_user.role}, tenant_id={current_user.tenant_id}")
         
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(hours=24)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=24)
 
         # Tenant admin path: use devices_snapshot (external data mode)
         if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
@@ -146,41 +146,41 @@ def get_event_activity(
 
         # Global admin path: use TelemetryTimeseries joined with Device
         logger.info("Global admin path: using TelemetryTimeseries")
-    bucket_expr = func.date_trunc("hour", TelemetryTimeseries.ts)
+        bucket_expr = func.date_trunc("hour", TelemetryTimeseries.ts)
 
-    query = (
-        db.query(bucket_expr.label("bucket"), func.count().label("count"))
-        .join(Device, Device.id == TelemetryTimeseries.device_id)
-        .filter(TelemetryTimeseries.ts >= cutoff)
-    )
-
-    query = query.group_by(bucket_expr).order_by(bucket_expr)
-
-    rows = query.all()
-    bucket_map: Dict[datetime, int] = {row.bucket.replace(tzinfo=timezone.utc): row.count for row in rows}
-
-    # Normalize to 24 hourly buckets, filling gaps with zeroes
-    buckets: List[Dict[str, Any]] = []
-    total_events = 0
-
-    # Build from oldest -> newest
-    for i in range(24):
-        bucket_time = (now - timedelta(hours=23 - i)).replace(minute=0, second=0, microsecond=0)
-        bucket_time = bucket_time.astimezone(timezone.utc)
-        count = int(bucket_map.get(bucket_time, 0))
-        total_events += count
-        buckets.append(
-            {
-                "timestamp": bucket_time.isoformat(),
-                "count": count,
-            }
+        query = (
+            db.query(bucket_expr.label("bucket"), func.count().label("count"))
+            .join(Device, Device.id == TelemetryTimeseries.device_id)
+            .filter(TelemetryTimeseries.ts >= cutoff)
         )
 
+        query = query.group_by(bucket_expr).order_by(bucket_expr)
+
+        rows = query.all()
+        bucket_map: Dict[datetime, int] = {row.bucket.replace(tzinfo=timezone.utc): row.count for row in rows}
+
+        # Normalize to 24 hourly buckets, filling gaps with zeroes
+        buckets: List[Dict[str, Any]] = []
+        total_events = 0
+
+        # Build from oldest -> newest
+        for i in range(24):
+            bucket_time = (now - timedelta(hours=23 - i)).replace(minute=0, second=0, microsecond=0)
+            bucket_time = bucket_time.astimezone(timezone.utc)
+            count = int(bucket_map.get(bucket_time, 0))
+            total_events += count
+            buckets.append(
+                {
+                    "timestamp": bucket_time.isoformat(),
+                    "count": count,
+                }
+            )
+
         logger.info(f"Returning activity: total_events={total_events}, buckets={len(buckets)}")
-    return {
-        "total_events": total_events,
-        "buckets": buckets,
-    }
+        return {
+            "total_events": total_events,
+            "buckets": buckets,
+        }
     
     except Exception as e:
         logger.error(f"Error in get_event_activity: {e}", exc_info=True)

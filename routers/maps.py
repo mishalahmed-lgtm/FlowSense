@@ -129,7 +129,7 @@ def get_devices_for_map(
             ))
     else:
         # Admin path: original behaviour
-    query = db.query(Device)
+        query = db.query(Device)
     
     # Tenant filtering
     if current_user.role == UserRole.TENANT_ADMIN:

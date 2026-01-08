@@ -354,12 +354,8 @@ def get_device_telemetry(
             detail="No telemetry data found for this device",
         )
     
-    # Parse payload JSON
-    import json
-    try:
-        payload_data = json.loads(record.payload) if isinstance(record.payload, str) else record.payload
-    except:
-        payload_data = {}
+    # Get data from TelemetryLatest (it's already a dict/JSON, not a string)
+    payload_data = record.data if record.data else {}
     
     return TelemetryDataResponse(
         device_id=device.device_id,

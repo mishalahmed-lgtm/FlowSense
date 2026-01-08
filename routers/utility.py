@@ -535,7 +535,7 @@ def get_all_devices_energy_consumption(
             
             devices.append(MockDevice(device_id, payload))
     else:
-    device_query = db.query(Device).join(Tenant)
+        device_query = db.query(Device).join(Tenant)
     
     # Tenant admins can only access their own tenant's data
     if current_user.role == UserRole.TENANT_ADMIN:
@@ -612,7 +612,7 @@ def get_all_devices_energy_consumption(
                             continue
             else:
                 # Query telemetry for this field from TelemetryTimeseries
-            samples = (
+                samples = (
                 db.query(TelemetryTimeseries)
                 .filter(
                     TelemetryTimeseries.device_id == device.id,
