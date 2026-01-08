@@ -186,7 +186,7 @@ def get_current_user_from_token(token: str, db: Session) -> Optional[User]:
         # OPTIMIZED: Use Session.get() instead of filter().first()
         user = db.get(User, payload.user_id)
         if user and user.is_active:
-            return user
+        return user
         return None
     except Exception:
         return None
