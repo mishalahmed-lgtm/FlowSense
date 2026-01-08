@@ -87,7 +87,7 @@ export default function DevicesPage() {
             const { data, timestamp } = JSON.parse(cached);
             const cacheAge = Date.now() - timestamp;
             // Use cache if less than 10 minutes old (increased from 2 minutes)
-            if (cacheAge < 600000) {
+            if (cacheAge < 30000) { // 30 seconds cache
               console.log(`Using cached devices (page ${pageNum}, age: ${Math.round(cacheAge/1000)}s)`);
               if (Array.isArray(data)) {
                 setDevices(data);
@@ -133,7 +133,7 @@ export default function DevicesPage() {
       const params = {
         page: pageNum,
         limit: itemsPerPage,
-        include_counts: false, // Skip counts on initial load for faster response
+        include_counts: true, // Include total_active and total_inactive counts
       };
       
       // Add server-side filters
@@ -173,11 +173,18 @@ export default function DevicesPage() {
         setTotalInactiveCount(inactive);
       } else if (data && data.devices) {
         // New paginated format
+        console.log("🔍 DEBUG: Setting counts from API response:", {
+          total_active: data.total_active,
+          total_inactive: data.total_inactive,
+          type_active: typeof data.total_active,
+          type_inactive: typeof data.total_inactive
+        });
         setDevices(data.devices || []);
         setTotalDeviceCount(data.total || 0);
         setTotalPages(data.total_pages || 1);
         setTotalActiveCount(data.total_active ?? 0);
         setTotalInactiveCount(data.total_inactive ?? 0);
+        console.log("✅ DEBUG: State setters called");
         if (data.page && data.page !== currentPage) {
           setCurrentPage(data.page);
         }
@@ -354,6 +361,26 @@ export default function DevicesPage() {
   // The API provides total_active and total_inactive counts
   const activeCount = totalActiveCount; // Total active devices across all pages
   const offlineCount = totalInactiveCount; // Total offline devices across all pages
+  
+  console.log("🎨 DEBUG: Rendering with counts:", { activeCount, offlineCount, totalActiveCount, totalInactiveCount });
+  
+  // Clear old cache without counts on mount
+  useEffect(() => {
+    try {
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('devices_cache_')) {
+          const cached = JSON.parse(localStorage.getItem(key));
+          if (cached?.data && typeof cached.data.total_active === 'undefined') {
+            console.log('Clearing old cache without counts:', key);
+            localStorage.removeItem(key);
+          }
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to clear old cache:', e);
+    }
+  }, []);
   
   // Reset to page 1 when filters change and reload
   useEffect(() => {
