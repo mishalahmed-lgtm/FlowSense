@@ -34,9 +34,6 @@ class MetricsService(BaseService):
         
         # Query 1: Count active devices (SEQUENTIAL)
         self._log_query("count_active_devices", f"tenant_id={tenant_id}")
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
-        cutoff_iso = cutoff.isoformat()
         
         active_count = 0
         try:
