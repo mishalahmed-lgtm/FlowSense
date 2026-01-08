@@ -506,10 +506,9 @@ def get_external_device_data(
     
     # Fetch from external API
     if not settings.external_device_api_base_url or not settings.external_device_api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="External device API not configured",
-        )
+        # Return empty data instead of error - don't break frontend
+        logger.warning(f"External device API not configured, returning empty data")
+        return {"data": {"records": []}, "cached": False, "synced_at": None, "error": "External API not configured"}
     
     try:
         url = f"{settings.external_device_api_base_url}/device/{device_id.upper()}"
@@ -538,16 +537,13 @@ def get_external_device_data(
         if external_data:
             logger.info(f"Returning stale cached data due to API error")
             return {"data": external_data, "cached": True, "synced_at": last_synced, "error": "API unavailable, using cached data"}
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Failed to fetch external device data: {str(e)}",
-        )
+        # Return empty data instead of error - don't break frontend
+        logger.warning(f"No cached data available and external API failed, returning empty data")
+        return {"data": {"records": []}, "cached": False, "synced_at": None, "error": f"API unavailable: {str(e)}"}
     except Exception as e:
         logger.error(f"Unexpected error fetching external data: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error processing external device data: {str(e)}",
-        )
+        # Return empty data instead of error - don't break frontend
+        return {"data": {"records": []}, "cached": False, "synced_at": None, "error": f"Unexpected error: {str(e)}"}
 
 
 @router.post("/devices/{device_id}/rotate-key", response_model=ProvisioningKeyResponse)
