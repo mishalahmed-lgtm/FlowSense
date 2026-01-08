@@ -129,69 +129,69 @@ def get_devices_for_map(
             ))
     else:
         # Admin path: original behaviour
-        query = db.query(Device)
+    query = db.query(Device)
+    
+    # Tenant filtering
+    if current_user.role == UserRole.TENANT_ADMIN:
+        query = query.filter(Device.tenant_id == current_user.tenant_id)
+    elif tenant_id:
+        query = query.filter(Device.tenant_id == tenant_id)
+    
+    devices = query.all()
+    
+    for device in devices:
+        # Try to get location from latest telemetry
+        latest = (
+            db.query(TelemetryLatest)
+            .filter(TelemetryLatest.device_id == device.id)
+            .one_or_none()
+        )
         
-        # Tenant filtering
-        if current_user.role == UserRole.TENANT_ADMIN:
-            query = query.filter(Device.tenant_id == current_user.tenant_id)
-        elif tenant_id:
-            query = query.filter(Device.tenant_id == tenant_id)
+        latitude = None
+        longitude = None
+        latest_data = None
         
-        devices = query.all()
+        if latest and latest.data:
+            latest_data = latest.data
+            # Check for location fields in various formats
+            if isinstance(latest.data, dict):
+                # Check nested location object
+                if "location" in latest.data and isinstance(latest.data["location"], dict):
+                    loc_obj = latest.data["location"]
+                    latitude = loc_obj.get("latitude") or loc_obj.get("lat")
+                    longitude = loc_obj.get("longitude") or loc_obj.get("lng") or loc_obj.get("lon")
+                # Check top-level latitude/longitude
+                elif "latitude" in latest.data:
+                    latitude = latest.data.get("latitude")
+                    longitude = latest.data.get("longitude")
+                # Check top-level lat/lng/lon (alternative spelling)
+                elif "lat" in latest.data:
+                    latitude = latest.data.get("lat")
+                    longitude = latest.data.get("lon") or latest.data.get("lng")
         
-        for device in devices:
-            # Try to get location from latest telemetry
-            latest = (
-                db.query(TelemetryLatest)
-                .filter(TelemetryLatest.device_id == device.id)
-                .one_or_none()
-            )
-            
-            latitude = None
-            longitude = None
-            latest_data = None
-            
-            if latest and latest.data:
-                latest_data = latest.data
-                # Check for location fields in various formats
-                if isinstance(latest.data, dict):
-                    # Check nested location object
-                    if "location" in latest.data and isinstance(latest.data["location"], dict):
-                        loc_obj = latest.data["location"]
-                        latitude = loc_obj.get("latitude") or loc_obj.get("lat")
-                        longitude = loc_obj.get("longitude") or loc_obj.get("lng") or loc_obj.get("lon")
-                    # Check top-level latitude/longitude
-                    elif "latitude" in latest.data:
-                        latitude = latest.data.get("latitude")
-                        longitude = latest.data.get("longitude")
-                    # Check top-level lat/lng/lon (alternative spelling)
-                    elif "lat" in latest.data:
-                        latitude = latest.data.get("lat")
-                        longitude = latest.data.get("lon") or latest.data.get("lng")
-            
             # Skip if no location
             if latitude is None or longitude is None:
                 continue
             
-            # Determine status
-            status = "inactive"
-            last_seen = None
-            if latest and latest.event_timestamp:
-                now = datetime.now(timezone.utc)
-                time_diff = (now - latest.event_timestamp).total_seconds()
-                if time_diff < 600:  # Active if seen in last 10 minutes
-                    status = "active"
-                last_seen = latest.event_timestamp.isoformat()
-            
-            result.append(DeviceLocation(
-                device_id=device.device_id,
-                device_name=device.name,
-                latitude=latitude,
-                longitude=longitude,
-                status=status,
-                last_seen=last_seen,
-                latest_data=latest_data,
-            ))
+        # Determine status
+        status = "inactive"
+        last_seen = None
+        if latest and latest.event_timestamp:
+            now = datetime.now(timezone.utc)
+            time_diff = (now - latest.event_timestamp).total_seconds()
+            if time_diff < 600:  # Active if seen in last 10 minutes
+                status = "active"
+            last_seen = latest.event_timestamp.isoformat()
+        
+        result.append(DeviceLocation(
+            device_id=device.device_id,
+            device_name=device.name,
+            latitude=latitude,
+            longitude=longitude,
+            status=status,
+            last_seen=last_seen,
+            latest_data=latest_data,
+        ))
     
     return result
 

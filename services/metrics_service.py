@@ -57,11 +57,11 @@ class MetricsService(BaseService):
             if active_count == 0:
                 self._log_query("count_active_by_timestamp", "fallback to timestamp check")
                 timestamp_query = text("""
-                    SELECT COUNT(*) 
-                    FROM devices_snapshot 
+                    SELECT COUNT(*)
+                    FROM devices_snapshot
                     WHERE tenant_id = :tenant_id
-                      AND (payload->'telemetry'->>'timestamp') IS NOT NULL 
-                      AND (payload->'telemetry'->>'timestamp')::timestamptz >= :cutoff::timestamptz
+                      AND (payload->'telemetry'->>'timestamp') IS NOT NULL
+                      AND (payload->'telemetry'->>'timestamp')::timestamptz >= CAST(:cutoff AS timestamptz)
                 """)
                 try:
                     active_count = self.db.execute(

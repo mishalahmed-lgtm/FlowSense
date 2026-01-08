@@ -26,7 +26,7 @@ class DeviceService(BaseService):
         page: int = 1,
         limit: int = 50,
         search: Optional[str] = None,
-        status: Optional[str] = None,
+        device_status: Optional[str] = None,
         protocol: Optional[str] = None,
         include_counts: bool = True,
     ) -> Dict[str, Any]:
@@ -56,11 +56,11 @@ class DeviceService(BaseService):
         # Determine if tenant admin or global admin
         if user.role == UserRole.TENANT_ADMIN and user.tenant_id is not None:
             return self._get_devices_tenant_admin(
-                user, page, limit, search, status, protocol, include_counts
+                user, page, limit, search, device_status, protocol, include_counts
             )
         else:
             return self._get_devices_global_admin(
-                user, page, limit, search, status, protocol, include_counts
+                user, page, limit, search, device_status, protocol, include_counts
             )
     
     def _get_devices_tenant_admin(
@@ -69,7 +69,7 @@ class DeviceService(BaseService):
         page: int,
         limit: int,
         search: Optional[str],
-        status: Optional[str],
+        device_status: Optional[str],
         protocol: Optional[str],
         include_counts: bool,
     ) -> Dict[str, Any]:
@@ -175,7 +175,7 @@ class DeviceService(BaseService):
         page: int,
         limit: int,
         search: Optional[str],
-        status: Optional[str],
+        device_status: Optional[str],
         protocol: Optional[str],
         include_counts: bool,
     ) -> Dict[str, Any]:
@@ -265,10 +265,10 @@ class DeviceService(BaseService):
         )
         
         # Apply status filter in Python (if needed)
-        if status:
-            if status == "active":
+        if device_status:
+            if device_status == "active":
                 device_responses = [d for d in device_responses if d.get("is_active")]
-            elif status == "inactive":
+            elif device_status == "inactive":
                 device_responses = [d for d in device_responses if not d.get("is_active")]
         
         total_pages = math.ceil(total_count / limit) if total_count > 0 else 1

@@ -268,7 +268,7 @@ def list_devices(
     """
     try:
         logger.info(f"list_devices called: user={current_user.email}, role={current_user.role}, tenant_id={current_user.tenant_id}, page={page}, limit={limit}")
-        
+
         # Use service layer for sequential DB queries
         from services import DeviceService
         device_service = DeviceService(db)

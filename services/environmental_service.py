@@ -71,7 +71,19 @@ class EnvironmentalService(BaseService):
               )
               AND (payload->'telemetry'->>'timestamp')::timestamptz >= CAST(:cutoff AS timestamptz)
         """)
-        results = self.db.execute(env_query, {"tenant_id": tenant_id, "cutoff": cutoff.isoformat()}).fetchall()
+        try:
+            results = self.db.execute(env_query, {"tenant_id": tenant_id, "cutoff": cutoff.isoformat()}).fetchall()
+        except Exception as e:
+            self._handle_error(e, "Error querying environmental data")
+            return {
+                "pm25_avg": 0,
+                "pm10_avg": 0,
+                "co2_avg": 0,
+                "temperature_avg": 0,
+                "humidity_avg": 0,
+                "aqi": 0,
+                "sample_count": 0,
+            }
         
         # Aggregate data
         pm25_values = []

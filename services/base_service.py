@@ -43,19 +43,22 @@ class BaseService:
             f"{'- ' + description if description else ''}"
         )
     
-    def _handle_error(self, error: Exception):
+    def _handle_error(self, error: Exception, message: str = "Database operation failed"):
         """Handle database errors by rolling back transaction.
         
         PostgreSQL requires rollback after any error before new queries can execute.
         
         Args:
             error: The exception that occurred
+            message: Optional error message
         """
+        logger.error(f"{message}: {error}", exc_info=True)
         try:
             self.db.rollback()
             logger.debug(f"Rolled back transaction after error: {error}")
         except Exception as rollback_error:
             logger.error(f"Failed to rollback transaction: {rollback_error}")
+        raise error  # Re-raise the exception after handling
     
     def get_query_count(self) -> int:
         """Get the total number of queries executed by this service.

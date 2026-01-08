@@ -23,7 +23,7 @@ export function useDashboardWebSocket(token, onMessage, onError) {
     }
 
     // Get WebSocket URL
-    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
     const wsProtocol = apiBaseUrl.startsWith("https") ? "wss" : "ws";
     const wsHost = apiBaseUrl.replace(/^https?:\/\//, "");
     const wsUrl = `${wsProtocol}://${wsHost}/api/v1/ws/dashboard/stream?token=${token}`;
@@ -132,7 +132,7 @@ export function useDashboardWebSocket(token, onMessage, onError) {
         wsRef.current = null;
       }
     };
-  }, [token, onMessage, onError]);
+  }, [token]); // Remove onMessage and onError from deps to prevent reconnections
 
   return {
     connected,

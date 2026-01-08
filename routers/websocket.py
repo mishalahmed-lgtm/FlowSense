@@ -355,17 +355,24 @@ async def websocket_dashboard_stream(
                 "activity": initial_state.get("activity", {}),
                 "total_devices": initial_state.get("total_devices", 0),
             })
-            logger.info(f"Sent initial state to dashboard WebSocket: tenant_id={tenant_id}")
+            logger.info(f"✓ Sent initial state to dashboard WebSocket: tenant_id={tenant_id}")
         except Exception as e:
-            logger.error(f"Error sending initial state: {e}", exc_info=True)
-            db.rollback()  # Rollback on error
-            # Send empty initial state if service fails
-            await websocket.send_json({
-                "type": "initial_state",
-                "metrics": {"active_devices": 0, "messages": {"total_received": 0, "total_published": 0, "total_rejected": 0}, "sources": {}},
-                "activity": {"total_events": 0, "buckets": []},
-                "total_devices": 0,
-            })
+            logger.error(f"✗ Error sending initial state: {e}", exc_info=True)
+            # Don't rollback here - the error is already handled in service layer
+            # Send empty initial state if service fails so frontend doesn't hang
+            try:
+                await websocket.send_json({
+                    "type": "initial_state",
+                    "metrics": {"active_devices": 0, "messages": {"total_received": 0, "total_published": 0, "total_rejected": 0}, "sources": {}},
+                    "activity": {"total_events": 0, "buckets": []},
+                    "total_devices": 0,
+                })
+                logger.info("✓ Sent fallback empty initial state")
+            except Exception as fallback_error:
+                logger.error(f"✗ Failed to send fallback initial state: {fallback_error}")
+                # Close the WebSocket if we can't even send the fallback
+                await websocket.close(code=1011, reason="Failed to initialize")
+                return
         
         # Close DB session after initial state - we don't need it during the WebSocket lifecycle
         db.close()
