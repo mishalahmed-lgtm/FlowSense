@@ -1307,11 +1307,11 @@ async def send_telemetry_data_internal(
                                     true
                                 ),
                                 '{telemetry,timestamp}',
-                                to_jsonb(:timestamp::text),
+                                to_jsonb(CAST(:timestamp AS text)),
                                 true
                             ),
                             '{health,last_seen_at}',
-                            to_jsonb(:last_seen::text),
+                            to_jsonb(CAST(:last_seen AS text)),
                             true
                         ),
                         '{health,status}',
