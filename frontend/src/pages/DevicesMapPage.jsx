@@ -91,7 +91,15 @@ export default function DevicesMapPage() {
     try {
       setError(null);
       const response = await api.get("/maps/devices");
-      setDevices(response.data || []);
+      const devices = response.data || [];
+      // Normalize status: use is_active if available, otherwise use status field
+      const normalizedDevices = devices.map(device => ({
+        ...device,
+        status: device.is_active !== undefined 
+          ? (device.is_active ? "active" : "inactive")
+          : (device.status || "inactive")
+      }));
+      setDevices(normalizedDevices);
     } catch (err) {
       console.error("Failed to load devices:", err);
       setError(err.response?.data?.detail || "Failed to load device locations");

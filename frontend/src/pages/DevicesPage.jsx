@@ -142,6 +142,7 @@ export default function DevicesPage() {
       }
       if (filterStatus !== "all") {
         params.status = filterStatus === "active" ? "active" : "inactive";
+        console.log("🔍 DEBUG: Filtering by status:", params.status);
       }
       if (filterProtocol !== "all") {
         params.protocol = filterProtocol;
