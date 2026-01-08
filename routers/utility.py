@@ -535,7 +535,7 @@ def get_all_devices_energy_consumption(
             
             devices.append(MockDevice(device_id, payload))
     else:
-    device_query = db.query(Device).join(Tenant)
+        device_query = db.query(Device).join(Tenant)
     
     # Tenant admins can only access their own tenant's data
     if current_user.role == UserRole.TENANT_ADMIN:
@@ -543,12 +543,12 @@ def get_all_devices_energy_consumption(
     elif tenant_id is not None:
         device_query = device_query.filter(Device.tenant_id == tenant_id)
     
-    devices = device_query.filter(Device.is_active == True).all()
+        devices = device_query.filter(Device.is_active == True).all()
     
     # Get tenant country for rate calculation
     # Try to get tenant from query first, then from devices
-    tenant_country = None
-    tenant = None
+        tenant_country = None
+        tenant = None
     
     if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id:
         # For tenant admins, get tenant directly
@@ -561,9 +561,9 @@ def get_all_devices_energy_consumption(
     if tenant:
         tenant_country = tenant.country
     
-    rate_per_unit, currency = _resolve_rate("electricity", tenant_country)
+        rate_per_unit, currency = _resolve_rate("electricity", tenant_country)
     
-    results: List[AllDevicesEnergyConsumption] = []
+        results: List[AllDevicesEnergyConsumption] = []
     
     for device in devices:
         # Check if this is a snapshot device (has snapshot attribute)
@@ -612,7 +612,7 @@ def get_all_devices_energy_consumption(
                             continue
             else:
                 # Query telemetry for this field from TelemetryTimeseries
-            samples = (
+                samples = (
                 db.query(TelemetryTimeseries)
                 .filter(
                     TelemetryTimeseries.device_id == device.id,
