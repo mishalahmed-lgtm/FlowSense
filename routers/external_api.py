@@ -346,7 +346,7 @@ def get_device_telemetry(
     # Get latest telemetry
     record = db.query(TelemetryLatest).filter(
         TelemetryLatest.device_id == device.id
-    ).order_by(TelemetryLatest.timestamp.desc()).first()
+    ).order_by(TelemetryLatest.updated_at.desc()).first()
     
     if not record:
         raise HTTPException(
@@ -364,7 +364,7 @@ def get_device_telemetry(
     return TelemetryDataResponse(
         device_id=device.device_id,
         device_name=device.name or device.device_id,
-        timestamp=record.timestamp.isoformat() if record.timestamp else "",
+        timestamp=record.event_timestamp.isoformat() if record.event_timestamp else "",
         data=payload_data,
     )
 
@@ -1263,7 +1263,9 @@ async def send_telemetry_data_internal(
     # Fallback: Write directly to DB and broadcast via WebSocket (when Kafka unavailable or fails)
     if True:  # Always use fallback when Kafka fails
         # Fallback: Write directly to DB and broadcast via WebSocket (when Kafka unavailable)
-        from models import TelemetryLatest, DeviceHealthMetrics
+        from models import TelemetryLatest, DeviceHealthMetrics, DeviceSnapshot
+        from sqlalchemy import text
+        
         latest = db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
         event_ts = datetime.fromisoformat(timestamp.replace('Z', '+00:00')) if timestamp else datetime.now(timezone.utc)
         if latest:
@@ -1290,6 +1292,45 @@ async def send_telemetry_data_internal(
         health.calculated_at = now
         if not health.first_seen_at:
             health.first_seen_at = health.last_seen_at
+        
+        # CRITICAL FIX: Also update devices_snapshot table (used by tenant admins for frontend display)
+        try:
+            snapshot_update = text("""
+                UPDATE devices_snapshot
+                SET payload = jsonb_set(
+                        jsonb_set(
+                            jsonb_set(
+                                jsonb_set(
+                                    CAST(payload AS jsonb),
+                                    '{telemetry,data}',
+                                    CAST(:telemetry_data AS jsonb),
+                                    true
+                                ),
+                                '{telemetry,timestamp}',
+                                to_jsonb(:timestamp::text),
+                                true
+                            ),
+                            '{health,last_seen_at}',
+                            to_jsonb(:last_seen::text),
+                            true
+                        ),
+                        '{health,status}',
+                        to_jsonb('online'::text),
+                        true
+                    )::json
+                WHERE device_id = :device_id AND tenant_id = :tenant_id
+            """)
+            
+            db.execute(snapshot_update, {
+                "telemetry_data": json.dumps(payload.data),
+                "timestamp": event_ts.isoformat(),
+                "last_seen": now.isoformat(),
+                "device_id": device.device_id,
+                "tenant_id": device.tenant_id,
+            })
+            logger.info(f"[External API] ✓ Updated devices_snapshot for device: {device.device_id}")
+        except Exception as e:
+            logger.error(f"[External API] ✗ Failed to update devices_snapshot: {e}", exc_info=True)
         
         db.commit()
         
