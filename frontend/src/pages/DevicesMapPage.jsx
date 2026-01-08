@@ -117,6 +117,18 @@ export default function DevicesMapPage() {
         return { ...device, status };
       });
       
+      // Debug: Check first 5 devices to see what last_seen values we're getting
+      console.log("🔍 DEBUG: First 5 devices last_seen values:");
+      normalizedDevices.slice(0, 5).forEach((d, i) => {
+        console.log(`  ${i+1}. ${d.device_id}: last_seen="${d.last_seen}", status="${d.status}"`);
+        if (d.last_seen) {
+          const lastSeenDate = new Date(d.last_seen);
+          const now = new Date();
+          const diffMinutes = (now - lastSeenDate) / (1000 * 60);
+          console.log(`      → Parsed: ${lastSeenDate.toISOString()}, ${Math.round(diffMinutes)} minutes ago`);
+        }
+      });
+      
       const activeCount = normalizedDevices.filter(d => d.status === "active").length;
       const inactiveCount = normalizedDevices.filter(d => d.status === "inactive").length;
       console.log(`🗺️ Maps: ${activeCount} active (GREEN), ${inactiveCount} inactive (RED)`);
