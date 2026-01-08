@@ -92,13 +92,22 @@ export default function DevicesMapPage() {
       setError(null);
       const response = await api.get("/maps/devices");
       const devices = response.data || [];
-      // Normalize status: use is_active if available, otherwise use status field
-      const normalizedDevices = devices.map(device => ({
-        ...device,
-        status: device.is_active !== undefined 
-          ? (device.is_active ? "active" : "inactive")
-          : (device.status || "inactive")
-      }));
+      // Normalize status: determine from last_seen (active if seen within last hour)
+      const normalizedDevices = devices.map(device => {
+        let status = "inactive";
+        if (device.is_active !== undefined) {
+          status = device.is_active ? "active" : "inactive";
+        } else if (device.last_seen) {
+          const lastSeenDate = new Date(device.last_seen);
+          const now = new Date();
+          const diffMinutes = (now - lastSeenDate) / (1000 * 60);
+          // Active if seen within last 60 minutes
+          status = diffMinutes < 60 ? "active" : "inactive";
+        } else if (device.status) {
+          status = device.status;
+        }
+        return { ...device, status };
+      });
       setDevices(normalizedDevices);
     } catch (err) {
       console.error("Failed to load devices:", err);

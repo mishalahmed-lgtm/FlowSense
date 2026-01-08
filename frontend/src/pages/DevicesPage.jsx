@@ -200,6 +200,19 @@ export default function DevicesPage() {
         }
       }
       
+      // Frontend filter: if backend doesn't filter properly, filter here
+      if (filterStatus !== "all" && data && data.devices) {
+        const filtered = data.devices.filter(device => {
+          if (filterStatus === "active") return device.is_active === true;
+          if (filterStatus === "inactive") return device.is_active === false;
+          return true;
+        });
+        console.log(`🔧 Frontend filtered: ${filtered.length} devices (from ${data.devices.length})`);
+        data.devices = filtered;
+        data.total = filtered.length;
+        data.total_pages = Math.ceil(filtered.length / itemsPerPage);
+      }
+      
       console.log(`Loaded ${data.devices?.length || data.length || 0} devices (page ${data.page || currentPage}, total: ${data.total || totalDeviceCount})`);
       setError(null);
     } catch (err) {
