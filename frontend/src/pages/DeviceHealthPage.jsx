@@ -67,12 +67,47 @@ export default function DeviceHealthPage() {
         const limit = 1000; // Max per page
         
         while (hasMore) {
-          const devicesResponse = await api.get("/admin/devices", { 
-            params: { 
-              limit: limit,
-              page: page 
-            } 
-          });
+          // Try cache endpoint first (only for page 1, fallback to regular for other pages)
+          let devicesResponse;
+          if (page === 1) {
+            try {
+              devicesResponse = await api.get("/cache/devices", { 
+                params: { page: 1 } 
+              });
+              // Transform cache response
+              if (devicesResponse.data && devicesResponse.data.devices) {
+                const transformedDevices = devicesResponse.data.devices.map(device => {
+                  const payload = device.payload || {};
+                  return {
+                    id: device.device_id,
+                    device_id: device.device_id,
+                    name: payload.name || device.device_id,
+                    is_active: payload.is_active !== false,
+                  };
+                });
+                devicesResponse.data = {
+                  devices: transformedDevices,
+                  total: devicesResponse.data.total || 0,
+                  page: 1,
+                  totalPages: Math.ceil((devicesResponse.data.total || 0) / limit),
+                };
+              }
+            } catch (cacheErr) {
+              // Fallback to regular endpoint
+              if (cacheErr.response?.status === 404) {
+                devicesResponse = await api.get("/admin/devices", { 
+                  params: { limit, page } 
+                });
+              } else {
+                throw cacheErr;
+              }
+            }
+          } else {
+            // For pages > 1, use regular endpoint (cache only has page 1)
+            devicesResponse = await api.get("/admin/devices", { 
+              params: { limit, page } 
+            });
+          }
           
           // Handle paginated response
           const responseData = devicesResponse.data;
@@ -124,10 +159,32 @@ export default function DeviceHealthPage() {
       } catch (err) {
         console.error("Failed to load devices from /admin/devices:", err);
         console.error("Error details:", err.response?.data || err.message);
-        // If /admin/devices fails, try to get devices from health endpoint as fallback
-        // But health endpoint is limited, so this is not ideal
+        // If /admin/devices fails, try cache/health, then regular health endpoint as fallback
         try {
-          const response = await api.get("/devices/health", {});
+          let response;
+          try {
+            // Try cache health endpoint first
+            response = await api.get("/cache/health", {});
+            // Transform cache response
+            if (response.data && response.data.devices) {
+              const healthDevices = response.data.devices.map(device => ({
+                device_id: device.device_id,
+                device_identifier: device.device_id,
+                device_name: device.payload?.name || device.device_id,
+                current_status: device.health?.status || "offline",
+                last_seen_at: device.health?.last_seen_at || null,
+                last_battery_level: device.telemetry?.battery || null,
+              }));
+              response.data = healthDevices;
+            }
+          } catch (cacheErr) {
+            // Fallback to regular health endpoint
+            if (cacheErr.response?.status === 404) {
+              response = await api.get("/devices/health", {});
+            } else {
+              throw cacheErr;
+            }
+          }
           const healthDevices = response.data || [];
           console.log(`Fallback: Loaded ${healthDevices.length} devices from /devices/health`);
           healthDevices.forEach((healthDevice) => {
@@ -183,7 +240,29 @@ export default function DeviceHealthPage() {
       
       // Also try without status filter to get any remaining devices
       try {
-        const response = await api.get("/devices/health", {});
+        // Try cache health endpoint first
+        let response;
+        try {
+          response = await api.get("/cache/health", {});
+          // Transform cache response
+          if (response.data && response.data.devices) {
+            response.data = response.data.devices.map(device => ({
+              device_id: device.device_id,
+              device_identifier: device.device_id,
+              device_name: device.payload?.name || device.device_id,
+              current_status: device.health?.status || "offline",
+              last_seen_at: device.health?.last_seen_at || null,
+              last_battery_level: device.telemetry?.battery || null,
+            }));
+          }
+        } catch (cacheErr) {
+          // Fallback to regular endpoint
+          if (cacheErr.response?.status === 404) {
+            response = await api.get("/devices/health", {});
+          } else {
+            throw cacheErr;
+          }
+        }
         const healthDevices = response.data || [];
         console.log(`Loaded ${healthDevices.length} devices from /devices/health (no filter)`);
         

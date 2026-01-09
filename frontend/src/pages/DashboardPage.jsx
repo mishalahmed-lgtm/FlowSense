@@ -23,11 +23,18 @@ export default function DashboardPage() {
       setLoading(true);
       try {
         const isTenantAdmin = user?.role === "tenant_admin";
-        const metricsUrl = isTenantAdmin ? "/metrics/tenant" : "/metrics";
+        // Use cache endpoint for tenant admins (faster, reduces DB load)
+        const metricsUrl = isTenantAdmin ? "/cache/metrics" : "/metrics";
         
         // Load data with individual error handling - don't fail entire dashboard if one endpoint times out
         const results = await Promise.allSettled([
-          api.get(metricsUrl),
+          api.get(metricsUrl).catch(err => {
+            // Fallback to regular endpoint if cache not available
+            if (isTenantAdmin && err.response?.status === 404) {
+              return api.get("/metrics/tenant");
+            }
+            throw err;
+          }),
           api.get("/dashboard/activity"),
           api.get("/alerts", { params: { limit: 10, status: "open" } })
         ]);

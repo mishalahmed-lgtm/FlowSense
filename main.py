@@ -25,6 +25,8 @@ from routers import maps as maps_router
 from routers import oauth as oauth_router
 from routers import external_api as external_api_router
 from routers import debug as debug_router
+from routers import cache as cache_router
+from routers import cache as cache_router
 from mqtt_client import mqtt_handler
 from tcp_server import tcp_ingestion_server
 from fota_service import fota_service
@@ -366,6 +368,10 @@ app.include_router(
 )
 app.include_router(
     debug_router.router,
+    prefix=f"{settings.api_v1_prefix}",
+)
+app.include_router(
+    cache_router.router,
     prefix=f"{settings.api_v1_prefix}",
 )
 

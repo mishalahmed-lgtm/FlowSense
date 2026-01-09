@@ -148,7 +148,63 @@ export default function DevicesPage() {
         params.protocol = filterProtocol;
       }
       
-      const response = await api.get("/admin/devices", { params });
+      // Try cache endpoint first (faster, reduces DB load)
+      let response;
+      try {
+        response = await api.get("/cache/devices", { params: { page: params.page || 1 } });
+        // Transform cache response to match expected format
+        if (response.data && response.data.devices) {
+          // Cache returns devices with payload, need to transform
+          const transformedDevices = response.data.devices.map((device, idx) => {
+            const payload = device.payload || {};
+            // Extract metadata properly
+            const payload_metadata = payload.metadata || {};
+            const metadata = {
+              http_settings: payload_metadata.http_settings,
+              mqtt_settings: payload_metadata.mqtt_settings,
+              tcp_settings: payload_metadata.tcp_settings,
+              extras: payload_metadata.extras || payload,
+              external_data: payload_metadata.external_data,
+              external_data_synced_at: payload_metadata.external_data_synced_at,
+            };
+            // Extract dashboard config
+            const dashboard_cfg = payload.dashboard || {};
+            const has_dashboard = Boolean(dashboard_cfg.widgets && dashboard_cfg.widgets.length > 0);
+            
+            return {
+              id: idx + 1, // Use index as id (matches regular endpoint pattern)
+              device_id: device.device_id,
+              name: payload.name || device.device_id,
+              device_type: payload.device_type?.name || "MQTT",
+              device_type_id: payload.device_type?.id || 1,
+              protocol: payload.device_type?.protocol || "HTTP",
+              tenant: payload.tenant?.name || "Unknown",
+              tenant_id: payload.tenant?.id || 1,
+              is_active: payload.is_active !== false,
+              metadata: metadata,
+              provisioning_key: null,
+              has_dashboard: has_dashboard,
+            };
+          });
+          response.data = {
+            devices: transformedDevices,
+            total: response.data.total || 0,
+            page: response.data.page || 1,
+            limit: response.data.limit || 50,
+            total_pages: Math.ceil((response.data.total || 0) / (response.data.limit || 50)),
+            total_active: transformedDevices.filter(d => d.is_active).length,
+            total_inactive: transformedDevices.filter(d => !d.is_active).length,
+          };
+        }
+      } catch (cacheErr) {
+        // Fallback to regular endpoint if cache not available
+        if (cacheErr.response?.status === 404) {
+          console.log("Cache not available, using regular endpoint");
+          response = await api.get("/admin/devices", { params });
+        } else {
+          throw cacheErr;
+        }
+      }
       const data = response.data;
       
       // Cache the response
