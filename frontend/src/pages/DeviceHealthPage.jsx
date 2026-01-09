@@ -87,10 +87,13 @@ export default function DeviceHealthPage() {
           // Create basic device entries
           devicesList.forEach((device) => {
             if (device && device.device_id) {
-              allDevicesMap.set(device.device_id, {
+              // Use device_identifier as the key for matching with health data
+              const deviceIdentifier = device.device_id;
+              allDevicesMap.set(deviceIdentifier, {
+                id: device.id, // Store numeric ID for API calls
                 device_id: device.device_id,
                 device_name: device.name || device.device_id,
-                device_identifier: device.device_id,
+                device_identifier: deviceIdentifier,
                 current_status: device.is_active ? "online" : "offline",
                 last_seen_at: null,
                 uptime_24h_percent: null,
@@ -134,15 +137,19 @@ export default function DeviceHealthPage() {
           console.log(`Loaded ${healthDevices.length} devices with health status: ${status || "all"}`);
           
           // Merge health data into existing devices
+          // Health response uses device_identifier (string) to identify devices
           healthDevices.forEach((healthDevice) => {
-            if (healthDevice && healthDevice.device_id) {
-              const existing = allDevicesMap.get(healthDevice.device_id);
+            if (healthDevice && healthDevice.device_identifier) {
+              const existing = allDevicesMap.get(healthDevice.device_identifier);
               if (existing) {
-                // Update with health data
-                Object.assign(existing, healthDevice);
+                // Update with health data, preserving the numeric id if we have it
+                Object.assign(existing, {
+                  ...healthDevice,
+                  id: existing.id || healthDevice.device_id, // Preserve numeric id
+                });
               } else {
                 // Add new device with health data
-                allDevicesMap.set(healthDevice.device_id, healthDevice);
+                allDevicesMap.set(healthDevice.device_identifier, healthDevice);
               }
             }
           });
@@ -260,13 +267,9 @@ export default function DeviceHealthPage() {
 
   const loadBatteryTrend = async (deviceId, days, fromDate = null, toDate = null) => {
     try {
-      // Ensure deviceId is a number (the database ID, not the string identifier)
-      const numericDeviceId = typeof deviceId === 'string' ? parseInt(deviceId, 10) : deviceId;
-      if (isNaN(numericDeviceId)) {
-        console.error("Invalid device ID:", deviceId);
-        setBatteryTrend(null);
-        return;
-      }
+      // For tenant admins, use device_identifier (string) directly
+      // The backend endpoint handles string device_id for tenant admins
+      const deviceIdParam = deviceId; // Use as-is (string for tenant admins)
       
       const params = {};
       if (fromDate && toDate) {
@@ -280,7 +283,7 @@ export default function DeviceHealthPage() {
         params.days = days;
       }
       
-      const batteryResp = await api.get(`/devices/${numericDeviceId}/health/battery-trend`, {
+      const batteryResp = await api.get(`/devices/${deviceIdParam}/health/battery-trend`, {
         params
       });
       
@@ -337,15 +340,20 @@ export default function DeviceHealthPage() {
     setBatteryFromDate(fromDate.toISOString().split('T')[0]);
     
     try {
+      // For tenant admins, use device_identifier (string) instead of numeric id
+      // The backend endpoint handles string device_id for tenant admins
+      const deviceId = device.device_identifier || device.device_id;
+      
       // Load health history
-      const historyResp = await api.get(`/devices/${device.device_id}/health/history`, {
+      const historyResp = await api.get(`/devices/${deviceId}/health/history`, {
         params: { hours: 168 } // 7 days
       });
       setDeviceHistory(historyResp.data);
       
       // Load battery trend
-      await loadBatteryTrend(device.device_id, batteryDaysFilter);
+      await loadBatteryTrend(deviceId, batteryDaysFilter);
     } catch (err) {
+      console.error("Error loading device details:", err);
       setError(err.response?.data?.detail || "Failed to load device details");
     }
   };
