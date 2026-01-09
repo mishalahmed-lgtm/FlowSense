@@ -149,4 +149,146 @@ class EnvironmentalService(BaseService):
             "aqi": aqi,
             "sample_count": len(results),
         }
+    
+    def get_air_quality_data(
+        self,
+        user: User,
+        from_date: str,
+        to_date: str,
+    ) -> List[Dict[str, Any]]:
+        """Get air quality data (PM2.5, PM10, CO2) for devices over a time range.
+        
+        Args:
+            user: Current authenticated user
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
+            
+        Returns:
+            List of device air quality readings
+        """
+        self._log_query("get_air_quality_data", f"user={user.email}, from={from_date}, to={to_date}")
+        
+        if user.role != UserRole.TENANT_ADMIN or not user.tenant_id:
+            return []
+        
+        tenant_id = user.tenant_id
+        
+        # Query devices with air quality sensors
+        self._log_query("query_air_quality", f"tenant_id={tenant_id}")
+        air_query = text("""
+            SELECT 
+                device_id,
+                payload->>'name' as device_name,
+                payload->'telemetry'->'data'->>'pm2_5' as pm25,
+                payload->'telemetry'->'data'->>'pm10' as pm10,
+                payload->'telemetry'->'data'->>'co2' as co2,
+                payload->'telemetry'->>'timestamp' as timestamp
+            FROM devices_snapshot
+            WHERE tenant_id = :tenant_id
+              AND (
+                (payload->'telemetry'->'data')::jsonb ? 'pm2_5'
+                OR (payload->'telemetry'->'data')::jsonb ? 'pm10'
+                OR (payload->'telemetry'->'data')::jsonb ? 'co2'
+              )
+              AND (payload->'telemetry'->>'timestamp')::date >= CAST(:from_date AS date)
+              AND (payload->'telemetry'->>'timestamp')::date < CAST(:to_date AS date)
+        """)
+        
+        try:
+            results = self.db.execute(air_query, {
+                "tenant_id": tenant_id,
+                "from_date": from_date,
+                "to_date": to_date
+            }).fetchall()
+        except Exception as e:
+            self._handle_error(e, "Error querying air quality data")
+            return []
+        
+        air_quality_data = []
+        for row in results:
+            try:
+                data = {
+                    "device_id": row.device_id,
+                    "device_name": row.device_name or row.device_id,
+                    "pm25": float(row.pm25) if row.pm25 else None,
+                    "pm10": float(row.pm10) if row.pm10 else None,
+                    "co2": float(row.co2) if row.co2 else None,
+                    "timestamp": row.timestamp,
+                }
+                air_quality_data.append(data)
+            except Exception as e:
+                logger.warning(f"Error parsing air quality data for device {row.device_id}: {e}")
+                continue
+        
+        return air_quality_data
+    
+    def get_noise_data(
+        self,
+        user: User,
+        from_date: str,
+        to_date: str,
+    ) -> List[Dict[str, Any]]:
+        """Get noise level data for devices over a time range.
+        
+        Args:
+            user: Current authenticated user
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
+            
+        Returns:
+            List of device noise readings
+        """
+        self._log_query("get_noise_data", f"user={user.email}, from={from_date}, to={to_date}")
+        
+        if user.role != UserRole.TENANT_ADMIN or not user.tenant_id:
+            return []
+        
+        tenant_id = user.tenant_id
+        
+        # Query devices with noise sensors
+        self._log_query("query_noise", f"tenant_id={tenant_id}")
+        noise_query = text("""
+            SELECT 
+                device_id,
+                payload->>'name' as device_name,
+                payload->'telemetry'->'data'->>'noise_level' as noise_level,
+                payload->'telemetry'->'data'->>'noise' as noise_alt,
+                payload->'telemetry'->>'timestamp' as timestamp
+            FROM devices_snapshot
+            WHERE tenant_id = :tenant_id
+              AND (
+                (payload->'telemetry'->'data')::jsonb ? 'noise_level'
+                OR (payload->'telemetry'->'data')::jsonb ? 'noise'
+              )
+              AND (payload->'telemetry'->>'timestamp')::date >= CAST(:from_date AS date)
+              AND (payload->'telemetry'->>'timestamp')::date < CAST(:to_date AS date)
+        """)
+        
+        try:
+            results = self.db.execute(noise_query, {
+                "tenant_id": tenant_id,
+                "from_date": from_date,
+                "to_date": to_date
+            }).fetchall()
+        except Exception as e:
+            self._handle_error(e, "Error querying noise data")
+            return []
+        
+        noise_data = []
+        for row in results:
+            try:
+                noise_value = row.noise_level or row.noise_alt
+                if noise_value:
+                    data = {
+                        "device_id": row.device_id,
+                        "device_name": row.device_name or row.device_id,
+                        "noise_level": float(noise_value),
+                        "timestamp": row.timestamp,
+                    }
+                    noise_data.append(data)
+            except Exception as e:
+                logger.warning(f"Error parsing noise data for device {row.device_id}: {e}")
+                continue
+        
+        return noise_data
 

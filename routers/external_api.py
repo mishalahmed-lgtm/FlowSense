@@ -2,7 +2,7 @@
 import json
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Iterable
 from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Security, status, Header, Request, Query
 from fastapi.security import APIKeyHeader
@@ -1259,7 +1259,7 @@ async def send_telemetry_data_internal(
     # Fallback: Write directly to DB and broadcast via WebSocket (when Kafka unavailable or fails)
     if True:  # Always use fallback when Kafka fails
         # Fallback: Write directly to DB and broadcast via WebSocket (when Kafka unavailable)
-        from models import TelemetryLatest, DeviceHealthMetrics, DeviceSnapshot
+        from models import TelemetryLatest, DeviceHealthMetrics, DeviceSnapshot, TelemetryTimeseries
         from sqlalchemy import text
         
         latest = db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
@@ -1288,6 +1288,31 @@ async def send_telemetry_data_internal(
         health.calculated_at = now
         if not health.first_seen_at:
             health.first_seen_at = health.last_seen_at
+        
+        # Write to telemetry_timeseries for historical trends (same logic as telemetry_worker)
+        def _flatten_payload(payload_dict: Dict[str, Any], prefix: str = "") -> Iterable[Dict[str, Any]]:
+            """Flatten a telemetry payload into (key, value) pairs for time-series storage."""
+            for key, value in payload_dict.items():
+                full_key = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
+                if isinstance(value, (int, float)):
+                    yield {"key": full_key, "value": float(value)}
+                elif isinstance(value, dict):
+                    # Recurse into nested objects
+                    yield from _flatten_payload(value, full_key)
+        
+        try:
+            # Store time-series data for historical trends
+            for item in _flatten_payload(payload.data):
+                ts_row = TelemetryTimeseries(
+                    device_id=device.id,
+                    ts=event_ts,
+                    key=item["key"],
+                    value=item["value"],
+                )
+                db.add(ts_row)
+            logger.debug(f"[External API] ✓ Added {sum(1 for _ in _flatten_payload(payload.data))} timeseries points for device: {device.device_id}")
+        except Exception as e:
+            logger.warning(f"[External API] ✗ Failed to write timeseries data: {e}", exc_info=True)
         
         # CRITICAL FIX: Also update devices_snapshot table (used by tenant admins for frontend display)
         try:

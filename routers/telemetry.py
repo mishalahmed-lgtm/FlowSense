@@ -3,8 +3,8 @@ import logging
 import time
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from typing import Dict, Any, Optional
-from datetime import datetime
+from typing import Dict, Any, Optional, Iterable
+from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -139,12 +139,77 @@ async def ingest_telemetry_http(
         metrics.record_processing_time(processing_time)
         
         if not success:
+            # Fallback: Write directly to DB when Kafka fails (for Render deployment without Kafka)
+            logger.warning(f"[HTTP] Kafka publish failed for {device.device_id}, using direct DB fallback")
             metrics.record_message_rejected(device.device_id, "kafka_publish_failed")
-            metrics.record_error(device.device_id, "kafka_publish_failed")
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Failed to process telemetry data. Please retry."
-            )
+            
+            try:
+                from models import TelemetryLatest, DeviceHealthMetrics, TelemetryTimeseries
+                from sqlalchemy import text
+                
+                event_ts = datetime.fromisoformat(metadata.get("timestamp", datetime.utcnow().isoformat()).replace('Z', '+00:00'))
+                
+                # Update telemetry_latest
+                latest = db.query(TelemetryLatest).filter(TelemetryLatest.device_id == device.id).first()
+                if latest:
+                    latest.data = rule_result.payload
+                    latest.event_timestamp = event_ts
+                    latest.updated_at = datetime.now(timezone.utc)
+                else:
+                    latest = TelemetryLatest(
+                        device_id=device.id,
+                        data=rule_result.payload,
+                        event_timestamp=event_ts,
+                    )
+                    db.add(latest)
+                
+                # Update health
+                health = db.query(DeviceHealthMetrics).filter(DeviceHealthMetrics.device_id == device.id).first()
+                if not health:
+                    health = DeviceHealthMetrics(device_id=device.id)
+                    db.add(health)
+                
+                now = datetime.now(timezone.utc)
+                health.last_seen_at = now
+                health.current_status = "online"
+                health.calculated_at = now
+                if not health.first_seen_at:
+                    health.first_seen_at = now
+                
+                # Write to telemetry_timeseries for historical trends
+                def _flatten_payload(payload_dict: Dict[str, Any], prefix: str = "") -> Iterable[Dict[str, Any]]:
+                    """Flatten a telemetry payload into (key, value) pairs for time-series storage."""
+                    for key, value in payload_dict.items():
+                        full_key = f"{prefix}{key}" if not prefix else f"{prefix}.{key}"
+                        if isinstance(value, (int, float)):
+                            yield {"key": full_key, "value": float(value)}
+                        elif isinstance(value, dict):
+                            yield from _flatten_payload(value, full_key)
+                
+                for item in _flatten_payload(rule_result.payload):
+                    ts_row = TelemetryTimeseries(
+                        device_id=device.id,
+                        ts=event_ts,
+                        key=item["key"],
+                        value=item["value"],
+                    )
+                    db.add(ts_row)
+                
+                db.commit()
+                logger.info(f"[HTTP] ✓ Fallback: Direct DB write completed for device: {device.device_id}")
+                
+                return {
+                    "status": "accepted",
+                    "device_id": device.device_id,
+                    "message": "Telemetry data received and stored (Kafka unavailable, using direct DB)"
+                }
+            except Exception as fallback_error:
+                logger.error(f"[HTTP] ✗ Fallback DB write failed: {fallback_error}", exc_info=True)
+                metrics.record_error(device.device_id, "fallback_db_failed")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Failed to process telemetry data. Please retry."
+                )
         
         metrics.record_message_published(device.device_id)
         
