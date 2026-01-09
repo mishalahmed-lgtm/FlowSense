@@ -8,8 +8,21 @@ import pickle
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional, Tuple
 from collections import defaultdict
-import numpy as np
-import pandas as pd
+# Optional imports - handle gracefully if not available
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
+    np = None
+
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    pd = None
+
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -159,9 +172,16 @@ class AnalyticsEngine:
             # Simple anomaly detection in stream
             if recent_telemetry:
                 values = [t.value for t in recent_telemetry if t.value is not None]
-                if len(values) > 2:
+                if len(values) > 2 and NUMPY_AVAILABLE:
                     mean_val = np.mean(values)
                     std_val = np.std(values)
+                    anomalies = [v for v in values if abs(v - mean_val) > 2 * std_val]
+                    results["anomalies_detected"] += len(anomalies)
+                elif len(values) > 2:
+                    # Fallback without numpy
+                    mean_val = sum(values) / len(values)
+                    variance = sum((x - mean_val) ** 2 for x in values) / len(values)
+                    std_val = variance ** 0.5
                     anomalies = [v for v in values if abs(v - mean_val) > 2 * std_val]
                     results["anomalies_detected"] += len(anomalies)
         
@@ -243,7 +263,10 @@ class AnalyticsEngine:
                     # Update average
                     current_avg = results["aggregations"][key]["avg"]
                     if current_avg is None:
-                        results["aggregations"][key]["avg"] = np.mean(numeric_values)
+                        if NUMPY_AVAILABLE:
+                            results["aggregations"][key]["avg"] = np.mean(numeric_values)
+                        else:
+                            results["aggregations"][key]["avg"] = sum(numeric_values) / len(numeric_values) if numeric_values else 0
                     else:
                         # Weighted average
                         total_count = results["aggregations"][key]["count"]
@@ -311,6 +334,9 @@ class AnalyticsEngine:
         job.progress_percent = 40.0
         db.commit()
         
+        if not PANDAS_AVAILABLE or not NUMPY_AVAILABLE or not SKLEARN_AVAILABLE:
+            raise ValueError("ML training requires pandas, numpy, and scikit-learn. Install with: pip install pandas numpy scikit-learn")
+        
         # Prepare features
         df = pd.DataFrame(training_data)
         if model_type == "anomaly_detection":
@@ -329,7 +355,8 @@ class AnalyticsEngine:
             # This is simplified - in production you'd have failure labels
             features = df[["value", "timestamp"]].values
             # Create dummy labels (in production, use actual failure data)
-            labels = np.random.randint(0, 2, len(features))  # Placeholder
+            import random
+            labels = [random.randint(0, 1) for _ in range(len(features))]  # Placeholder
             
             X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
             model = RandomForestRegressor(n_estimators=100, random_state=42)
@@ -444,11 +471,16 @@ class AnalyticsEngine:
                 continue
             
             # Simple heuristic: if values are outside normal range, higher failure probability
-            mean_val = np.mean(values)
-            std_val = np.std(values) if len(values) > 1 else 0
+            if NUMPY_AVAILABLE:
+                mean_val = np.mean(values)
+                std_val = np.std(values) if len(values) > 1 else 0
+            else:
+                mean_val = sum(values) / len(values) if values else 0
+                variance = sum((x - mean_val) ** 2 for x in values) / len(values) if len(values) > 1 else 0
+                std_val = variance ** 0.5
             
             # Use model if available
-            if model and SKLEARN_AVAILABLE:
+            if model and SKLEARN_AVAILABLE and NUMPY_AVAILABLE:
                 try:
                     features = np.array([[mean_val, std_val]])
                     if hasattr(model, "predict"):
@@ -541,6 +573,9 @@ class AnalyticsEngine:
             data = [{"timestamp": t.ts, "key": t.key, "value": t.value} for t in telemetry if t.value is not None]
             if not data:
                 continue
+            
+            if not PANDAS_AVAILABLE:
+                raise ValueError("Time series analysis requires pandas. Install with: pip install pandas")
             
             df = pd.DataFrame(data)
             df["hour"] = df["timestamp"].dt.hour
@@ -660,9 +695,22 @@ class AnalyticsEngine:
                     values2 = [v[1] for v in aligned_values]
                     
                     # Calculate Pearson correlation
-                    correlation = np.corrcoef(values1, values2)[0, 1]
+                    if NUMPY_AVAILABLE:
+                        correlation = np.corrcoef(values1, values2)[0, 1]
+                        is_nan = np.isnan(correlation)
+                    else:
+                        # Simple correlation calculation without numpy
+                        if len(values1) != len(values2) or len(values1) < 2:
+                            continue
+                        mean1 = sum(values1) / len(values1)
+                        mean2 = sum(values2) / len(values2)
+                        numerator = sum((values1[i] - mean1) * (values2[i] - mean2) for i in range(len(values1)))
+                        denom1 = sum((x - mean1) ** 2 for x in values1) ** 0.5
+                        denom2 = sum((x - mean2) ** 2 for x in values2) ** 0.5
+                        correlation = numerator / (denom1 * denom2) if (denom1 * denom2) > 0 else 0
+                        is_nan = correlation != correlation  # Check for NaN
                     
-                    if not np.isnan(correlation):
+                    if not is_nan:
                         correlations.append({
                             "device1": dev1,
                             "device2": dev2,
@@ -712,6 +760,9 @@ class AnalyticsEngine:
         data = [{"timestamp": t.ts, "key": t.key, "value": t.value} for t in telemetry if t.value is not None]
         if not data:
             return None
+        
+        if not PANDAS_AVAILABLE:
+            raise ValueError("Pattern analysis requires pandas. Install with: pip install pandas")
         
         df = pd.DataFrame(data)
         df["hour"] = df["timestamp"].dt.hour
@@ -789,9 +840,22 @@ class AnalyticsEngine:
                     values1 = [v[0] for v in aligned_values]
                     values2 = [v[1] for v in aligned_values]
                     
-                    correlation = np.corrcoef(values1, values2)[0, 1]
+                    if NUMPY_AVAILABLE:
+                        correlation = np.corrcoef(values1, values2)[0, 1]
+                        is_nan = np.isnan(correlation)
+                    else:
+                        # Simple correlation calculation without numpy
+                        if len(values1) != len(values2) or len(values1) < 2:
+                            continue
+                        mean1 = sum(values1) / len(values1)
+                        mean2 = sum(values2) / len(values2)
+                        numerator = sum((values1[i] - mean1) * (values2[i] - mean2) for i in range(len(values1)))
+                        denom1 = sum((x - mean1) ** 2 for x in values1) ** 0.5
+                        denom2 = sum((x - mean2) ** 2 for x in values2) ** 0.5
+                        correlation = numerator / (denom1 * denom2) if (denom1 * denom2) > 0 else 0
+                        is_nan = correlation != correlation  # Check for NaN
                     
-                    if not np.isnan(correlation):
+                    if not is_nan:
                         correlations.append({
                             "device1_id": dev1,
                             "device2_id": dev2,
@@ -836,6 +900,9 @@ class AnalyticsEngine:
         if len(training_data) < 10:
             raise Exception("Insufficient training data. Need at least 10 samples.")
         
+        if not PANDAS_AVAILABLE or not NUMPY_AVAILABLE or not SKLEARN_AVAILABLE:
+            raise ValueError("ML model training requires pandas, numpy, and scikit-learn. Install with: pip install pandas numpy scikit-learn")
+        
         df = pd.DataFrame(training_data)
         features = df[["value", "timestamp"]].values
         
@@ -846,7 +913,8 @@ class AnalyticsEngine:
             anomaly_count = sum(predictions == -1)
             accuracy = 1.0 - (anomaly_count / len(predictions))
         elif model_type == "failure_prediction":
-            labels = np.random.randint(0, 2, len(features))  # Placeholder - in production use actual failure data
+            import random
+            labels = [random.randint(0, 1) for _ in range(len(features))]  # Placeholder - in production use actual failure data
             X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, random_state=42)
             model = RandomForestRegressor(n_estimators=100, random_state=42)
             model.fit(X_train, y_train)
@@ -915,10 +983,15 @@ class AnalyticsEngine:
             if not values:
                 continue
             
-            mean_val = np.mean(values)
-            std_val = np.std(values) if len(values) > 1 else 0
+            if NUMPY_AVAILABLE:
+                mean_val = np.mean(values)
+                std_val = np.std(values) if len(values) > 1 else 0
+            else:
+                mean_val = sum(values) / len(values) if values else 0
+                variance = sum((x - mean_val) ** 2 for x in values) / len(values) if len(values) > 1 else 0
+                std_val = variance ** 0.5
             
-            if model and SKLEARN_AVAILABLE:
+            if model and SKLEARN_AVAILABLE and NUMPY_AVAILABLE:
                 try:
                     features = np.array([[mean_val, std_val]])
                     if hasattr(model, "decision_function"):
