@@ -76,52 +76,80 @@ export default function DeviceHealthPage() {
 
   // Apply search filter and pagination
   useEffect(() => {
-    let filtered = [...allDevices];
+    try {
+      // Ensure allDevices is an array
+      if (!Array.isArray(allDevices)) {
+        setDevices([]);
+        return;
+      }
 
-    // Apply search filter
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter((device) => {
-        const deviceName = (device.device_name || "").toLowerCase();
-        const deviceId = (device.device_id || device.device_identifier || "").toLowerCase();
-        return deviceName.includes(query) || deviceId.includes(query);
-      });
+      let filtered = [...allDevices];
+
+      // Apply search filter
+      if (searchQuery && searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        filtered = filtered.filter((device) => {
+          if (!device) return false;
+          const deviceName = String(device.device_name || device.name || "").toLowerCase();
+          const deviceId = String(device.device_id || device.device_identifier || "").toLowerCase();
+          return deviceName.includes(query) || deviceId.includes(query);
+        });
+      }
+
+      // Apply status filter
+      if (statusFilter !== "all") {
+        filtered = filtered.filter((device) => {
+          if (!device) return false;
+          return device.current_status === statusFilter;
+        });
+      }
+
+      // Calculate pagination
+      const totalPages = Math.max(1, Math.ceil(filtered.length / limitFilter));
+      const startIndex = Math.max(0, (currentPage - 1) * limitFilter);
+      const endIndex = Math.min(startIndex + limitFilter, filtered.length);
+      const paginatedDevices = filtered.slice(startIndex, endIndex);
+
+      setDevices(paginatedDevices);
+    } catch (err) {
+      console.error("Error filtering devices:", err);
+      setDevices([]);
     }
-
-    // Apply status filter
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((device) => device.current_status === statusFilter);
-    }
-
-    // Calculate pagination
-    const totalPages = Math.ceil(filtered.length / limitFilter);
-    const startIndex = (currentPage - 1) * limitFilter;
-    const endIndex = startIndex + limitFilter;
-    const paginatedDevices = filtered.slice(startIndex, endIndex);
-
-    setDevices(paginatedDevices);
   }, [allDevices, searchQuery, limitFilter, currentPage, statusFilter]);
 
   // Reset to page 1 if current page is beyond available pages (separate effect to avoid loop)
   useEffect(() => {
-    let filtered = [...allDevices];
+    try {
+      if (!Array.isArray(allDevices)) {
+        if (currentPage > 1) setCurrentPage(1);
+        return;
+      }
 
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase().trim();
-      filtered = filtered.filter((device) => {
-        const deviceName = (device.device_name || "").toLowerCase();
-        const deviceId = (device.device_id || device.device_identifier || "").toLowerCase();
-        return deviceName.includes(query) || deviceId.includes(query);
-      });
-    }
+      let filtered = [...allDevices];
 
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((device) => device.current_status === statusFilter);
-    }
+      if (searchQuery && searchQuery.trim()) {
+        const query = searchQuery.toLowerCase().trim();
+        filtered = filtered.filter((device) => {
+          if (!device) return false;
+          const deviceName = String(device.device_name || device.name || "").toLowerCase();
+          const deviceId = String(device.device_id || device.device_identifier || "").toLowerCase();
+          return deviceName.includes(query) || deviceId.includes(query);
+        });
+      }
 
-    const totalPages = Math.ceil(filtered.length / limitFilter);
-    if (currentPage > totalPages && totalPages > 0) {
-      setCurrentPage(1);
+      if (statusFilter !== "all") {
+        filtered = filtered.filter((device) => {
+          if (!device) return false;
+          return device.current_status === statusFilter;
+        });
+      }
+
+      const totalPages = Math.max(1, Math.ceil(filtered.length / limitFilter));
+      if (currentPage > totalPages && totalPages > 0) {
+        setCurrentPage(1);
+      }
+    } catch (err) {
+      console.error("Error resetting page:", err);
     }
   }, [allDevices, searchQuery, limitFilter, statusFilter]); // Note: currentPage NOT in deps
 
@@ -471,14 +499,28 @@ export default function DeviceHealthPage() {
         
         {/* Pagination Controls */}
         {(() => {
-          const filteredCount = searchQuery.trim() 
-            ? allDevices.filter((device) => {
-                const query = searchQuery.toLowerCase().trim();
-                const deviceName = (device.device_name || "").toLowerCase();
-                const deviceId = (device.device_id || device.device_identifier || "").toLowerCase();
-                return deviceName.includes(query) || deviceId.includes(query);
-              }).filter((device) => statusFilter === "all" || device.current_status === statusFilter).length
-            : allDevices.filter((device) => statusFilter === "all" || device.current_status === statusFilter).length;
+          if (!Array.isArray(allDevices)) return null;
+          
+          let filtered = [...allDevices];
+          
+          if (searchQuery && searchQuery.trim()) {
+            const query = searchQuery.toLowerCase().trim();
+            filtered = filtered.filter((device) => {
+              if (!device) return false;
+              const deviceName = String(device.device_name || device.name || "").toLowerCase();
+              const deviceId = String(device.device_id || device.device_identifier || "").toLowerCase();
+              return deviceName.includes(query) || deviceId.includes(query);
+            });
+          }
+          
+          if (statusFilter !== "all") {
+            filtered = filtered.filter((device) => {
+              if (!device) return false;
+              return device.current_status === statusFilter;
+            });
+          }
+          
+          const filteredCount = filtered.length;
           
           const totalPages = Math.ceil(filteredCount / limitFilter);
           const startIndex = (currentPage - 1) * limitFilter + 1;
