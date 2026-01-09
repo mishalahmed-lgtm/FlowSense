@@ -1,10 +1,12 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from "recharts";
+import { generateDummyEnvironmentalData } from "../utils/dummyData.js";
+import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 
 // AQI calculation function
 function calculateAQI(pm25, pm10, co2) {
@@ -51,7 +53,7 @@ function getNoiseCategory(noiseLevel) {
 }
 
 export default function EnvironmentalMonitoringDashboard() {
-  const { token, isTenantAdmin } = useAuth();
+  const { token, isTenantAdmin, user } = useAuth();
   const api = useMemo(() => createApiClient(token), [token]);
 
   const [loading, setLoading] = useState(true);
@@ -84,13 +86,6 @@ export default function EnvironmentalMonitoringDashboard() {
   });
   const [envSummary, setEnvSummary] = useState(null);
 
-  useEffect(() => {
-    if (!token) return;
-    loadEnvironmentalData();
-    const interval = setInterval(loadEnvironmentalData, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, [token, timeRange]);
-
   const loadEnvironmentalSummary = async () => {
     try {
       const hours = timeRange === "24h" ? 24 : timeRange === "7d" ? 168 : 720;
@@ -101,10 +96,79 @@ export default function EnvironmentalMonitoringDashboard() {
     }
   };
 
-  const loadEnvironmentalData = async () => {
+  const loadEnvironmentalData = useCallback(async (forceRefresh = false) => {
+    // Try to load from cache first
+    const cacheKey = getCacheKey('environmental_data', { timeRange, tenant_id: user?.tenant_id });
+    
+    if (!forceRefresh) {
+      const cachedData = loadFromCache(cacheKey);
+      if (cachedData) {
+        console.log("📦 Using cached environmental data");
+        setEnvData(cachedData);
+        setLoading(false);
+        return;
+      }
+    }
+    
     setLoading(true);
     setError(null);
     try {
+      const hours = timeRange === "24h" ? 24 : timeRange === "7d" ? 168 : 720;
+      
+      // For tenant_id = 2, use dummy environmental data
+      if (user?.tenant_id === 2) {
+        console.log("🔥 Generating dummy environmental data for tenant_id = 2...");
+        try {
+          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+          const firebaseData = await fetchFirebaseDataForDashboard();
+          
+          if (firebaseData.success && firebaseData.devices) {
+            const dummyEnvData = generateDummyEnvironmentalData(firebaseData.devices, hours);
+            console.log("✅ Generated environmental data:", dummyEnvData);
+            
+            // Set the data in the expected format
+            const envDataObj = {
+              airQuality: {
+                pm25: dummyEnvData.summary.pm25,
+                pm10: dummyEnvData.summary.pm10,
+                co2: dummyEnvData.summary.co2,
+                aqi: dummyEnvData.summary.aqi,
+              },
+              weather: {
+                temperature: dummyEnvData.summary.temperature,
+                humidity: dummyEnvData.summary.humidity,
+              },
+              noise: {
+                level: dummyEnvData.summary.noise_level,
+                peak: dummyEnvData.summary.noise_level + 15,
+              },
+              trends: dummyEnvData.trends,
+              sensorStatus: dummyEnvData.sensors,
+            };
+            
+            setEnvData(envDataObj);
+            
+            setEnvSummary({
+              active_sensors: dummyEnvData.summary.active_sensors,
+              avg_aqi: dummyEnvData.summary.aqi,
+              avg_temperature: dummyEnvData.summary.temperature,
+              avg_humidity: dummyEnvData.summary.humidity,
+              avg_noise: dummyEnvData.summary.noise_level,
+            });
+            
+            // Save to cache
+            const cacheKey = getCacheKey('environmental_data', { timeRange, tenant_id: user?.tenant_id });
+            saveToCache(cacheKey, envDataObj);
+            
+            setLoading(false);
+            setError(null);
+            return;
+          }
+        } catch (firebaseErr) {
+          console.error("Failed to load Firebase data for environmental:", firebaseErr);
+        }
+      }
+      
       await loadEnvironmentalSummary();
       // Get all devices for the tenant
       const devicesResp = await api.get("/admin/devices", { params: { limit: 1000 } });
@@ -418,7 +482,16 @@ export default function EnvironmentalMonitoringDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange, user, api]); // Add dependencies for useCallback
+
+  // Load data on mount and when filters change
+  useEffect(() => {
+    if (!token || !user) return;
+    loadEnvironmentalData();
+    // Refresh every 2 hours
+    const interval = setInterval(() => loadEnvironmentalData(true), 2 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token, timeRange, user, loadEnvironmentalData]);
 
   if (!isTenantAdmin) {
     return (
@@ -430,7 +503,9 @@ export default function EnvironmentalMonitoringDashboard() {
     );
   }
 
-  const aqiInfo = envData.airQuality.aqi ? getAQICategory(envData.airQuality.aqi) : null;
+  const aqiInfo = (envData?.airQuality?.aqi !== null && envData?.airQuality?.aqi !== undefined) 
+    ? getAQICategory(envData.airQuality.aqi) 
+    : null;
 
   return (
     <div className="page">
@@ -477,23 +552,23 @@ export default function EnvironmentalMonitoringDashboard() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "var(--space-4)" }}>
             <div>
               <div className="text-muted" style={{ fontSize: "0.875rem" }}>PM2.5 Average</div>
-              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.pm25_avg.toFixed(2)} μg/m³</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{(envSummary.pm25_avg || 0).toFixed(2)} μg/m³</div>
             </div>
             <div>
               <div className="text-muted" style={{ fontSize: "0.875rem" }}>PM10 Average</div>
-              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.pm10_avg.toFixed(2)} μg/m³</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{(envSummary.pm10_avg || 0).toFixed(2)} μg/m³</div>
             </div>
             <div>
               <div className="text-muted" style={{ fontSize: "0.875rem" }}>CO₂ Average</div>
-              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.co2_avg.toFixed(2)} ppm</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{(envSummary.co2_avg || 0).toFixed(2)} ppm</div>
             </div>
             <div>
               <div className="text-muted" style={{ fontSize: "0.875rem" }}>Temperature</div>
-              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.temperature_avg.toFixed(2)} °C</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{(envSummary.temperature_avg || 0).toFixed(2)} °C</div>
             </div>
             <div>
               <div className="text-muted" style={{ fontSize: "0.875rem" }}>Humidity</div>
-              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{envSummary.humidity_avg.toFixed(2)} %</div>
+              <div style={{ fontSize: "1.25rem", fontWeight: "bold" }}>{(envSummary.humidity_avg || 0).toFixed(2)} %</div>
             </div>
             <div>
               <div className="text-muted" style={{ fontSize: "0.875rem" }}>AQI</div>
@@ -685,7 +760,7 @@ export default function EnvironmentalMonitoringDashboard() {
           </div>
 
           {/* Environmental History Chart */}
-          {(envData.trends.pm25.length > 0 || envData.trends.temperature.length > 0 || envData.trends.noise.length > 0) && (
+          {(envData?.trends?.pm25?.length > 0 || envData?.trends?.temperature?.length > 0 || envData?.trends?.noise?.length > 0) && (
             <div className="card" style={{ marginBottom: "var(--space-6)" }}>
               <div className="card__header">
                 <h3 className="card__title">Environmental Trends</h3>
@@ -697,7 +772,7 @@ export default function EnvironmentalMonitoringDashboard() {
                     const timeMap = new Map();
                     
                     // Add PM2.5 data
-                    envData.trends.pm25.forEach(point => {
+                    (envData?.trends?.pm25 || []).forEach(point => {
                       const key = point.time;
                       if (!timeMap.has(key)) {
                         timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
@@ -706,7 +781,7 @@ export default function EnvironmentalMonitoringDashboard() {
                     });
                     
                     // Add PM10 data
-                    envData.trends.pm10.forEach(point => {
+                    (envData?.trends?.pm10 || []).forEach(point => {
                       const key = point.time;
                       if (!timeMap.has(key)) {
                         timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
@@ -715,7 +790,7 @@ export default function EnvironmentalMonitoringDashboard() {
                     });
                     
                     // Add temperature data
-                    envData.trends.temperature.forEach(point => {
+                    (envData?.trends?.temperature || []).forEach(point => {
                       const key = point.time;
                       if (!timeMap.has(key)) {
                         timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
@@ -724,7 +799,7 @@ export default function EnvironmentalMonitoringDashboard() {
                     });
                     
                     // Add humidity data
-                    envData.trends.humidity.forEach(point => {
+                    (envData?.trends?.humidity || []).forEach(point => {
                       const key = point.time;
                       if (!timeMap.has(key)) {
                         timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
@@ -733,7 +808,7 @@ export default function EnvironmentalMonitoringDashboard() {
                     });
                     
                     // Add noise data
-                    envData.trends.noise.forEach(point => {
+                    (envData?.trends?.noise || []).forEach(point => {
                       const key = point.time;
                       if (!timeMap.has(key)) {
                         timeMap.set(key, { timestamp: point.time, time: new Date(point.time).toLocaleTimeString() });
@@ -756,7 +831,7 @@ export default function EnvironmentalMonitoringDashboard() {
                     <YAxis yAxisId="left" />
                     <YAxis yAxisId="right" orientation="right" />
                     <Tooltip />
-                    {envData.trends.pm25.length > 0 && (
+                    {envData?.trends?.pm25?.length > 0 && (
                       <Area 
                         yAxisId="left"
                         type="monotone" 
@@ -767,7 +842,7 @@ export default function EnvironmentalMonitoringDashboard() {
                         name="PM2.5 (μg/m³)"
                       />
                     )}
-                    {envData.trends.pm10.length > 0 && (
+                    {envData?.trends?.pm10?.length > 0 && (
                       <Area 
                         yAxisId="left"
                         type="monotone" 
@@ -778,7 +853,7 @@ export default function EnvironmentalMonitoringDashboard() {
                         name="PM10 (μg/m³)"
                       />
                     )}
-                    {envData.trends.temperature.length > 0 && (
+                    {envData?.trends?.temperature?.length > 0 && (
                       <Area 
                         yAxisId="right"
                         type="monotone" 
@@ -789,7 +864,7 @@ export default function EnvironmentalMonitoringDashboard() {
                         name="Temperature (°C)"
                       />
                     )}
-                    {envData.trends.humidity.length > 0 && (
+                    {envData?.trends?.humidity?.length > 0 && (
                       <Area 
                         yAxisId="right"
                         type="monotone" 
@@ -800,7 +875,7 @@ export default function EnvironmentalMonitoringDashboard() {
                         name="Humidity (%)"
                       />
                     )}
-                    {envData.trends.noise.length > 0 && (
+                    {envData?.trends?.noise?.length > 0 && (
                       <Area 
                         yAxisId="right"
                         type="monotone" 
@@ -868,14 +943,15 @@ export default function EnvironmentalMonitoringDashboard() {
             );
           })()}
 
-          {/* Sensor Status Grid */}
+          {/* Sensor Status Grid - HIDDEN as per user request */}
+          {false && (
           <div className="card" style={{ marginBottom: "var(--space-6)" }}>
             <div className="card__header">
               <h3 className="card__title">Sensor Status</h3>
             </div>
             <div className="card__body">
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "var(--space-4)" }}>
-                {envData.sensorStatus.map((status) => (
+                {(envData?.sensorStatus || []).map((status) => (
                   <div
                     key={status.type}
                     style={{
@@ -906,6 +982,7 @@ export default function EnvironmentalMonitoringDashboard() {
               </div>
             </div>
           </div>
+          )}
         </>
       )}
     </div>

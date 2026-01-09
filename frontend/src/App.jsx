@@ -6,6 +6,7 @@ import LoginPage from "./pages/LoginPage.jsx";
 import DevicesPage from "./pages/DevicesPage.jsx";
 import DashboardPage from "./pages/DashboardPage.jsx";
 import DeviceRulesPage from "./pages/DeviceRulesPage.jsx";
+import DeviceRulesListPage from "./pages/DeviceRulesListPage.jsx";
 import DeviceDashboardPage from "./pages/DeviceDashboardPage.jsx";
 import UtilityBillingPage from "./pages/UtilityBillingPage.jsx";
 import AdminPortalPage from "./pages/AdminPortalPage.jsx";
@@ -86,6 +87,7 @@ function App() {
             {hasModule("devices") && (
               <>
                 <Route path="/devices" element={<DevicesPage />} />
+                <Route path="/devices/rules" element={<DeviceRulesListPage />} />
                 <Route path="/devices/:deviceId/rules" element={<DeviceRulesPage />} />
               </>
             )}

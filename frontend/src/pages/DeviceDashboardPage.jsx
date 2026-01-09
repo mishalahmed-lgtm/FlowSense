@@ -180,7 +180,7 @@ function getValueByField(data, field) {
 
 export default function DeviceDashboardPage() {
   const { deviceId } = useParams();
-  const { token, isTenantAdmin } = useAuth();
+  const { token, isTenantAdmin, user } = useAuth();
   
   // Only tenant admins can access device dashboard page
   if (!isTenantAdmin) {
@@ -233,29 +233,119 @@ export default function DeviceDashboardPage() {
 
     const load = async () => {
       console.log("Loading dashboard for device:", deviceId);
+      console.log("👤 Current user tenant_id:", user?.tenant_id);
       setLoading(true);
       setError(null);
       try {
-        const [devicesResp, dashResp] = await Promise.all([
-          api.get("/admin/devices"),
-          api.get(`/dashboard/devices/${deviceId}/dashboard`),
-        ]);
-        console.log("Dashboard API responses:", { devices: devicesResp.data, dashboard: dashResp.data });
+        // Check if tenant_id = 2, use Firebase for device data (user already available from useAuth)
+        let found = null;
+        let telemetryFromFirebase = null;
+        
+        if (user?.tenant_id === 2) {
+          console.log("🔥 Loading device data from Firebase for tenant_id = 2...");
+          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+          const firebaseData = await fetchFirebaseDataForDashboard();
+          
+          if (firebaseData.success) {
+            found = firebaseData.devices.find((d) => d.device_id === deviceId);
+            if (found) {
+              console.log("✅ Device found in Firebase:", found);
+              console.log("📊 Device telemetry data:", found.telemetry);
+              setDevice(found);
+              
+              // Set telemetry data from Firebase
+              telemetryFromFirebase = found.telemetry?.data || {};
+              setTelemetryData(telemetryFromFirebase);
+              
+              // Discover fields from Firebase data
+              const fields = Object.keys(telemetryFromFirebase);
+              setAvailableKeys(fields);
+              
+              // Convert to field objects format expected by widget library
+              const fieldObjects = fields.map(key => {
+                const value = telemetryFromFirebase[key];
+                const isNumber = typeof value === 'number';
+                const keyLower = key.toLowerCase();
+                
+                // Determine unit based on field name
+                let unit = '';
+                if (keyLower.includes('cm') || keyLower.includes('distance') || keyLower.includes('dis')) {
+                  unit = 'cm';
+                } else if (keyLower.includes('temp') || keyLower.includes('temperature')) {
+                  unit = '°C';
+                } else if (keyLower.includes('battery')) {
+                  unit = '%';
+                } else if (keyLower.includes('humidity')) {
+                  unit = '%';
+                } else if (keyLower.includes('pm') || keyLower.includes('co2') || keyLower.includes('aqi')) {
+                  unit = 'ppm';
+                }
+                
+                // Create display name
+                const displayName = key
+                  .replace(/_/g, ' ')
+                  .replace(/\b\w/g, l => l.toUpperCase())
+                  .replace(/Cm/g, 'CM')
+                  .replace(/Pm/g, 'PM');
+                
+                return {
+                  key: key,
+                  display_name: displayName,
+                  field_type: isNumber ? 'number' : 'string',
+                  type: isNumber ? 'number' : 'string', // Keep both for compatibility
+                  unit: unit,
+                  min_value: isNumber ? (value * 0.5) : null, // Estimate min
+                  max_value: isNumber ? (value * 1.5) : null, // Estimate max
+                };
+              });
+              
+              setDiscoveredFields(fieldObjects);
+              console.log("📊 Discovered fields from Firebase:", fieldObjects);
+              console.log("📊 Field count:", fieldObjects.length);
+            }
+          }
+        }
+        
+        // If not found in Firebase or not tenant_id = 2, try backend API
+        if (!found) {
+          console.log("Loading device from backend API...");
+          const devicesResp = await api.get("/admin/devices");
         
         // Handle paginated response format
         const devices = Array.isArray(devicesResp.data) 
           ? devicesResp.data 
           : (devicesResp.data?.devices || []);
         
-        const found = devices.find((d) => d.device_id === deviceId);
+          found = devices.find((d) => d.device_id === deviceId);
         if (!found) {
           setError("Device not found");
           setLoading(false);
           return;
         }
         setDevice(found);
-
-        const existingConfig = dashResp.data.config || { widgets: [], layout: [] };
+        }
+        
+        // Load dashboard config from backend (works for all tenants)
+        // For tenant_id = 2, if dashboard config fails, use empty config (not critical)
+        let existingConfig = { widgets: [], layout: [] };
+        try {
+          const dashResp = await api.get(`/dashboard/devices/${deviceId}/dashboard`);
+          console.log("Dashboard API response:", dashResp.data);
+          existingConfig = dashResp.data.config || { widgets: [], layout: [] };
+          
+          // Load latest telemetry (if not already loaded from Firebase)
+          if (!telemetryFromFirebase) {
+            setTelemetryData(dashResp.data.latest?.data || {});
+          }
+        } catch (dashErr) {
+          // Dashboard config load failed - that's okay, we'll use empty config
+          console.log("⚠️ Dashboard config not found (using empty config):", dashErr.response?.status);
+          if (user?.tenant_id !== 2) {
+            // Only show error for non-Firebase tenants
+            console.warn("Dashboard config load failed for non-Firebase tenant");
+          }
+        }
+        
         console.log("Dashboard config from backend:", existingConfig);
         // Start with empty dashboard - user adds widgets from library
         const initialWidgets = existingConfig.widgets || [];
@@ -275,13 +365,15 @@ export default function DeviceDashboardPage() {
         console.log("Setting initial widgets:", initialWidgets.length, "layout:", initialLayout.length);
         setWidgets(initialWidgets);
         setLayout(initialLayout);
-
-        // Load latest telemetry
-        setTelemetryData(dashResp.data.latest?.data || {});
         console.log("Dashboard loaded successfully");
       } catch (err) {
         console.error("Dashboard load error:", err);
+        // Only set error if it's not a 404 (dashboard config not found is okay)
+        if (err.response?.status !== 404) {
         setError(err.response?.data?.detail || "Failed to load dashboard");
+        } else {
+          console.log("Dashboard config not found - using empty config (this is okay)");
+        }
       } finally {
         console.log("Setting loading to false");
         setLoading(false);
@@ -325,9 +417,16 @@ export default function DeviceDashboardPage() {
     return readings.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
   }, []);
 
-  // Load external device data
+  // Load external device data (skip for tenant_id = 2, uses Firebase)
   useEffect(() => {
     if (!deviceId || !token) return;
+    
+    // Skip external data loading for tenant_id = 2 (uses Firebase)
+    if (user?.tenant_id === 2) {
+      console.log("⏭️ Skipping external data load for tenant_id = 2 (using Firebase)");
+      setExternalDataLoading(false);
+      return;
+    }
 
     const loadExternalData = async () => {
       setExternalDataLoading(true);
@@ -517,7 +616,31 @@ export default function DeviceDashboardPage() {
       setReadingsLoading(true);
       setReadingsError(null);
       try {
-        // Get external data readings
+        let allReadings = [];
+        
+        // For tenant_id = 2, create readings from Firebase telemetry data
+        if (user?.tenant_id === 2 && device?.telemetry) {
+          console.log("📊 Creating readings from Firebase telemetry data...");
+          const firebaseReadings = [];
+          const telemetryData = device.telemetry.data || {};
+          const timestamp = device.telemetry.timestamp || new Date().toISOString();
+          
+          Object.keys(telemetryData).forEach((key) => {
+            if (telemetryData[key] !== null && telemetryData[key] !== undefined) {
+              firebaseReadings.push({
+                timestamp: timestamp,
+                key: key,
+                value: telemetryData[key],
+                is_anomaly: false,
+                source: 'firebase'
+              });
+            }
+          });
+          
+          console.log(`✅ Created ${firebaseReadings.length} readings from Firebase:`, firebaseReadings);
+          allReadings = firebaseReadings;
+        } else {
+          // For other tenants, get external data readings
         const externalReadings = externalData ? transformExternalDataToReadings(externalData) : [];
         
         // Try to get InfluxDB readings (optional - may fail if InfluxDB unavailable)
@@ -545,7 +668,8 @@ export default function DeviceDashboardPage() {
         }
         
         // Merge external and InfluxDB readings
-        const allReadings = [...externalReadings, ...influxReadings];
+          allReadings = [...externalReadings, ...influxReadings];
+        }
         
         // Apply filters
         let filteredReadings = allReadings;
@@ -575,7 +699,7 @@ export default function DeviceDashboardPage() {
     };
     
     loadReadings();
-  }, [deviceId, readingsFilter, api, externalData, transformExternalDataToReadings]);
+  }, [deviceId, readingsFilter, api, externalData, transformExternalDataToReadings, user, device]);
 
   const handleAddWidget = (libraryWidget) => {
     const newId = `widget-${Date.now()}`;
@@ -694,13 +818,23 @@ export default function DeviceDashboardPage() {
 
   // Generate dynamic widgets from discovered fields
   const dynamicWidgets = useMemo(() => {
-    if (!discoveredFields || discoveredFields.length === 0) return [];
+    console.log("🔧 Generating widgets from discoveredFields:", discoveredFields);
+    if (!discoveredFields || discoveredFields.length === 0) {
+      console.log("⚠️ No discoveredFields, returning empty widgets");
+      return [];
+    }
     
     const widgets = [];
     
     discoveredFields.forEach((field) => {
       // Only create widgets for numeric fields
-      if (field.field_type !== 'number') return;
+      const fieldType = field.field_type || field.type;
+      if (fieldType !== 'number') {
+        console.log(`⏭️ Skipping non-numeric field: ${field.key} (type: ${fieldType})`);
+        return;
+      }
+      
+      console.log(`✅ Creating widget for field: ${field.key}`);
       
       const baseId = `dynamic-${field.key.replace(/\./g, '-')}`;
       
@@ -777,9 +911,11 @@ export default function DeviceDashboardPage() {
   const allWidgetLibrary = useMemo(() => {
     // If we have discovered fields, only show dynamic widgets generated from device's actual fields
     if (discoveredFields && discoveredFields.length > 0) {
+      console.log("📚 Widget library: Returning", dynamicWidgets.length, "widgets");
       return dynamicWidgets;
     }
     // Fallback: if no telemetry yet, show empty (user will see widgets once device sends data)
+    console.log("📚 Widget library: No discoveredFields, returning empty array");
     return [];
   }, [dynamicWidgets, discoveredFields]);
 

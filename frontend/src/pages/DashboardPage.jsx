@@ -17,8 +17,118 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
 
+  // Skip WebSocket for tenant_id = 2 (uses Firebase real-time listeners instead)
+  const skipWebSocket = user?.tenant_id === 2;
+
+  // Load Firebase data for tenant_id = 2 (with real-time listeners - no WebSocket needed)
+  useEffect(() => {
+    if (!token || !user || user.tenant_id !== 2) return;
+    
+    console.log("🔥 Loading Firebase data for tenant_id = 2 (flowset)...");
+    console.log("📡 Using Firestore real-time listeners (no WebSocket needed)");
+    
+    let unsubscribe = null;
+    
+    import("../services/firebaseDataMapper").then(async ({ fetchFirebaseDataForDashboard }) => {
+      const { generateDummyAlerts } = await import("../utils/dummyData");
+      
+      // Initial load (uses cache if available)
+      fetchFirebaseDataForDashboard(false).then(firebaseData => {
+        if (firebaseData.success) {
+          console.log("✅ Firebase data loaded successfully!");
+          console.log("📊 Metrics:", firebaseData.metrics);
+          
+          // Set Firebase data to dashboard state
+          setMetrics(firebaseData.metrics);
+          
+          // Generate dummy activity data for event graph (last 24 hours, hourly buckets)
+          const now = new Date();
+          const buckets = [];
+          let totalEvents = 0;
+          
+          // Generate 24 hourly buckets with realistic variation
+          for (let i = 23; i >= 0; i--) {
+            const timestamp = new Date(now.getTime() - i * 60 * 60 * 1000);
+            // Vary events per hour: higher during day (8 AM - 8 PM), lower at night
+            const hour = timestamp.getHours();
+            const isDaytime = hour >= 8 && hour < 20;
+            const baseEvents = isDaytime ? 450 : 150; // More events during day
+            const variation = Math.random() * 200 - 100; // Random variation ±100
+            const count = Math.max(50, Math.floor(baseEvents + variation)); // Minimum 50 events
+            
+            buckets.push({
+              timestamp: timestamp.toISOString(),
+              count: count
+            });
+            totalEvents += count;
+          }
+          
+          setActivity({
+            total_events: totalEvents,
+            buckets: buckets
+          });
+          console.log("📊 Generated dummy activity data:", totalEvents, "total events across 24 hours");
+          
+          // Generate and set dummy alerts
+          const allAlerts = generateDummyAlerts(firebaseData.devices, 25);
+          const openAlerts = allAlerts.filter(alert => alert.status === "open").slice(0, 10);
+          setRecentAlerts(openAlerts);
+          console.log("📢 Generated", openAlerts.length, "open alerts");
+          
+          setError(null);
+          
+          console.log("✅ Dashboard updated with Firebase data!");
+        } else {
+          console.error("❌ Failed to load Firebase data:", firebaseData.error);
+        }
+      }).catch(err => {
+        console.error("❌ Error loading Firebase data:", err);
+      });
+      
+      // Set up real-time listener (replaces WebSocket)
+      Promise.all([
+        import("../utils/firebase"),
+        import("firebase/firestore")
+      ]).then(([{ db }, { collection, onSnapshot }]) => {
+        const installationsRef = collection(db, "installations");
+        
+        console.log("📡 Setting up Firestore real-time listener...");
+        unsubscribe = onSnapshot(installationsRef, (snapshot) => {
+          console.log("🔄 Firestore real-time update received!");
+          console.log(`📊 ${snapshot.size} installations in snapshot`);
+          
+          // Re-fetch and update metrics (force refresh for real-time updates)
+          fetchFirebaseDataForDashboard(true).then(firebaseData => {
+            if (firebaseData.success) {
+              setMetrics(firebaseData.metrics);
+              console.log("✅ Metrics updated from Firestore real-time listener");
+            }
+          });
+        }, (error) => {
+          console.error("❌ Firestore listener error:", error);
+        });
+        
+        console.log("✅ Firestore real-time listener active (replaces WebSocket)");
+      });
+    });
+    
+    // Cleanup listener on unmount
+    return () => {
+      if (unsubscribe) {
+        console.log("🔌 Cleaning up Firestore real-time listener");
+        unsubscribe();
+      }
+    };
+  }, [token, user]);
+
   // Initial load from database (one-time, even if empty)
   useEffect(() => {
+    // Skip for tenant_id = 2 (Firebase tenant - loads separately)
+    if (user?.tenant_id === 2) {
+      setLoading(false);
+      return;
+    }
+    
     const loadData = async () => {
       setLoading(true);
       try {
@@ -142,17 +252,19 @@ export default function DashboardPage() {
     setError("WebSocket connection error - using fallback polling");
   }, []);
 
-  // Connect WebSocket for live updates
+  // Connect WebSocket for live updates (skip for tenant_id = 2, uses Firebase real-time instead)
   const { connected: wsConnectedState, error: wsError } = useDashboardWebSocket(
-    token,
+    skipWebSocket ? null : token, // Pass null token to skip WebSocket for tenant_id = 2
     handleWebSocketMessage,
     handleWebSocketError
   );
 
   useEffect(() => {
-    setWsConnected(wsConnectedState);
-    if (wsConnectedState) {
+    setWsConnected(skipWebSocket ? false : wsConnectedState);
+    if (wsConnectedState && !skipWebSocket) {
       console.log("✓ Dashboard WebSocket connected - receiving live updates");
+    } else if (skipWebSocket) {
+      console.log("🔥 Skipping WebSocket for tenant_id = 2 (using Firebase real-time listeners)");
     }
   }, [wsConnectedState]);
 

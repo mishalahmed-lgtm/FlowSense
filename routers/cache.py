@@ -12,6 +12,23 @@ from database import get_db
 from admin_auth import get_current_user
 from models import User, UserRole
 
+# Firebase service (for tenant_id = 2 only - demo)
+FIREBASE_TENANT_ID = 2
+try:
+    # Try REST API first (uses client credentials)
+    from services.firebase_rest_service import get_metrics as firebase_get_metrics, get_devices as firebase_get_devices, get_health as firebase_get_health
+    FIREBASE_AVAILABLE = True
+    logger.info("✅ Using Firebase REST API (client credentials)")
+except ImportError:
+    try:
+        # Fallback to Admin SDK (requires service account)
+        from services.firebase_service import get_metrics as firebase_get_metrics, get_devices as firebase_get_devices, get_health as firebase_get_health
+        FIREBASE_AVAILABLE = True
+        logger.info("✅ Using Firebase Admin SDK")
+    except ImportError:
+        FIREBASE_AVAILABLE = False
+        logger.warning("Firebase service not available (optional for demo)")
+
 Base = declarative_base()
 
 class DashboardCache(Base):
@@ -40,6 +57,19 @@ def get_cached_metrics(
             detail="Tenant admin access required"
         )
     
+    # Route tenant_id = 2 to Firebase (bypass PostgreSQL)
+    if current_user.tenant_id == FIREBASE_TENANT_ID and FIREBASE_AVAILABLE:
+        logger.info(f"Using Firebase for tenant {FIREBASE_TENANT_ID} (bypassing PostgreSQL)")
+        firebase_data = firebase_get_metrics(current_user.tenant_id)
+        if firebase_data:
+            return firebase_data
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Firebase data not found for tenant"
+            )
+    
+    # PostgreSQL path for other tenants
     cache_entry = db.query(DashboardCache).filter(
         DashboardCache.tenant_id == current_user.tenant_id,
         DashboardCache.cache_key == "metrics",
@@ -68,6 +98,19 @@ def get_cached_devices(
             detail="Tenant admin access required"
         )
     
+    # Route tenant_id = 2 to Firebase (bypass PostgreSQL)
+    if current_user.tenant_id == FIREBASE_TENANT_ID and FIREBASE_AVAILABLE:
+        logger.info(f"Using Firebase for tenant {FIREBASE_TENANT_ID} (bypassing PostgreSQL)")
+        firebase_data = firebase_get_devices(current_user.tenant_id, page)
+        if firebase_data:
+            return firebase_data
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Firebase data not found for tenant"
+            )
+    
+    # PostgreSQL path for other tenants
     cache_key = f"devices_page_{page}"
     cache_entry = db.query(DashboardCache).filter(
         DashboardCache.tenant_id == current_user.tenant_id,
@@ -96,6 +139,19 @@ def get_cached_health(
             detail="Tenant admin access required"
         )
     
+    # Route tenant_id = 2 to Firebase (bypass PostgreSQL)
+    if current_user.tenant_id == FIREBASE_TENANT_ID and FIREBASE_AVAILABLE:
+        logger.info(f"Using Firebase for tenant {FIREBASE_TENANT_ID} (bypassing PostgreSQL)")
+        firebase_data = firebase_get_health(current_user.tenant_id)
+        if firebase_data:
+            return firebase_data
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Firebase data not found for tenant"
+            )
+    
+    # PostgreSQL path for other tenants
     cache_entry = db.query(DashboardCache).filter(
         DashboardCache.tenant_id == current_user.tenant_id,
         DashboardCache.cache_key == "health",

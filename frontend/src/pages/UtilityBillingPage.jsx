@@ -18,7 +18,7 @@ function formatDateInput(date) {
 }
 
 export default function UtilityBillingPage() {
-  const { token, isTenantAdmin } = useAuth();
+  const { token, isTenantAdmin, user } = useAuth();
   const api = createApiClient(token);
 
   const today = new Date();
@@ -44,6 +44,122 @@ export default function UtilityBillingPage() {
     setHasRun(true);
     
     try {
+      // For tenant_id = 2, use dummy data
+      if (user?.tenant_id === 2) {
+        console.log("🔥 Generating dummy utility billing data for tenant_id = 2");
+        
+        // Calculate days between dates
+        const fromDateObj = new Date(fromDate);
+        const toDateObj = new Date(toDate);
+        const daysDiff = Math.ceil((toDateObj - fromDateObj) / (1000 * 60 * 60 * 24));
+        const hours = daysDiff * 24;
+        
+        // Generate dummy devices if needed
+        const dummyDeviceCount = 2000;
+        const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
+          device_id: `device_${i + 1}`,
+          name: `Device ${i + 1}`,
+        }));
+        
+        if (viewMode === "per-device") {
+          // Generate dummy per-device billing data
+          const { generateDummyEnergyData } = await import("../utils/dummyData.js");
+          const dummyEnergy = generateDummyEnergyData(dummyDevices, hours);
+          
+          // Store full totals for summary (matching energy dashboard)
+          const fullTotalConsumption = dummyEnergy.summary.total_consumption_kwh;
+          const fullTotalCost = dummyEnergy.summary.total_cost;
+          
+          // Map to billing row format (show top 50 devices, but totals use full data)
+          const mappedRows = dummyEnergy.topConsumers.slice(0, 50).map((device, idx) => {
+            const consumption = device.consumption || device.total_kwh || 0;
+            const cost = device.cost || consumption * 0.5;
+            return {
+              tenant_id: 2,
+              tenant_name: "Demo Tenant",
+              device_id: device.device_id,
+              device_external_id: device.device_id,
+              device_name: device.device_name,
+              utility_kind: device.utility_kind || "electricity",
+              index_key: `energy_consumption_${idx}`,
+              period_start: fromDate,
+              period_end: toDate,
+              start_index: null,
+              end_index: null,
+              consumption: Math.round(consumption * 100) / 100,
+              unit: "kWh",
+              rate_per_unit: consumption > 0 ? Math.round((cost / consumption) * 100) / 100 : 0.5,
+              currency: "SAR",
+              amount: Math.round(cost * 100) / 100,
+              // Store full totals for summary calculation
+              _fullTotalConsumption: fullTotalConsumption,
+              _fullTotalCost: fullTotalCost,
+            };
+          });
+          
+          setRows(mappedRows);
+          setConsolidatedRows([]);
+        } else {
+          // Generate dummy consolidated billing data
+          const { generateDummyEnergyData } = await import("../utils/dummyData.js");
+          const dummyEnergy = generateDummyEnergyData(dummyDevices, hours);
+          
+          // Use same totals as energy dashboard for consistency
+          const electricityConsumption = dummyEnergy.summary.total_consumption_kwh * 0.6;
+          const gasConsumption = dummyEnergy.summary.total_consumption_kwh * 0.25;
+          const waterConsumption = dummyEnergy.summary.total_consumption_kwh * 0.15;
+          const electricityCost = dummyEnergy.summary.total_cost * 0.65;
+          const gasCost = dummyEnergy.summary.total_cost * 0.20;
+          const waterCost = dummyEnergy.summary.total_cost * 0.15;
+          
+          const consolidatedRows = [
+            {
+              tenant_id: 2,
+              tenant_name: "Demo Tenant",
+              utility_kind: "electricity",
+              period_start: fromDate,
+              period_end: toDate,
+              total_consumption: Math.round(electricityConsumption * 100) / 100,
+              unit: "kWh",
+              total_cost: Math.round(electricityCost * 100) / 100,
+              currency: "SAR",
+              device_count: dummyDeviceCount,
+            },
+            {
+              tenant_id: 2,
+              tenant_name: "Demo Tenant",
+              utility_kind: "gas",
+              period_start: fromDate,
+              period_end: toDate,
+              total_consumption: Math.round(gasConsumption * 100) / 100,
+              unit: "kWh",
+              total_cost: Math.round(gasCost * 100) / 100,
+              currency: "SAR",
+              device_count: dummyDeviceCount,
+            },
+            {
+              tenant_id: 2,
+              tenant_name: "Demo Tenant",
+              utility_kind: "water",
+              period_start: fromDate,
+              period_end: toDate,
+              total_consumption: Math.round(waterConsumption * 100) / 100,
+              unit: "m³",
+              total_cost: Math.round(waterCost * 100) / 100,
+              currency: "SAR",
+              device_count: dummyDeviceCount,
+            },
+          ];
+          
+          setConsolidatedRows(consolidatedRows);
+          setRows([]);
+        }
+        
+        setLoading(false);
+        return;
+      }
+      
+      // For other tenants, use backend API
       if (viewMode === "per-device") {
         // Use all-devices energy aggregation as the billing source so that
         // any device publishing energy_consumption_w (and similar fields)
@@ -195,19 +311,20 @@ export default function UtilityBillingPage() {
     );
   }
 
-  const totalAmount = viewMode === "per-device"
-    ? rows.map((r) => r.amount ?? 0).reduce((sum, v) => sum + v, 0)
-    : consolidatedRows.map((r) => r.total_amount ?? 0).reduce((sum, v) => sum + v, 0);
-
+  // For tenant_id = 2, use full totals from energy dashboard (not just visible rows)
   const totalConsumption = viewMode === "per-device"
-    ? rows.map((r) => r.consumption ?? 0).reduce((sum, v) => sum + v, 0)
+    ? (rows[0]?._fullTotalConsumption ?? rows.map((r) => r.consumption ?? 0).reduce((sum, v) => sum + v, 0))
     : consolidatedRows.map((r) => r.total_consumption ?? 0).reduce((sum, v) => sum + v, 0);
+
+  const totalAmount = viewMode === "per-device"
+    ? (rows[0]?._fullTotalCost ?? rows.map((r) => r.amount ?? 0).reduce((sum, v) => sum + v, 0))
+    : consolidatedRows.map((r) => r.total_cost ?? 0).reduce((sum, v) => sum + v, 0);
 
   const deviceCount = viewMode === "per-device"
     ? rows.length
     : consolidatedRows.reduce((sum, r) => sum + (r.device_count || 0), 0);
 
-  const currency = (viewMode === "per-device" ? rows[0]?.currency : consolidatedRows[0]?.currency) || "USD";
+  const currency = (viewMode === "per-device" ? rows[0]?.currency : consolidatedRows[0]?.currency) || "SAR";
 
   // When using all-devices energy aggregation, there is no index-style
   // start/end reading, only total kWh. Detect that and hide Start/End.

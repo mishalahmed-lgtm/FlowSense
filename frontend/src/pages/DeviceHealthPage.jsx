@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
@@ -7,15 +7,23 @@ import Modal from "../components/Modal.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { generateDummyHealthData, generateDummyHealthSummary } from "../utils/dummyData.js";
+import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 
 export default function DeviceHealthPage() {
-  const { token, isTenantAdmin, hasModule } = useAuth();
+  const { token, isTenantAdmin, hasModule, user } = useAuth();
   const navigate = useNavigate();
   const api = createApiClient(token);
   
-  const [devices, setDevices] = useState([]);
-  const [allDevices, setAllDevices] = useState([]); // Store all devices for client-side filtering
-  const [loading, setLoading] = useState(true);
+  // Check cache first to determine initial loading state
+  const initialCache = useMemo(() => {
+    const cacheKey = getCacheKey('health_page', { tenant_id: user?.tenant_id });
+    return loadFromCache(cacheKey);
+  }, [user?.tenant_id]);
+  
+  const [devices, setDevices] = useState(initialCache?.devices || []);
+  const [allDevices, setAllDevices] = useState(initialCache?.allDevices || []); // Store all devices for client-side filtering
+  const [loading, setLoading] = useState(!initialCache);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -45,8 +53,21 @@ export default function DeviceHealthPage() {
     );
   }
 
-  const loadHealthSummary = async () => {
+  const loadHealthSummary = async (healthDevices = null) => {
     try {
+      // For tenant_id = 2, generate dummy summary from device data (NO PostgreSQL calls)
+      if (user?.tenant_id === 2) {
+        if (healthDevices) {
+          console.log("📊 Generating dummy health summary for tenant_id = 2");
+          const dummySummary = generateDummyHealthSummary(healthDevices);
+          setHealthSummary(dummySummary);
+          return;
+        }
+        // If no devices provided, return empty summary (will be set when devices load)
+        return;
+      }
+      
+      // Only call PostgreSQL for other tenants
       const response = await api.get("/devices/health/summary");
       setHealthSummary(response.data);
     } catch (err) {
@@ -54,10 +75,72 @@ export default function DeviceHealthPage() {
     }
   };
 
-  const loadDevices = async () => {
+  const loadDevices = async (forceRefresh = false) => {
+    // Check cache first
+    const cacheKey = getCacheKey('health_page', { tenant_id: user?.tenant_id });
+    
+    if (!forceRefresh) {
+      const cached = loadFromCache(cacheKey);
+      if (cached) {
+        console.log("📦 Using cached health page data");
+        setAllDevices(cached.allDevices);
+        setDevices(cached.devices);
+        setHealthSummary(cached.healthSummary);
+        setLoading(false);
+        return;
+      }
+    }
+    
     try {
       setLoading(true);
       const allDevicesMap = new Map();
+      
+      // For tenant_id = 2, load devices from Firebase
+      if (user?.tenant_id === 2) {
+        console.log("🔥 Loading devices from Firebase for tenant_id = 2 health page...");
+        try {
+          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+          const firebaseData = await fetchFirebaseDataForDashboard();
+          
+          if (firebaseData.success && firebaseData.devices) {
+            console.log(`✅ Loaded ${firebaseData.devices.length} devices from Firebase`);
+            
+            // Add Firebase devices to map
+            firebaseData.devices.forEach(device => {
+              allDevicesMap.set(device.device_id, device);
+            });
+            
+            // Generate dummy health data for Firebase devices
+            const finalDevices = Array.from(allDevicesMap.values());
+            const dummyHealthData = generateDummyHealthData(finalDevices);
+            
+            // Merge dummy health data
+            const devicesWithHealth = finalDevices.map((device, idx) => ({
+              ...device,
+              ...dummyHealthData[idx],
+            }));
+            
+            console.log("✅ Applied dummy health data to Firebase devices");
+            setAllDevices(devicesWithHealth);
+            
+            // Load summary
+            loadHealthSummary(devicesWithHealth);
+            
+            setLoading(false);
+            setError(null);
+            return;
+          }
+        } catch (firebaseErr) {
+          console.error("Failed to load Firebase devices:", firebaseErr);
+          // Continue to regular backend if Firebase fails
+        }
+      }
+      
+      // Skip PostgreSQL calls for tenant_id = 2 (Firebase only)
+      if (user?.tenant_id === 2) {
+        console.log("⚠️ Skipping PostgreSQL calls for tenant_id = 2");
+        return;
+      }
       
       // Step 1: Fetch ALL devices from /admin/devices using pagination
       // The endpoint supports up to 1000 per page, so we need multiple requests
@@ -97,7 +180,7 @@ export default function DeviceHealthPage() {
               if (cacheErr.response?.status === 404) {
                 devicesResponse = await api.get("/admin/devices", { 
                   params: { limit, page } 
-                });
+          });
               } else {
                 throw cacheErr;
               }
@@ -299,8 +382,31 @@ export default function DeviceHealthPage() {
       } else {
         console.log(`✅ Total devices loaded: ${finalDevices.length}`);
         console.log(`   Devices with health data: ${finalDevices.filter(d => d.uptime_24h_percent !== null || d.connectivity_score !== null).length}`);
+        
+        // For tenant_id = 2 OR if no health data, generate dummy health data
+        if (user?.tenant_id === 2 || finalDevices.every(d => !d.uptime_24h_percent)) {
+          console.log("📊 Generating dummy health data for devices (tenant_id = 2 or missing health data)");
+          const dummyHealthData = generateDummyHealthData(finalDevices);
+          
+          // Merge dummy health data with devices
+          finalDevices = finalDevices.map((device, idx) => ({
+            ...device,
+            ...dummyHealthData[idx],
+          }));
+          
+          console.log("✅ Applied dummy health data to", finalDevices.length, "devices");
+        }
+        
         setAllDevices(finalDevices);
+        
+        // Load summary with the health devices
+        loadHealthSummary(finalDevices);
+        
         setError(null);
+        
+        // Save to cache
+        const cacheKey = getCacheKey('health_page', { tenant_id: user?.tenant_id });
+        saveToCache(cacheKey, { allDevices: devicesArray, devices: devicesArray, healthSummary });
       }
     } catch (err) {
       console.error("Error loading devices:", err);
@@ -314,10 +420,12 @@ export default function DeviceHealthPage() {
 
   // Load devices once on mount and when token changes
   useEffect(() => {
-    if (!token) return;
-    loadHealthSummary();
-    loadDevices();
-  }, [token]);
+    if (!token || !user) return;
+    loadDevices(); // This now calls loadHealthSummary internally with device data
+    // Refresh every 2 hours
+    const interval = setInterval(() => loadDevices(true), 2 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token, user]);
 
   // Apply search filter and pagination
   useEffect(() => {

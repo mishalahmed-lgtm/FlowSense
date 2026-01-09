@@ -1,10 +1,12 @@
-import { useEffect, useState, useMemo } from "react";
-import { createApiClient } from "../api/client.js";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { createApiClient } from "../api/client.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
+import { saveToCache, loadFromCache, getCacheKey, clearCache } from "../utils/pageCache.js";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
+import { generateDummyEnergyData } from "../utils/dummyData.js";
 
 const UTILITY_COLORS = {
   electricity: "#facc15",
@@ -42,14 +44,29 @@ export default function EnergyManagementDashboard() {
     costBreakdown: [],
   });
 
-  useEffect(() => {
-    if (!token) return;
-    loadEnergyData();
-    const interval = setInterval(loadEnergyData, 60000); // Refresh every minute
-    return () => clearInterval(interval);
-  }, [token, timeRange]);
-
-  const loadEnergyData = async () => {
+  const loadEnergyData = useCallback(async (forceRefresh = false) => {
+    // For tenant_id = 2, clear old cache and always generate fresh data
+    if (user?.tenant_id === 2) {
+      const oldCacheKey = getCacheKey('energy_data', { timeRange, tenant_id: user?.tenant_id });
+      clearCache(oldCacheKey);
+      console.log("🔥 [ENERGY] Cleared old cache for tenant_id = 2 to show updated numbers");
+      forceRefresh = true;
+    }
+    
+    // Try to load from cache first
+    const cacheKey = getCacheKey('energy_data', { timeRange, tenant_id: user?.tenant_id });
+    
+    if (!forceRefresh) {
+      const cachedData = loadFromCache(cacheKey);
+      if (cachedData) {
+        console.log("📦 Using cached energy data");
+        setEnergyData(cachedData.energyData);
+        setDateRange(cachedData.dateRange);
+        setLoading(false);
+        return;
+      }
+    }
+    
     setLoading(true);
     setError(null);
     try {
@@ -62,6 +79,82 @@ export default function EnergyManagementDashboard() {
         fromDate.setDate(today.getDate() - 7);
       } else if (timeRange === "30d") {
         fromDate.setDate(today.getDate() - 30);
+      }
+      
+      const hours = timeRange === "24h" ? 24 : timeRange === "7d" ? 168 : 720;
+      
+      // For tenant_id = 2, use dummy energy data (NO FIREBASE FETCH)
+      if (user?.tenant_id === 2) {
+        console.log("🔥 [ENERGY] Generating dummy energy data for tenant_id = 2 (instant)");
+        
+        // Generate dummy data based on fixed device count (no Firebase fetch needed)
+        const dummyDeviceCount = 2000;
+        const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
+          device_id: `device_${i + 1}`,
+          name: `Device ${i + 1}`,
+        }));
+        
+        const dummyEnergy = generateDummyEnergyData(dummyDevices, hours);
+        console.log("✅ [ENERGY] Generated data instantly");
+        console.log("📊 [ENERGY] Total consumption:", dummyEnergy.summary.total_consumption_kwh, "kWh");
+        console.log("📊 [ENERGY] Total cost:", dummyEnergy.summary.total_cost, "SAR");
+        console.log("📊 [ENERGY] Hours:", hours, "| Expected total:", hours <= 24 ? 200 : hours <= 168 ? 2000 : 4000);
+        console.log("📊 [ENERGY] topConsumers sample:", dummyEnergy.topConsumers?.[0]);
+        
+        // Ensure topConsumers has correct structure
+        const topConsumers = (dummyEnergy.topConsumers || []).map(device => ({
+          device_id: device.device_id || `device_${Math.random()}`,
+          device_name: device.device_name || device.name || `Device ${Math.random()}`,
+          utility_kind: device.utility_kind || 'electricity',
+          consumption: device.consumption ?? device.total_kwh ?? 0,
+          cost: device.cost ?? 0,
+          currency: device.currency || "SAR",
+        }));
+        
+        try {
+          const energyDataObj = {
+            realtime: {
+              power_w: dummyEnergy.summary.avg_power_w,
+              voltage_v: 220,
+              current_a: Math.round(dummyEnergy.summary.avg_power_w / 220 * 100) / 100,
+            },
+            totals: {
+              electricity: {
+                consumption: dummyEnergy.summary.total_consumption_kwh * 0.6,
+                cost: dummyEnergy.summary.total_cost * 0.65,
+                currency: "SAR",
+              },
+              gas: {
+                consumption: dummyEnergy.summary.total_consumption_kwh * 0.25,
+                cost: dummyEnergy.summary.total_cost * 0.20,
+                currency: "SAR",
+              },
+              water: {
+                consumption: dummyEnergy.summary.total_consumption_kwh * 0.15,
+                cost: dummyEnergy.summary.total_cost * 0.15,
+                currency: "SAR",
+              },
+            },
+            trends: dummyEnergy.trends || [],
+            topConsumers: topConsumers,
+            costBreakdown: dummyEnergy.costBreakdown || [],
+          };
+          
+          setEnergyData(energyDataObj);
+          
+          // Save to cache
+          const cacheKey = getCacheKey('energy_data', { timeRange, tenant_id: user?.tenant_id });
+          saveToCache(cacheKey, { energyData: energyDataObj, dateRange: { from: '', to: '', label: '' } });
+          
+          setLoading(false);
+          setError(null);
+          return;
+        } catch (err) {
+          console.error("❌ [ENERGY] Failed to generate dummy data:", err);
+          setError("Failed to generate energy data");
+          setLoading(false);
+          return;
+        }
       }
 
       const fromDateStr = fromDate.toISOString().slice(0, 10);
@@ -286,7 +379,16 @@ export default function EnergyManagementDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange, user, api]); // Add dependencies for useCallback
+
+  // Load data on mount and when filters change
+  useEffect(() => {
+    if (!token || !user) return;
+    loadEnergyData();
+    // Refresh every 2 hours
+    const interval = setInterval(() => loadEnergyData(true), 2 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [token, timeRange, user, loadEnergyData]);
 
   if (!isTenantAdmin) {
     return (
@@ -324,7 +426,7 @@ export default function EnergyManagementDashboard() {
           </div>
           <h1 className="page-header__title">Energy Management Dashboard</h1>
           <p className="page-header__subtitle">
-            Live view of energy usage and cost across all Murabba devices for the selected period.
+            Live view of energy usage and cost across all devices for the selected period.
           </p>
           {dateRange.label && (
             <p className="text-muted" style={{ marginTop: "var(--space-1)", fontSize: "var(--font-size-sm)" }}>
@@ -539,26 +641,33 @@ export default function EnergyManagementDashboard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {energyData.topConsumers.slice(0, topConsumersLimit).map((device, idx) => (
-                        <tr key={`${device.device_id}-${device.utility_kind}-${idx}`}>
+                      {energyData.topConsumers.slice(0, topConsumersLimit).map((device, idx) => {
+                        const consumption = device.consumption ?? device.total_kwh ?? 0;
+                        const cost = device.cost ?? 0;
+                        const currency = device.currency ?? "SAR";
+                        const utilityKind = device.utility_kind || "electricity";
+                        
+                        return (
+                          <tr key={`${device.device_id}-${utilityKind}-${idx}`}>
                           <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                            {device.device_name}
+                              {device.device_name || device.device_id || `Device ${idx + 1}`}
                           </td>
                           <td>
                             <span className="badge" style={{ 
-                              backgroundColor: `${UTILITY_COLORS[device.utility_kind] || "#6b7280"}20`,
-                              color: UTILITY_COLORS[device.utility_kind] || "#6b7280",
-                              borderColor: UTILITY_COLORS[device.utility_kind] || "#6b7280"
+                                backgroundColor: `${UTILITY_COLORS[utilityKind] || "#6b7280"}20`,
+                                color: UTILITY_COLORS[utilityKind] || "#6b7280",
+                                borderColor: UTILITY_COLORS[utilityKind] || "#6b7280"
                             }}>
-                              {device.utility_kind}
+                                {utilityKind}
                             </span>
                           </td>
-                          <td>{device.consumption.toFixed(2)}</td>
+                            <td>{typeof consumption === 'number' ? consumption.toFixed(2) : '0.00'}</td>
                           <td style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--color-success-text)" }}>
-                            {device.currency} {device.cost.toFixed(2)}
+                              {currency} {typeof cost === 'number' ? cost.toFixed(2) : '0.00'}
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

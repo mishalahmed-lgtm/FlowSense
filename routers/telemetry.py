@@ -206,10 +206,10 @@ async def ingest_telemetry_http(
             except Exception as fallback_error:
                 logger.error(f"[HTTP] ✗ Fallback DB write failed: {fallback_error}", exc_info=True)
                 metrics.record_error(device.device_id, "fallback_db_failed")
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Failed to process telemetry data. Please retry."
-                )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Failed to process telemetry data. Please retry."
+            )
         
         metrics.record_message_published(device.device_id)
         

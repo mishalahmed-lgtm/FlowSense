@@ -34,6 +34,15 @@ const inactiveIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
+const degradedIcon = new L.Icon({
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
 // Component to auto-fit map bounds to markers
 function MapBounds({ devices, highlightDeviceId }) {
   const map = useMap();
@@ -76,18 +85,45 @@ export default function DeviceMapView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Use auth context token so this works everywhere in the app
-  const { token } = useAuth();
+  // Use auth context token and user so this works everywhere in the app
+  const { token, user } = useAuth();
   const api = useMemo(() => createApiClient(token), [token]);
   
   useEffect(() => {
     if (!token) return;
     loadDevices();
-  }, [token, deviceIds]);
+  }, [token, deviceIds, user]);
   
   const loadDevices = async () => {
     try {
       setError(null);
+      setLoading(true);
+      
+      // Try Firebase first for tenant_id = 2 (user is already available from useAuth hook)
+      if (user?.tenant_id === 2) {
+        try {
+          console.log("🗺️ Loading map devices from Firebase for tenant_id = 2...");
+          console.log("📍 Extracting latitude/longitude from installations collection...");
+          const { getDevicesForMap } = await import("../services/firebaseDataMapper");
+          let firebaseDevices = await getDevicesForMap();
+          
+          console.log(`📍 Found ${firebaseDevices.length} devices with location data`);
+          
+          // Filter by deviceIds if provided
+          if (deviceIds && deviceIds.length > 0) {
+            firebaseDevices = firebaseDevices.filter(d => deviceIds.includes(d.device_id));
+          }
+          
+          setDevices(firebaseDevices);
+          console.log(`✅ Loaded ${firebaseDevices.length} devices from Firebase for map`);
+          setLoading(false);
+          return;
+        } catch (fbErr) {
+          console.error("❌ Firebase error, falling back to backend API:", fbErr);
+        }
+      }
+      
+      // Fallback to backend API
       const response = await api.get("/maps/devices");
       let allDevices = response.data || [];
       
@@ -190,7 +226,13 @@ export default function DeviceMapView({
           <Marker
             key={device.device_id}
             position={[device.latitude, device.longitude]}
-            icon={device.device_id === highlightDeviceId ? activeIcon : (device.status === "active" ? activeIcon : inactiveIcon)}
+            icon={device.device_id === highlightDeviceId 
+              ? activeIcon 
+              : (device.current_status === "online" || device.status === "active" || device.is_active)
+                ? activeIcon
+                : (device.current_status === "degraded" || device.status === "degraded")
+                  ? degradedIcon
+                  : inactiveIcon}
           >
             {showPopup && (
               <Popup maxWidth={300}>
@@ -254,11 +296,19 @@ export default function DeviceMapView({
                       </span>
                       <div style={{ marginTop: "4px" }}>
                         <span style={{ 
-                          color: device.status === "active" ? "#10b981" : "#ef4444",
+                          color: (device.current_status === "online" || device.status === "active" || device.is_active) 
+                            ? "#10b981" 
+                            : (device.current_status === "degraded" || device.status === "degraded")
+                              ? "#f97316"
+                              : "#ef4444",
                           fontWeight: "var(--font-weight-bold)",
                           fontSize: "var(--font-size-sm)"
                         }}>
-                          {device.status === "active" ? "● Active" : "● Inactive"}
+                          {(device.current_status === "online" || device.status === "active" || device.is_active) 
+                            ? "● Online" 
+                            : (device.current_status === "degraded" || device.status === "degraded")
+                              ? "● Degraded"
+                              : "● Offline"}
                         </span>
                       </div>
                     </div>

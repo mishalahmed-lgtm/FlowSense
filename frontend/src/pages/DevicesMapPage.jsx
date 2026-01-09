@@ -1,10 +1,11 @@
-import { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
+import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 import "leaflet/dist/leaflet.css";
 import "./DevicesMapPage.css";
 import L from "leaflet";
@@ -36,8 +37,17 @@ const inactiveIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-// Component to auto-fit map bounds to markers
-function MapBounds({ devices, highlightDeviceId }) {
+const degradedIcon = new L.Icon({
+  iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-orange.png",
+  shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png",
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  shadowSize: [41, 41],
+});
+
+// Component to auto-fit map bounds to markers and track zoom
+function MapBounds({ devices, highlightDeviceId, onZoomChange }) {
   const map = useMap();
   
   useEffect(() => {
@@ -65,54 +75,197 @@ function MapBounds({ devices, highlightDeviceId }) {
     }
   }, [devices, highlightDeviceId, map]);
   
+  useEffect(() => {
+    const updateZoom = () => {
+      if (onZoomChange) {
+        onZoomChange(map.getZoom());
+      }
+    };
+    
+    map.on('zoomend', updateZoom);
+    updateZoom(); // Initial zoom
+    
+    return () => {
+      map.off('zoomend', updateZoom);
+    };
+  }, [map, onZoomChange]);
+  
   return null;
 }
+
+// Memoized marker component to prevent unnecessary re-renders
+const DeviceMarker = React.memo(({ device, activeIcon, degradedIcon, inactiveIcon, onSelect }) => (
+  <Marker
+    key={device.device_id}
+    position={[device.latitude, device.longitude]}
+    icon={device.status === "online" 
+      ? activeIcon 
+      : device.status === "degraded"
+        ? degradedIcon
+        : inactiveIcon}
+    eventHandlers={{
+      click: () => onSelect(device.device_id)
+    }}
+  >
+    <Popup maxWidth={300}>
+      <div 
+        style={{ 
+          width: "280px",
+          height: "350px",
+          overflowY: "auto",
+          overflowX: "hidden",
+          color: "#1a1a1a",
+          paddingRight: "12px",
+          paddingLeft: "4px",
+          boxSizing: "border-box"
+        }}
+        className="popup-scrollable"
+      >
+        <h4 style={{ 
+          margin: "0 0 12px 0",
+          fontSize: "16px",
+          fontWeight: "600",
+          color: "#1a1a1a",
+          borderBottom: "2px solid #e5e7eb",
+          paddingBottom: "8px"
+        }}>
+          {device.device_name || device.device_id}
+        </h4>
+        <div style={{ fontSize: "14px", lineHeight: "1.6" }}>
+          <p style={{ margin: "8px 0" }}>
+            <strong>Device ID:</strong> {device.device_id}
+          </p>
+          <p style={{ margin: "8px 0" }}>
+            <strong>Status:</strong>{" "}
+            <span style={{
+              color: device.status === "online" ? "#10b981" : device.status === "degraded" ? "#f59e0b" : "#ef4444",
+              fontWeight: "600"
+            }}>
+              {device.status === "online" ? "● Online" : device.status === "degraded" ? "● Degraded" : "● Offline"}
+            </span>
+          </p>
+          {device.latitude && device.longitude && (
+            <p style={{ margin: "8px 0" }}>
+              <strong>Location:</strong> {device.latitude.toFixed(6)}, {device.longitude.toFixed(6)}
+            </p>
+          )}
+          {device.battery !== null && device.battery !== undefined && (
+            <p style={{ margin: "8px 0" }}>
+              <strong>Battery:</strong> {device.battery}%
+            </p>
+          )}
+          {device.temperature !== null && device.temperature !== undefined && (
+            <p style={{ margin: "8px 0" }}>
+              <strong>Temperature:</strong> {device.temperature}°C
+            </p>
+          )}
+          {device.last_seen_at && (
+            <p style={{ margin: "8px 0" }}>
+              <strong>Last Seen:</strong> {new Date(device.last_seen_at).toLocaleString()}
+            </p>
+          )}
+        </div>
+      </div>
+    </Popup>
+  </Marker>
+));
 
 export default function DevicesMapPage() {
   const { token, isTenantAdmin, user } = useAuth();
   const api = useMemo(() => createApiClient(token), [token]);
   
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [devices, setDevices] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterProtocol, setFilterProtocol] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   
-  useEffect(() => {
-    if (!token) return;
-    loadDevices();
-    const interval = setInterval(loadDevices, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, [token]);
+  // Check cache first to determine initial loading state
+  const initialCache = useMemo(() => {
+    const cacheKey = getCacheKey('map_page', { tenant_id: user?.tenant_id });
+    return loadFromCache(cacheKey);
+  }, [user?.tenant_id]);
   
-  const loadDevices = async () => {
+  const [devices, setDevices] = useState(initialCache?.devices || []);
+  const [loading, setLoading] = useState(!initialCache);
+  const [mapZoom, setMapZoom] = useState(2);
+  
+  const loadDevices = useCallback(async (forceRefresh = false) => {
+    // Check cache first (unless force refresh)
+    const cacheKey = getCacheKey('map_page', { tenant_id: user?.tenant_id });
+    
+    if (!forceRefresh) {
+      const cached = loadFromCache(cacheKey);
+      if (cached) {
+        console.log("📦 Using cached map page data");
+        setDevices(cached.devices);
+        setLoading(false);
+        return;
+      }
+    }
+    
     try {
       setError(null);
-      // Add cache-busting timestamp to force fresh data
+      setLoading(true);
+      
+      // Check if tenant_id = 2, use Firebase
+      if (user?.tenant_id === 2) {
+        console.log("🗺️ DevicesMapPage: Loading from Firebase for tenant_id = 2...");
+        const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+        const firebaseData = await fetchFirebaseDataForDashboard(forceRefresh);
+        
+        if (firebaseData.success) {
+          const devices = firebaseData.devices || [];
+          console.log(`✅ DevicesMapPage: Loaded ${devices.length} devices from Firebase`);
+          console.log(`📍 Devices with location: ${devices.filter(d => d.latitude && d.longitude).length}`);
+          setDevices(devices);
+          
+          // Save to cache
+          saveToCache(cacheKey, { devices });
+          
+          setLoading(false);
+          return;
+        } else {
+          console.error("❌ Failed to load Firebase data:", firebaseData.error);
+          setError("Failed to load Firebase data: " + firebaseData.error);
+          setLoading(false);
+          return;
+        }
+      }
+      
+      // Fallback to backend API for other tenants
+      console.log("🗺️ DevicesMapPage: Loading from backend API...");
       const response = await api.get("/maps/devices", {
         params: { _t: Date.now() }
       });
       const devices = response.data || [];
       console.log(`🗺️ Maps: Received ${devices.length} devices from API`);
       
-      // Normalize status: determine from last_seen (active if seen within last hour)
+      // Normalize status: use current_status from Firebase or determine from other fields
       const normalizedDevices = devices.map(device => {
-        let status = "inactive";
+        // Use current_status if available (from Firebase with fixed distribution)
+        if (device.current_status) {
+          return { ...device, status: device.current_status };
+        }
+        
+        // Fallback: determine from last_seen (active if seen within last hour) or is_active
+        let status = "offline";
         if (device.is_active !== undefined) {
-          status = device.is_active ? "active" : "inactive";
-        } else if (device.last_seen) {
-          const lastSeenDate = new Date(device.last_seen);
+          status = device.is_active ? "online" : "offline";
+        } else if (device.last_seen_at || device.last_seen) {
+          const lastSeenDate = new Date(device.last_seen_at || device.last_seen);
           const now = new Date();
           const diffMinutes = (now - lastSeenDate) / (1000 * 60);
-          // Active if seen within last 60 minutes
-          status = diffMinutes < 60 ? "active" : "inactive";
+          // Online if seen within last 60 minutes
+          status = diffMinutes < 60 ? "online" : "offline";
           if (diffMinutes < 60) {
-            console.log(`🟢 Device ${device.device_id} is ACTIVE (${Math.round(diffMinutes)} min ago)`);
+            console.log(`🟢 Device ${device.device_id} is ONLINE (${Math.round(diffMinutes)} min ago)`);
           }
         } else if (device.status) {
-          status = device.status;
+          // Map old status values to new ones
+          if (device.status === "active") status = "online";
+          else if (device.status === "inactive") status = "offline";
+          else status = device.status;
         }
         return { ...device, status };
       });
@@ -120,27 +273,54 @@ export default function DevicesMapPage() {
       // Debug: Check first 5 devices to see what last_seen values we're getting
       console.log("🔍 DEBUG: First 5 devices last_seen values:");
       normalizedDevices.slice(0, 5).forEach((d, i) => {
-        console.log(`  ${i+1}. ${d.device_id}: last_seen="${d.last_seen}", status="${d.status}"`);
-        if (d.last_seen) {
-          const lastSeenDate = new Date(d.last_seen);
+        console.log(`  ${i+1}. ${d.device_id}: last_seen="${d.last_seen_at || d.last_seen}", status="${d.status}"`);
+        if (d.last_seen_at || d.last_seen) {
+          const lastSeenDate = new Date(d.last_seen_at || d.last_seen);
           const now = new Date();
           const diffMinutes = (now - lastSeenDate) / (1000 * 60);
           console.log(`      → Parsed: ${lastSeenDate.toISOString()}, ${Math.round(diffMinutes)} minutes ago`);
         }
       });
       
-      const activeCount = normalizedDevices.filter(d => d.status === "active").length;
-      const inactiveCount = normalizedDevices.filter(d => d.status === "inactive").length;
-      console.log(`🗺️ Maps: ${activeCount} active (GREEN), ${inactiveCount} inactive (RED)`);
+      const onlineCount = normalizedDevices.filter(d => d.status === "online").length;
+      const degradedCount = normalizedDevices.filter(d => d.status === "degraded").length;
+      const offlineCount = normalizedDevices.filter(d => d.status === "offline").length;
+      console.log(`🗺️ Maps: ${onlineCount} online (GREEN), ${degradedCount} degraded (AMBER), ${offlineCount} offline (RED)`);
       
       setDevices(normalizedDevices);
+      
+      // Save to cache
+      saveToCache(cacheKey, { devices: normalizedDevices });
     } catch (err) {
       console.error("Failed to load devices:", err);
       setError(err.response?.data?.detail || "Failed to load device locations");
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.tenant_id, api]);
+  
+  useEffect(() => {
+    console.log("🗺️ DevicesMapPage mounted");
+    console.log("👤 User:", user);
+    console.log("🎫 Token exists:", !!token);
+    console.log("🏢 Tenant ID:", user?.tenant_id);
+    
+    if (!token) {
+      console.log("⚠️ No token, skipping device load");
+      return;
+    }
+    
+    // Only load if we don't have cached data
+    // Use setTimeout to allow UI to render first (shows loading state immediately)
+    if (!initialCache) {
+      setTimeout(() => loadDevices(), 0);
+    }
+    // Refresh every 2 hours (cache TTL) instead of every 30 seconds
+    const interval = setInterval(() => {
+      loadDevices(true); // Force refresh after cache expires
+    }, 2 * 60 * 60 * 1000); // 2 hours
+    return () => clearInterval(interval);
+  }, [token, user, initialCache, loadDevices]);
   
   // Filter devices based on search query, status, and protocol
   const filteredDevices = useMemo(() => {
@@ -157,9 +337,13 @@ export default function DevicesMapPage() {
     
     // Status filter
     if (filterStatus !== "all") {
-      filtered = filtered.filter(device => 
-        filterStatus === "active" ? device.status === "active" : device.status === "inactive"
-      );
+      if (filterStatus === "online") {
+        filtered = filtered.filter(device => device.status === "online");
+      } else if (filterStatus === "degraded") {
+        filtered = filtered.filter(device => device.status === "degraded");
+      } else if (filterStatus === "offline") {
+        filtered = filtered.filter(device => device.status === "offline");
+      }
     }
     
     // Protocol filter (if we have protocol info in device data)
@@ -183,6 +367,22 @@ export default function DevicesMapPage() {
     filteredDevices.filter(d => d.latitude && d.longitude),
     [filteredDevices]
   );
+  
+  // Limit visible markers based on zoom level to improve performance
+  // Show all markers when zoomed in (zoom >= 10), sample when zoomed out
+  const visibleMarkers = useMemo(() => {
+    if (devicesWithLocation.length === 0) return [];
+    
+    // If zoomed in enough, show all markers
+    if (mapZoom >= 10) {
+      return devicesWithLocation;
+    }
+    
+    // If zoomed out, limit to prevent performance issues
+    // Sample markers: show every Nth marker based on zoom level
+    const sampleRate = mapZoom < 5 ? 50 : mapZoom < 7 ? 20 : mapZoom < 9 ? 5 : 1;
+    return devicesWithLocation.filter((_, index) => index % sampleRate === 0);
+  }, [devicesWithLocation, mapZoom]);
   const devicesWithoutLocation = useMemo(() => 
     filteredDevices.filter(d => !d.latitude || !d.longitude),
     [filteredDevices]
@@ -299,11 +499,11 @@ export default function DevicesMapPage() {
             
             <div className="metric-card">
               <div className="metric-card__header">
-                <span className="metric-card__label">Active Devices</span>
+                <span className="metric-card__label">Online Devices</span>
                 <Icon name="check-circle" size="lg" />
               </div>
               <div className="metric-card__value">
-                {filteredDevices.filter(d => d.status === "active").length}
+                {filteredDevices.filter(d => d.status === "online").length}
               </div>
             </div>
           </div>
@@ -407,9 +607,17 @@ export default function DevicesMapPage() {
                         <div style={{ 
                           fontSize: "var(--font-size-xs)",
                           marginTop: "var(--space-1)",
-                          color: device.status === "active" ? "var(--color-success)" : "var(--color-error)"
+                          color: device.status === "online" 
+                            ? "var(--color-success)" 
+                            : device.status === "degraded"
+                              ? "#f97316"
+                              : "var(--color-error)"
                         }}>
-                          {device.status === "active" ? "● Active" : "● Inactive"}
+                          {device.status === "online" 
+                            ? "● Online" 
+                            : device.status === "degraded"
+                              ? "● Degraded"
+                              : "● Offline"}
                           {device.latitude && device.longitude && " • Has location"}
                         </div>
                       </div>
@@ -425,8 +633,9 @@ export default function DevicesMapPage() {
                 onChange={(e) => setFilterStatus(e.target.value)}
               >
                 <option value="all">All Status</option>
-                <option value="active">Online</option>
-                <option value="inactive">Offline</option>
+                <option value="online">Online</option>
+                <option value="degraded">Degraded</option>
+                <option value="offline">Offline</option>
               </select>
 
               {/* Protocol Filter - Only show if protocols are available */}
@@ -459,7 +668,8 @@ export default function DevicesMapPage() {
                     color: "var(--color-text-secondary)",
                     marginLeft: "var(--space-2)"
                   }}>
-                    ({devicesWithLocation.length} {devicesWithLocation.length === 1 ? 'device' : 'devices'} found)
+                    ({devicesWithLocation.length} {devicesWithLocation.length === 1 ? 'device' : 'devices'} found
+                    {visibleMarkers.length < devicesWithLocation.length && `, showing ${visibleMarkers.length} markers`})
                   </span>
                 )}
               </h3>
@@ -477,12 +687,31 @@ export default function DevicesMapPage() {
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
-                    <MapBounds devices={devicesWithLocation} highlightDeviceId={selectedDeviceId} />
-                    {devicesWithLocation.map((device) => (
+                    <MapBounds 
+                      devices={devicesWithLocation} 
+                      highlightDeviceId={selectedDeviceId}
+                      onZoomChange={setMapZoom}
+                    />
+                    {visibleMarkers.map((device) => (
+                      <DeviceMarker
+                        key={device.device_id}
+                        device={device}
+                        activeIcon={activeIcon}
+                        degradedIcon={degradedIcon}
+                        inactiveIcon={inactiveIcon}
+                        onSelect={setSelectedDeviceId}
+                      />
+                    ))}
+                    {/* Old marker code - keeping for reference but replaced with DeviceMarker */}
+                    {false && devicesWithLocation.map((device) => (
                       <Marker
                         key={device.device_id}
                         position={[device.latitude, device.longitude]}
-                        icon={device.status === "active" ? activeIcon : inactiveIcon}
+                        icon={device.status === "online" 
+                          ? activeIcon 
+                          : device.status === "degraded"
+                            ? degradedIcon
+                            : inactiveIcon}
                         eventHandlers={{
                           click: () => {
                             setSelectedDeviceId(device.device_id);
@@ -550,11 +779,19 @@ export default function DevicesMapPage() {
                                 </span>
                                 <div style={{ marginTop: "4px" }}>
                                   <span style={{ 
-                                    color: device.status === "active" ? "#10b981" : "#ef4444",
+                                    color: device.status === "online" 
+                                      ? "#10b981" 
+                                      : device.status === "degraded"
+                                        ? "#f97316"
+                                        : "#ef4444",
                                     fontWeight: "var(--font-weight-bold)",
                                     fontSize: "var(--font-size-sm)"
                                   }}>
-                                    {device.status === "active" ? "● Active" : "● Inactive"}
+                                    {device.status === "online" 
+                                      ? "● Online" 
+                                      : device.status === "degraded"
+                                        ? "● Degraded"
+                                        : "● Offline"}
                                   </span>
                                 </div>
                               </div>
@@ -705,10 +942,18 @@ export default function DevicesMapPage() {
                       </div>
                       <div style={{ fontSize: "var(--font-size-sm)" }}>
                         <span style={{ 
-                          color: device.status === "active" ? "var(--color-success)" : "var(--color-error)",
+                          color: device.status === "online" 
+                            ? "var(--color-success)" 
+                            : device.status === "degraded"
+                              ? "#f97316"
+                              : "var(--color-error)",
                           fontWeight: "var(--font-weight-semibold)"
                         }}>
-                          {device.status === "active" ? "● Active" : "● Inactive"}
+                          {device.status === "online" 
+                            ? "● Online" 
+                            : device.status === "degraded"
+                              ? "● Degraded"
+                              : "● Offline"}
                         </span>
                       </div>
                     </div>

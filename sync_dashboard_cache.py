@@ -88,6 +88,10 @@ def sync_devices_page(db, tenant_id: int, page: int = 1, limit: int = 50) -> Dic
     """Pre-compute devices page."""
     logger.info(f"Syncing devices page {page} for tenant {tenant_id}")
     
+    # Limit tenant 2 to 10 devices
+    if tenant_id == 2:
+        limit = 10
+    
     offset = (page - 1) * limit
     
     # Single query for devices page

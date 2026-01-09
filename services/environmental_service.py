@@ -149,7 +149,7 @@ class EnvironmentalService(BaseService):
             "aqi": aqi,
             "sample_count": len(results),
         }
-    
+
     def get_air_quality_data(
         self,
         user: User,

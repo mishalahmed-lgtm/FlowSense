@@ -78,6 +78,23 @@ export default function DevicesPage() {
 
   const loadDevices = async (pageNum = currentPage, forceRefresh = false) => {
     try {
+      // For tenant_id = 2, use Firebase instead of PostgreSQL
+      if (user?.tenant_id === 2) {
+        console.log("🔥 Loading devices from Firebase for tenant_id = 2...");
+        const { getDevicesForPage } = await import("../services/firebaseDataMapper");
+        const firebaseData = await getDevicesForPage(pageNum, itemsPerPage);
+        
+        if (firebaseData) {
+          setDevices(firebaseData.devices);
+          setTotalDeviceCount(firebaseData.total);
+          setTotalPages(firebaseData.total_pages);
+          setTotalActiveCount(firebaseData.total_active);
+          setTotalInactiveCount(firebaseData.total_inactive);
+          console.log(`✅ Loaded ${firebaseData.devices.length} devices from Firebase`);
+          return;
+        }
+      }
+      
       // Check cache first (unless force refresh)
       const cacheKey = `devices_cache_${pageNum}_${searchQuery}_${filterStatus}_${filterProtocol}`;
       if (!forceRefresh) {
@@ -86,8 +103,8 @@ export default function DevicesPage() {
           try {
             const { data, timestamp } = JSON.parse(cached);
             const cacheAge = Date.now() - timestamp;
-            // Use cache if less than 10 minutes old (increased from 2 minutes)
-            if (cacheAge < 30000) { // 30 seconds cache
+            // Use cache if less than 2 hours old
+            if (cacheAge < 2 * 60 * 60 * 1000) { // 2 hour cache
               console.log(`Using cached devices (page ${pageNum}, age: ${Math.round(cacheAge/1000)}s)`);
               if (Array.isArray(data)) {
                 setDevices(data);
@@ -487,6 +504,10 @@ export default function DevicesPage() {
           </p>
         </div>
         <div className="page-header__actions">
+          <button className="btn btn--secondary" onClick={() => navigate("/devices/rules")}>
+            <Icon name="settings" size={18} />
+            <span>Manage Device Rules</span>
+          </button>
           <button className="btn-icon" onClick={() => {
             // Clear all device caches and force refresh
             Object.keys(localStorage).forEach(key => {

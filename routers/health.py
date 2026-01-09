@@ -93,59 +93,25 @@ def list_device_health(
                 detail="Tenant admin has no tenant assigned"
             )
 
-        # Only return unhealthy/offline devices (limit 100) - don't load all devices
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(seconds=18300)  # 5 hours 5 minutes
-        cutoff_iso = cutoff.isoformat()
-        
-        # Query only devices that are offline or have issues (limit to 100 for performance)
-        # Use JSONB queries to filter in SQL instead of loading all devices
+        # Return ALL devices with health data (no limit)
+        # Query all devices from devices_snapshot for this tenant
         from sqlalchemy import text
         
-        # Get offline devices: payload.is_active != true AND telemetry timestamp < cutoff
-        # Handle both boolean and string values in JSONB
-        offline_query = text("""
+        # Query all devices - no limit, return all devices with their health data
+        all_devices_query = text("""
             SELECT device_id, payload
             FROM devices_snapshot
             WHERE tenant_id = :tenant_id
-              AND (
-                (payload->>'is_active')::text NOT IN ('true', 'True', 'TRUE')
-                OR (payload->'telemetry'->>'timestamp')::timestamptz < CAST(:cutoff AS timestamptz)
-                OR (payload->'telemetry'->>'updated_at')::timestamptz < CAST(:cutoff AS timestamptz)
-                OR (payload->'health'->>'last_seen_at')::timestamptz < CAST(:cutoff AS timestamptz)
-                OR (payload->'telemetry'->>'timestamp') IS NULL
-              )
-            ORDER BY created_at DESC
-            LIMIT 100
+            ORDER BY device_id
         """)
         
-        offline_rows = db.execute(offline_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).fetchall()
+        all_rows = db.execute(all_devices_query, {"tenant_id": current_user.tenant_id}).fetchall()
         
-        # If status_filter is 'online', get online devices instead
-        if status_filter == "online":
-            online_query = text("""
-                SELECT device_id, payload
-                FROM devices_snapshot
-                WHERE tenant_id = :tenant_id
-                  AND (
-                    (payload->>'is_active')::text IN ('true', 'True', 'TRUE')
-                    OR (payload->'telemetry'->>'timestamp')::timestamptz >= CAST(:cutoff AS timestamptz)
-                    OR (payload->'telemetry'->>'updated_at')::timestamptz >= CAST(:cutoff AS timestamptz)
-                    OR (payload->'health'->>'last_seen_at')::timestamptz >= CAST(:cutoff AS timestamptz)
-                  )
-                ORDER BY created_at DESC
-                LIMIT 100
-            """)
-            rows = db.execute(online_query, {"tenant_id": current_user.tenant_id, "cutoff": cutoff_iso}).fetchall()
-        elif status_filter:
-            # Filtered by status - use offline query and filter in Python (small result set)
-            rows = offline_rows
-        else:
-            # No filter - return offline devices (most important to show)
-            rows = offline_rows
+        # If status filter is provided, we'll filter in Python after loading
+        rows = all_rows
 
         results: List[DeviceHealthResponse] = []
-        for idx, (device_id, payload_json) in enumerate(rows, start=1):
+        for device_id, payload_json in rows:
             # Parse payload JSON
             import json
             if isinstance(payload_json, dict):
@@ -203,10 +169,10 @@ def list_device_health(
             if status_filter and current_status != status_filter:
                 continue
 
-            # Build response (synthetic device_id for UI)
+            # Build response - use sequential index for device_id field
             results.append(
                 DeviceHealthResponse(
-                    device_id=idx,
+                    device_id=len(results) + 1,  # Sequential index for UI compatibility
                     device_name=payload.get("name") or device_id,
                     device_identifier=device_id,
                     current_status=current_status,

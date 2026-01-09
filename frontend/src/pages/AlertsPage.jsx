@@ -1,21 +1,29 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Tabs from "../components/Tabs.jsx";
 import BackButton from "../components/BackButton.jsx";
+import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 
 export default function AlertsPage() {
   const { token, isTenantAdmin, hasModule, user } = useAuth();
   const navigate = useNavigate();
   const api = createApiClient(token);
   
-  const [alerts, setAlerts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [filterStatus, setFilterStatus] = useState("all");
   const [filterPriority, setFilterPriority] = useState("all");
+  
+  // Check cache first to determine initial loading state (AFTER filter states are declared)
+  const initialCache = useMemo(() => {
+    const cacheKey = getCacheKey('alerts_page', { tenant_id: user?.tenant_id, filterStatus: "all", filterPriority: "all" });
+    return loadFromCache(cacheKey);
+  }, [user?.tenant_id]);
+  
+  const [alerts, setAlerts] = useState(initialCache?.alerts || []);
+  const [loading, setLoading] = useState(!initialCache);
+  const [error, setError] = useState(null);
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [notifications, setNotifications] = useState([]);
@@ -32,9 +40,60 @@ export default function AlertsPage() {
     );
   }
 
-  const loadAlerts = async () => {
+  const loadAlerts = async (forceRefresh = false) => {
+    const cacheKey = getCacheKey('alerts_page', { tenant_id: user?.tenant_id, filterStatus, filterPriority });
+    
+    // Check cache first for instant loading
+    if (!forceRefresh) {
+      const cached = loadFromCache(cacheKey);
+      if (cached) {
+        console.log("📦 [ALERTS] Using cached data - instant load");
+        setAlerts(cached.alerts);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+    }
+    
+    setLoading(true);
+    setError(null);
+    
     try {
-      setLoading(true);
+      // For tenant_id = 2, use dummy alerts (NO FIREBASE FETCH NEEDED)
+      if (user?.tenant_id === 2) {
+        console.log("🔥 [ALERTS] Generating dummy alerts for tenant_id = 2 (instant)");
+        const { generateDummyAlerts } = await import("../utils/dummyData");
+        
+        // Generate alerts based on a fixed device count (no Firebase fetch)
+        const dummyDeviceCount = 2000;
+        const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
+          device_id: `device_${i + 1}`,
+          name: `Device ${i + 1}`,
+        }));
+        
+        const allAlerts = generateDummyAlerts(dummyDevices, 25);
+        
+        // Apply filters
+        let filteredAlerts = allAlerts;
+        if (filterStatus !== "all") {
+          filteredAlerts = filteredAlerts.filter(a => a.status === filterStatus);
+        }
+        if (filterPriority !== "all") {
+          filteredAlerts = filteredAlerts.filter(a => a.priority === filterPriority);
+        }
+        
+        console.log("✅ [ALERTS] Loaded", filteredAlerts.length, "alerts (filtered from", allAlerts.length, ")");
+        setAlerts(filteredAlerts);
+        setError(null);
+        
+        // Save to cache
+        saveToCache(cacheKey, { alerts: filteredAlerts });
+        
+        setLoading(false);
+        return;
+      }
+      
+      // For other tenants, use backend API
       const params = {};
       if (filterStatus !== "all") {
         params.status = filterStatus;
@@ -44,8 +103,12 @@ export default function AlertsPage() {
       }
       const response = await api.get("/alerts", { params });
       console.log("Alerts loaded:", response.data?.length || 0, "alerts");
-      setAlerts(response.data || []);
+      const alertsData = response.data || [];
+      setAlerts(alertsData);
       setError(null);
+      
+      // Save to cache
+      saveToCache(cacheKey, { alerts: alertsData });
     } catch (err) {
       console.error("Failed to load alerts:", err);
       setError(err.response?.data?.detail || "Failed to load alerts");
@@ -355,12 +418,6 @@ export default function AlertsPage() {
         </div>
       )}
 
-      {/* Debug info - remove after fixing */}
-      {process.env.NODE_ENV === 'development' && (
-        <div style={{ padding: "var(--space-2)", marginBottom: "var(--space-4)", fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)" }}>
-          Debug: loading={loading ? "true" : "false"}, alerts={filteredAlerts.length}, error={error || "none"}
-        </div>
-      )}
 
       {/* Alerts Table */}
       <div className="card">

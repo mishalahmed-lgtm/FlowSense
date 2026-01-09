@@ -43,7 +43,7 @@ const actionPresets = [
   { value: "custom_mutate", label: "Advanced: set a field value" },
 ];
 
-export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
+export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal, setShowModal }) {
   const [rules, setRules] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -118,9 +118,16 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
     setError(null);
     try {
       const response = await api.get(`/admin/devices/${deviceId}/rules`);
-      setRules(response.data);
+      setRules(response.data || []);
     } catch (err) {
+      // If 404 or endpoint doesn't exist, just show empty rules (user can create)
+      if (err.response?.status === 404) {
+        setRules([]);
+        setError(null); // Don't show error for 404 - it's normal if no rules exist
+      } else {
       setError(err.response?.data?.detail || "Failed to load rules");
+        setRules([]); // Still allow creating rules even if load fails
+      }
     } finally {
       setIsLoading(false);
     }
@@ -287,6 +294,10 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
         conditionFieldChoice: fieldOptions[0]?.value || CUSTOM_FIELD_VALUE,
       }));
       loadRules();
+      // Close modal after successful creation
+      if (setShowModal) {
+        setShowModal(false);
+      }
     } catch (err) {
       if (err instanceof Error && !err.response) {
         setError(err.message);
@@ -370,7 +381,10 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
           ) : rules.length === 0 ? (
             <div style={{ textAlign: "center", padding: "var(--space-8)", color: "var(--color-text-tertiary)" }}>
               <Icon name="code" size={48} style={{ opacity: 0.3, marginBottom: "var(--space-3)" }} />
-              <p>No rules configured yet.</p>
+              <p style={{ marginBottom: "var(--space-2)" }}>No rules configured yet.</p>
+              <p style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
+                Create your first rule using the form below to automate device behavior.
+              </p>
             </div>
           ) : (
             <div className="table-wrapper">
@@ -423,15 +437,60 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
         </div>
       </div>
 
-      {/* Create Rule Form Card */}
-      <div className="card">
-        <div className="card__header">
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-            <Icon name="plus" size={20} />
-            <h3 className="card__title">Create Rule</h3>
-          </div>
-        </div>
-        <form className="form" onSubmit={handleCreateRule} style={{ padding: "var(--space-6)" }}>
+      {/* Create Rule Form Modal */}
+      {showModal && (
+        <div 
+          className="modal-overlay" 
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && setShowModal) {
+              setShowModal(false);
+            }
+          }}
+        >
+          <div 
+            className="card" 
+            style={{
+              maxWidth: "800px",
+              width: "90%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              margin: "var(--space-6)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                <Icon name="plus" size={20} />
+                <h3 className="card__title">Create Rule</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowModal && setShowModal(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--color-text-primary)",
+                  cursor: "pointer",
+                  padding: "var(--space-2)",
+                  fontSize: "var(--font-size-lg)",
+                }}
+              >
+                <Icon name="x" size={20} />
+              </button>
+            </div>
+            <form className="form" onSubmit={handleCreateRule} style={{ padding: "var(--space-6)" }}>
           <div className="form-group">
             <label className="form-label form-label--required">Name</label>
             <input
@@ -751,14 +810,23 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType }) {
             </label>
           </div>
           
-          <div className="form-actions">
-            <button type="submit" className="btn btn--primary">
-              <Icon name="plus" size={18} />
-              <span>Add Rule</span>
-            </button>
+              <div className="form-actions" style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end", marginTop: "var(--space-6)" }}>
+                <button 
+                  type="button" 
+                  className="btn btn--secondary"
+                  onClick={() => setShowModal && setShowModal(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn--primary">
+                  <Icon name="plus" size={18} />
+                  <span>Add Rule</span>
+                </button>
+              </div>
+            </form>
           </div>
-        </form>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
