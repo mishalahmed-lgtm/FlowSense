@@ -123,20 +123,38 @@ export default function DeviceHealthPage() {
         console.log(`Loaded ${allDevicesMap.size} devices from /admin/devices (all pages)`);
       } catch (err) {
         console.error("Failed to load devices from /admin/devices:", err);
-        // Continue anyway - we'll try to get health data
+        console.error("Error details:", err.response?.data || err.message);
+        // If /admin/devices fails, try to get devices from health endpoint as fallback
+        // But health endpoint is limited, so this is not ideal
+        try {
+          const response = await api.get("/devices/health", {});
+          const healthDevices = response.data || [];
+          console.log(`Fallback: Loaded ${healthDevices.length} devices from /devices/health`);
+          healthDevices.forEach((healthDevice) => {
+            if (healthDevice && healthDevice.device_identifier) {
+              allDevicesMap.set(healthDevice.device_identifier, {
+                ...healthDevice,
+                id: healthDevice.device_id,
+              });
+            }
+          });
+        } catch (healthErr) {
+          console.error("Failed to load devices from health endpoint as fallback:", healthErr);
+        }
       }
       
       // Step 2: Fetch health data and merge it
       // Health endpoint is limited to 100 per request, so we try different status filters
-      const statusFilters = ["online", "offline", "degraded", null];
+      // But we already have all devices from /admin/devices, so we just try to enrich with health data
+      const statusFilters = ["online", "offline", "degraded"];
       
       for (const status of statusFilters) {
         try {
-          const params = status ? { status } : {};
+          const params = { status };
           const response = await api.get("/devices/health", { params });
           const healthDevices = response.data || [];
           
-          console.log(`Loaded ${healthDevices.length} devices with health status: ${status || "all"}`);
+          console.log(`Loaded ${healthDevices.length} devices with health status: ${status}`);
           
           // Merge health data into existing devices
           // Health response uses device_identifier (string) to identify devices
@@ -150,8 +168,11 @@ export default function DeviceHealthPage() {
                   id: existing.id || healthDevice.device_id, // Preserve numeric id
                 });
               } else {
-                // Add new device with health data
-                allDevicesMap.set(healthDevice.device_identifier, healthDevice);
+                // Add new device with health data (shouldn't happen if /admin/devices worked)
+                allDevicesMap.set(healthDevice.device_identifier, {
+                  ...healthDevice,
+                  id: healthDevice.device_id,
+                });
               }
             }
           });
@@ -160,14 +181,52 @@ export default function DeviceHealthPage() {
         }
       }
       
-      const finalDevices = Array.from(allDevicesMap.values());
-      setAllDevices(finalDevices);
-      setError(null);
+      // Also try without status filter to get any remaining devices
+      try {
+        const response = await api.get("/devices/health", {});
+        const healthDevices = response.data || [];
+        console.log(`Loaded ${healthDevices.length} devices from /devices/health (no filter)`);
+        
+        healthDevices.forEach((healthDevice) => {
+          if (healthDevice && healthDevice.device_identifier) {
+            const existing = allDevicesMap.get(healthDevice.device_identifier);
+            if (existing) {
+              // Only update if we don't already have health data
+              if (!existing.uptime_24h_percent && !existing.connectivity_score) {
+                Object.assign(existing, {
+                  ...healthDevice,
+                  id: existing.id || healthDevice.device_id,
+                });
+              }
+            } else {
+              allDevicesMap.set(healthDevice.device_identifier, {
+                ...healthDevice,
+                id: healthDevice.device_id,
+              });
+            }
+          }
+        });
+      } catch (err) {
+        console.warn("Failed to load health data (no filter):", err);
+      }
       
-      console.log(`✅ Total devices loaded: ${finalDevices.length}`);
+      const finalDevices = Array.from(allDevicesMap.values());
+      
+      // Ensure we have at least some devices - if not, show error
+      if (finalDevices.length === 0) {
+        console.error("No devices loaded at all!");
+        setError("No devices found. Please check your connection and try again.");
+        setAllDevices([]);
+      } else {
+        console.log(`✅ Total devices loaded: ${finalDevices.length}`);
+        console.log(`   Devices with health data: ${finalDevices.filter(d => d.uptime_24h_percent !== null || d.connectivity_score !== null).length}`);
+        setAllDevices(finalDevices);
+        setError(null);
+      }
     } catch (err) {
       console.error("Error loading devices:", err);
-      setError(err.response?.data?.detail || "Failed to load device health data");
+      const errorMessage = err.response?.data?.detail || err.message || "Failed to load device health data";
+      setError(errorMessage);
       setAllDevices([]);
     } finally {
       setLoading(false);
