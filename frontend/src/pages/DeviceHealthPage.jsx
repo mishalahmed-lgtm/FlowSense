@@ -90,9 +90,13 @@ export default function DeviceHealthPage() {
         const query = searchQuery.toLowerCase().trim();
         filtered = filtered.filter((device) => {
           if (!device) return false;
+          // Check multiple possible field names
           const deviceName = String(device.device_name || device.name || "").toLowerCase();
           const deviceId = String(device.device_id || device.device_identifier || "").toLowerCase();
-          return deviceName.includes(query) || deviceId.includes(query);
+          // Also check if query matches any part of the device identifier
+          return deviceName.includes(query) || 
+                 deviceId.includes(query) ||
+                 deviceId.replace(/[^a-z0-9]/gi, "").includes(query.replace(/[^a-z0-9]/gi, ""));
         });
       }
 
@@ -133,7 +137,10 @@ export default function DeviceHealthPage() {
           if (!device) return false;
           const deviceName = String(device.device_name || device.name || "").toLowerCase();
           const deviceId = String(device.device_id || device.device_identifier || "").toLowerCase();
-          return deviceName.includes(query) || deviceId.includes(query);
+          // Also check if query matches any part of the device identifier (remove special chars)
+          return deviceName.includes(query) || 
+                 deviceId.includes(query) ||
+                 deviceId.replace(/[^a-z0-9]/gi, "").includes(query.replace(/[^a-z0-9]/gi, ""));
         });
       }
 
@@ -499,7 +506,7 @@ export default function DeviceHealthPage() {
         
         {/* Pagination Controls */}
         {(() => {
-          if (!Array.isArray(allDevices)) return null;
+          if (!Array.isArray(allDevices) || allDevices.length === 0) return null;
           
           let filtered = [...allDevices];
           
@@ -509,7 +516,10 @@ export default function DeviceHealthPage() {
               if (!device) return false;
               const deviceName = String(device.device_name || device.name || "").toLowerCase();
               const deviceId = String(device.device_id || device.device_identifier || "").toLowerCase();
-              return deviceName.includes(query) || deviceId.includes(query);
+              // Also check if query matches any part of the device identifier (remove special chars)
+              return deviceName.includes(query) || 
+                     deviceId.includes(query) ||
+                     deviceId.replace(/[^a-z0-9]/gi, "").includes(query.replace(/[^a-z0-9]/gi, ""));
             });
           }
           
@@ -522,12 +532,13 @@ export default function DeviceHealthPage() {
           
           const filteredCount = filtered.length;
           
-          const totalPages = Math.ceil(filteredCount / limitFilter);
-          const startIndex = (currentPage - 1) * limitFilter + 1;
+          if (filteredCount === 0) return null; // Don't show pagination if no results
+          
+          const totalPages = Math.max(1, Math.ceil(filteredCount / limitFilter));
+          const startIndex = filteredCount > 0 ? (currentPage - 1) * limitFilter + 1 : 0;
           const endIndex = Math.min(currentPage * limitFilter, filteredCount);
           
-          if (totalPages <= 1) return null;
-          
+          // Always show pagination if there are results
           return (
             <div style={{ 
               display: "flex", 
@@ -539,49 +550,61 @@ export default function DeviceHealthPage() {
             }}>
               <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
                 Showing {startIndex} to {endIndex} of {filteredCount} devices
+                {filteredCount !== allDevices.length && (
+                  <span style={{ marginLeft: "var(--space-2)", color: "var(--color-text-tertiary)" }}>
+                    (filtered from {allDevices.length} total)
+                  </span>
+                )}
               </div>
-              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
-                <button
-                  className="btn btn--sm btn--secondary"
-                  onClick={() => setCurrentPage(1)}
-                  disabled={currentPage === 1}
-                  style={{ opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? "not-allowed" : "pointer" }}
-                >
-                  First
-                </button>
-                <button
-                  className="btn btn--sm btn--secondary"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  style={{ opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? "not-allowed" : "pointer" }}
-                >
-                  Previous
-                </button>
-                <span style={{ 
-                  padding: "var(--space-2) var(--space-4)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-primary)",
-                  fontWeight: "var(--font-weight-medium)"
-                }}>
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  className="btn btn--sm btn--secondary"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                  style={{ opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? "not-allowed" : "pointer" }}
-                >
-                  Next
-                </button>
-                <button
-                  className="btn btn--sm btn--secondary"
-                  onClick={() => setCurrentPage(totalPages)}
-                  disabled={currentPage === totalPages}
-                  style={{ opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? "not-allowed" : "pointer" }}
-                >
-                  Last
-                </button>
-              </div>
+              {totalPages > 1 && (
+                <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                  <button
+                    className="btn btn--sm btn--secondary"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    style={{ opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? "not-allowed" : "pointer" }}
+                  >
+                    First
+                  </button>
+                  <button
+                    className="btn btn--sm btn--secondary"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    style={{ opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? "not-allowed" : "pointer" }}
+                  >
+                    Previous
+                  </button>
+                  <span style={{ 
+                    padding: "var(--space-2) var(--space-4)",
+                    fontSize: "var(--font-size-sm)",
+                    color: "var(--color-text-primary)",
+                    fontWeight: "var(--font-weight-medium)"
+                  }}>
+                    Page {currentPage} of {totalPages}
+                  </span>
+                  <button
+                    className="btn btn--sm btn--secondary"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    style={{ opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? "not-allowed" : "pointer" }}
+                  >
+                    Next
+                  </button>
+                  <button
+                    className="btn btn--sm btn--secondary"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    style={{ opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? "not-allowed" : "pointer" }}
+                  >
+                    Last
+                  </button>
+                </div>
+              )}
+              {totalPages === 1 && (
+                <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-tertiary)" }}>
+                  Page 1 of 1
+                </div>
+              )}
             </div>
           );
         })()}
