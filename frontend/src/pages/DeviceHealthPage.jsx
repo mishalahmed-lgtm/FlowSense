@@ -55,54 +55,74 @@ export default function DeviceHealthPage() {
   const loadDevices = async () => {
     try {
       setLoading(true);
-      // Backend limits to 100 devices per request for tenant admins
-      // Strategy: Fetch from /admin/devices (which supports higher limits) 
-      // and then get health data, or combine multiple health requests
       const allDevicesMap = new Map();
       
-      // First, try to get all devices from /admin/devices which may support pagination
+      // Step 1: Fetch ALL devices from /admin/devices using pagination
+      // The endpoint supports up to 1000 per page, so we need multiple requests
       try {
-        const devicesResponse = await api.get("/admin/devices", { 
-          params: { 
-            limit: 10000, // Try to get all devices at once
-            page: 1 
-          } 
-        });
+        let page = 1;
+        let hasMore = true;
+        const limit = 1000; // Max per page
         
-        const devicesList = Array.isArray(devicesResponse.data) 
-          ? devicesResponse.data 
-          : (devicesResponse.data?.devices || []);
-        
-        console.log(`Loaded ${devicesList.length} devices from /admin/devices`);
-        
-        // Create basic device entries
-        devicesList.forEach((device) => {
-          if (device && device.device_id) {
-            allDevicesMap.set(device.device_id, {
-              device_id: device.device_id,
-              device_name: device.name || device.device_id,
-              device_identifier: device.device_id,
-              current_status: device.is_active ? "online" : "offline",
-              last_seen_at: null,
-              uptime_24h_percent: null,
-              uptime_7d_percent: null,
-              uptime_30d_percent: null,
-              connectivity_score: null,
-              last_battery_level: null,
-              message_count_24h: 0,
-              message_count_7d: 0,
-              avg_message_interval_seconds: null,
-              battery_trend: null,
-              estimated_battery_days_remaining: null,
-            });
+        while (hasMore) {
+          const devicesResponse = await api.get("/admin/devices", { 
+            params: { 
+              limit: limit,
+              page: page 
+            } 
+          });
+          
+          // Handle paginated response
+          const responseData = devicesResponse.data;
+          const devicesList = Array.isArray(responseData) 
+            ? responseData 
+            : (responseData?.devices || []);
+          
+          const total = responseData?.total || responseData?.totalDeviceCount || devicesList.length;
+          const currentPage = responseData?.page || page;
+          const totalPages = responseData?.totalPages || Math.ceil(total / limit);
+          
+          console.log(`Loading page ${currentPage}/${totalPages}: ${devicesList.length} devices`);
+          
+          // Create basic device entries
+          devicesList.forEach((device) => {
+            if (device && device.device_id) {
+              allDevicesMap.set(device.device_id, {
+                device_id: device.device_id,
+                device_name: device.name || device.device_id,
+                device_identifier: device.device_id,
+                current_status: device.is_active ? "online" : "offline",
+                last_seen_at: null,
+                uptime_24h_percent: null,
+                uptime_7d_percent: null,
+                uptime_30d_percent: null,
+                connectivity_score: null,
+                last_battery_level: null,
+                message_count_24h: 0,
+                message_count_7d: 0,
+                avg_message_interval_seconds: null,
+                battery_trend: null,
+                estimated_battery_days_remaining: null,
+              });
+            }
+          });
+          
+          // Check if there are more pages
+          if (currentPage >= totalPages || devicesList.length < limit) {
+            hasMore = false;
+          } else {
+            page++;
           }
-        });
+        }
+        
+        console.log(`Loaded ${allDevicesMap.size} devices from /admin/devices (all pages)`);
       } catch (err) {
-        console.warn("Failed to load devices from /admin/devices:", err);
+        console.error("Failed to load devices from /admin/devices:", err);
+        // Continue anyway - we'll try to get health data
       }
       
-      // Now fetch health data and merge it
-      // Try different status filters to get health data for as many devices as possible
+      // Step 2: Fetch health data and merge it
+      // Health endpoint is limited to 100 per request, so we try different status filters
       const statusFilters = ["online", "offline", "degraded", null];
       
       for (const status of statusFilters) {
@@ -110,6 +130,8 @@ export default function DeviceHealthPage() {
           const params = status ? { status } : {};
           const response = await api.get("/devices/health", { params });
           const healthDevices = response.data || [];
+          
+          console.log(`Loaded ${healthDevices.length} devices with health status: ${status || "all"}`);
           
           // Merge health data into existing devices
           healthDevices.forEach((healthDevice) => {
@@ -133,8 +155,9 @@ export default function DeviceHealthPage() {
       setAllDevices(finalDevices);
       setError(null);
       
-      console.log(`Total devices loaded: ${finalDevices.length}`);
+      console.log(`✅ Total devices loaded: ${finalDevices.length}`);
     } catch (err) {
+      console.error("Error loading devices:", err);
       setError(err.response?.data?.detail || "Failed to load device health data");
       setAllDevices([]);
     } finally {
