@@ -31,6 +31,8 @@ export default function DeviceHealthPage() {
   const [batteryFromDate, setBatteryFromDate] = useState("");
   const [batteryToDate, setBatteryToDate] = useState("");
   const [healthSummary, setHealthSummary] = useState(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState(null);
 
   // Only tenant admins with health module can access
   if (!isTenantAdmin || !hasModule("health")) {
@@ -267,6 +269,12 @@ export default function DeviceHealthPage() {
 
   const loadBatteryTrend = async (deviceId, days, fromDate = null, toDate = null) => {
     try {
+      if (!deviceId) {
+        console.warn("No device ID provided for battery trend");
+        setBatteryTrend(null);
+        return;
+      }
+      
       // For tenant admins, use device_identifier (string) directly
       // The backend endpoint handles string device_id for tenant admins
       const deviceIdParam = deviceId; // Use as-is (string for tenant admins)
@@ -328,42 +336,68 @@ export default function DeviceHealthPage() {
   };
 
   const handleViewDetails = async (device) => {
-    setSelectedDevice(device);
-    setShowDetails(true);
-    setBatteryTrendExpanded(false); // Reset expanded state for new device
-    setBatteryFilterMode("days"); // Reset to days filter
-    // Set default date range (last 10 days)
-    const toDate = new Date();
-    const fromDate = new Date();
-    fromDate.setDate(fromDate.getDate() - 10);
-    setBatteryToDate(toDate.toISOString().split('T')[0]);
-    setBatteryFromDate(fromDate.toISOString().split('T')[0]);
-    
     try {
+      if (!device) {
+        console.error("No device provided to handleViewDetails");
+        return;
+      }
+      
+      setSelectedDevice(device);
+      setShowDetails(true);
+      setBatteryTrendExpanded(false); // Reset expanded state for new device
+      setBatteryFilterMode("days"); // Reset to days filter
+      setDetailsError(null); // Clear previous errors
+      setDeviceHistory([]); // Clear previous history
+      setBatteryTrend(null); // Clear previous battery trend
+      // Set default date range (last 10 days)
+      const toDate = new Date();
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 10);
+      setBatteryToDate(toDate.toISOString().split('T')[0]);
+      setBatteryFromDate(fromDate.toISOString().split('T')[0]);
+      
+      setLoadingDetails(true);
       // For tenant admins, use device_identifier (string) instead of numeric id
       // The backend endpoint handles string device_id for tenant admins
       const deviceId = device.device_identifier || device.device_id;
       
-      // Load health history
-      const historyResp = await api.get(`/devices/${deviceId}/health/history`, {
-        params: { hours: 168 } // 7 days
-      });
-      setDeviceHistory(historyResp.data);
+      if (!deviceId) {
+        throw new Error("Device ID not found");
+      }
       
-      // Load battery trend
-      await loadBatteryTrend(deviceId, batteryDaysFilter);
+      // Load health history (don't fail if this errors)
+      try {
+        const historyResp = await api.get(`/devices/${deviceId}/health/history`, {
+          params: { hours: 168 } // 7 days
+        });
+        setDeviceHistory(historyResp.data || []);
+      } catch (historyErr) {
+        console.warn("Failed to load health history:", historyErr);
+        setDeviceHistory([]);
+      }
+      
+      // Load battery trend (don't fail if this errors)
+      try {
+        await loadBatteryTrend(deviceId, batteryDaysFilter);
+      } catch (batteryErr) {
+        console.warn("Failed to load battery trend:", batteryErr);
+        setBatteryTrend({ data_points: [] });
+      }
     } catch (err) {
-      console.error("Error loading device details:", err);
-      setError(err.response?.data?.detail || "Failed to load device details");
+      console.error("Error in handleViewDetails:", err);
+      setDetailsError(err.message || "Failed to open device details");
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
   const handleBatteryFilterChange = async () => {
     if (selectedDevice) {
+      const deviceId = selectedDevice.device_identifier || selectedDevice.device_id;
       if (batteryFilterMode === "dateRange" && batteryFromDate && batteryToDate) {
-        await loadBatteryTrend(selectedDevice.device_id, null, batteryFromDate, batteryToDate);
+        await loadBatteryTrend(deviceId, null, batteryFromDate, batteryToDate);
       } else {
-        await loadBatteryTrend(selectedDevice.device_id, batteryDaysFilter);
+        await loadBatteryTrend(deviceId, batteryDaysFilter);
       }
     }
   };
@@ -372,7 +406,8 @@ export default function DeviceHealthPage() {
     setBatteryDaysFilter(days);
     setBatteryFilterMode("days");
     if (selectedDevice) {
-      await loadBatteryTrend(selectedDevice.device_id, days);
+      const deviceId = selectedDevice.device_identifier || selectedDevice.device_id;
+      await loadBatteryTrend(deviceId, days);
     }
   };
 
@@ -724,10 +759,29 @@ export default function DeviceHealthPage() {
           setSelectedDevice(null);
           setDeviceHistory([]);
           setBatteryTrend(null);
+          setDetailsError(null);
         }}
         title={selectedDevice ? `Health Details: ${selectedDevice.device_name}` : ""}
       >
-        {selectedDevice && (
+        {loadingDetails ? (
+          <div style={{ padding: "var(--space-8)", textAlign: "center" }}>
+            <p>Loading device details...</p>
+          </div>
+        ) : detailsError ? (
+          <div>
+            <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+              {detailsError}
+            </div>
+            {selectedDevice && (
+              <div style={{ padding: "var(--space-4)" }}>
+                <p style={{ marginBottom: "var(--space-2)" }}>Device: {selectedDevice.device_name || selectedDevice.device_id}</p>
+                <p style={{ color: "var(--color-text-tertiary)", fontSize: "var(--font-size-sm)" }}>
+                  Some data may not be available. Please try again later.
+                </p>
+              </div>
+            )}
+          </div>
+        ) : selectedDevice ? (
           <div>
             <div className="form-group" style={{ marginBottom: "var(--space-6)" }}>
               <h3 style={{ marginBottom: "var(--space-4)", fontSize: "var(--font-size-lg)", fontWeight: "var(--font-weight-semibold)" }}>Current Status</h3>
@@ -1295,6 +1349,10 @@ export default function DeviceHealthPage() {
               </div>
             )}
 
+          </div>
+        ) : (
+          <div style={{ padding: "var(--space-8)", textAlign: "center" }}>
+            <p>No device selected</p>
           </div>
         )}
       </Modal>
