@@ -12,6 +12,9 @@ from database import get_db
 from admin_auth import get_current_user
 from models import User, UserRole
 
+# Initialize logger before using it
+logger = logging.getLogger(__name__)
+
 # Firebase service (for tenant_id = 2 only - demo)
 FIREBASE_TENANT_ID = 2
 try:
@@ -40,8 +43,6 @@ class DashboardCache(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
-
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/cache", tags=["cache"])
 
 
