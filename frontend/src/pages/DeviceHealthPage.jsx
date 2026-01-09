@@ -14,11 +14,13 @@ export default function DeviceHealthPage() {
   const api = createApiClient(token);
   
   const [devices, setDevices] = useState([]);
+  const [allDevices, setAllDevices] = useState([]); // Store all devices for client-side filtering
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [limitFilter, setLimitFilter] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
   const [selectedDevice, setSelectedDevice] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [deviceHistory, setDeviceHistory] = useState([]);
@@ -53,28 +55,75 @@ export default function DeviceHealthPage() {
   const loadDevices = async () => {
     try {
       setLoading(true);
-      const params = { limit: limitFilter };
-      if (statusFilter !== "all") {
-        params.status = statusFilter;
-      }
-      if (searchQuery) {
-        params.search = searchQuery;
-      }
-      const response = await api.get("/devices/health", { params });
-      setDevices(response.data);
+      // Load all devices without filters for client-side filtering/pagination
+      const response = await api.get("/devices/health", {});
+      setAllDevices(response.data || []);
       setError(null);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load device health data");
+      setAllDevices([]);
     } finally {
       setLoading(false);
     }
   };
 
+  // Load devices once on mount and when token changes
   useEffect(() => {
     if (!token) return;
     loadHealthSummary();
     loadDevices();
-  }, [token, statusFilter, searchQuery, limitFilter]);
+  }, [token]);
+
+  // Apply search filter and pagination
+  useEffect(() => {
+    let filtered = [...allDevices];
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((device) => {
+        const deviceName = (device.device_name || "").toLowerCase();
+        const deviceId = (device.device_id || device.device_identifier || "").toLowerCase();
+        return deviceName.includes(query) || deviceId.includes(query);
+      });
+    }
+
+    // Apply status filter
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((device) => device.current_status === statusFilter);
+    }
+
+    // Calculate pagination
+    const totalPages = Math.ceil(filtered.length / limitFilter);
+    const startIndex = (currentPage - 1) * limitFilter;
+    const endIndex = startIndex + limitFilter;
+    const paginatedDevices = filtered.slice(startIndex, endIndex);
+
+    setDevices(paginatedDevices);
+  }, [allDevices, searchQuery, limitFilter, currentPage, statusFilter]);
+
+  // Reset to page 1 if current page is beyond available pages (separate effect to avoid loop)
+  useEffect(() => {
+    let filtered = [...allDevices];
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim();
+      filtered = filtered.filter((device) => {
+        const deviceName = (device.device_name || "").toLowerCase();
+        const deviceId = (device.device_id || device.device_identifier || "").toLowerCase();
+        return deviceName.includes(query) || deviceId.includes(query);
+      });
+    }
+
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((device) => device.current_status === statusFilter);
+    }
+
+    const totalPages = Math.ceil(filtered.length / limitFilter);
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [allDevices, searchQuery, limitFilter, statusFilter]); // Note: currentPage NOT in deps
 
   const loadBatteryTrend = async (deviceId, days, fromDate = null, toDate = null) => {
     try {
@@ -253,13 +302,19 @@ export default function DeviceHealthPage() {
             className="form-input"
             placeholder="Search devices..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1); // Reset to first page when search changes
+            }}
             style={{ minWidth: "200px", maxWidth: "300px" }}
           />
           <select
             className="form-select"
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setCurrentPage(1); // Reset to first page when filter changes
+            }}
             style={{ width: "auto" }}
           >
             <option value="all">All Status</option>
@@ -270,7 +325,10 @@ export default function DeviceHealthPage() {
           <select
             className="form-select"
             value={limitFilter}
-            onChange={(e) => setLimitFilter(Number(e.target.value))}
+            onChange={(e) => {
+              setLimitFilter(Number(e.target.value));
+              setCurrentPage(1); // Reset to first page when limit changes
+            }}
             style={{ minWidth: "120px" }}
           >
             <option value="10">Show 10</option>
@@ -278,6 +336,7 @@ export default function DeviceHealthPage() {
             <option value="50">Show 50</option>
             <option value="100">Show 100</option>
             <option value="200">Show 200</option>
+            <option value="500">Show 500</option>
           </select>
           <button className="btn btn--secondary" onClick={loadDevices}>
             Refresh
@@ -335,7 +394,7 @@ export default function DeviceHealthPage() {
             {devices.length === 0 ? (
               <tr>
                 <td colSpan="9" className="text-center text-muted">
-                  No devices found {statusFilter !== "all" ? `with status "${statusFilter}"` : ""}
+                  {loading ? "Loading..." : `No devices found${searchQuery ? ` matching "${searchQuery}"` : ""}${statusFilter !== "all" ? ` with status "${statusFilter}"` : ""}`}
                 </td>
               </tr>
             ) : (
@@ -409,6 +468,81 @@ export default function DeviceHealthPage() {
           </tbody>
         </table>
         </div>
+        
+        {/* Pagination Controls */}
+        {(() => {
+          const filteredCount = searchQuery.trim() 
+            ? allDevices.filter((device) => {
+                const query = searchQuery.toLowerCase().trim();
+                const deviceName = (device.device_name || "").toLowerCase();
+                const deviceId = (device.device_id || device.device_identifier || "").toLowerCase();
+                return deviceName.includes(query) || deviceId.includes(query);
+              }).filter((device) => statusFilter === "all" || device.current_status === statusFilter).length
+            : allDevices.filter((device) => statusFilter === "all" || device.current_status === statusFilter).length;
+          
+          const totalPages = Math.ceil(filteredCount / limitFilter);
+          const startIndex = (currentPage - 1) * limitFilter + 1;
+          const endIndex = Math.min(currentPage * limitFilter, filteredCount);
+          
+          if (totalPages <= 1) return null;
+          
+          return (
+            <div style={{ 
+              display: "flex", 
+              justifyContent: "space-between", 
+              alignItems: "center",
+              marginTop: "var(--space-6)",
+              paddingTop: "var(--space-4)",
+              borderTop: "1px solid var(--color-border-light)"
+            }}>
+              <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
+                Showing {startIndex} to {endIndex} of {filteredCount} devices
+              </div>
+              <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                <button
+                  className="btn btn--sm btn--secondary"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  style={{ opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? "not-allowed" : "pointer" }}
+                >
+                  First
+                </button>
+                <button
+                  className="btn btn--sm btn--secondary"
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  style={{ opacity: currentPage === 1 ? 0.5 : 1, cursor: currentPage === 1 ? "not-allowed" : "pointer" }}
+                >
+                  Previous
+                </button>
+                <span style={{ 
+                  padding: "var(--space-2) var(--space-4)",
+                  fontSize: "var(--font-size-sm)",
+                  color: "var(--color-text-primary)",
+                  fontWeight: "var(--font-weight-medium)"
+                }}>
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  className="btn btn--sm btn--secondary"
+                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage === totalPages}
+                  style={{ opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? "not-allowed" : "pointer" }}
+                >
+                  Next
+                </button>
+                <button
+                  className="btn btn--sm btn--secondary"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage === totalPages}
+                  style={{ opacity: currentPage === totalPages ? 0.5 : 1, cursor: currentPage === totalPages ? "not-allowed" : "pointer" }}
+                >
+                  Last
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Device Details Modal */}
