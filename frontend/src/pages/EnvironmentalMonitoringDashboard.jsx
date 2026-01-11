@@ -639,7 +639,7 @@ export default function EnvironmentalMonitoringDashboard() {
           )}
 
           {/* Metric Cards - Humidity, Air Quality, Noise, Rain */}
-          <div className="metrics-grid" style={{ marginBottom: "var(--space-3)", gridTemplateColumns: "repeat(4, 1fr)" }}>
+          <div className="metrics-grid" style={{ marginBottom: "var(--space-3)", gridTemplateColumns: "repeat(3, 1fr)" }}>
             {envSummary && (
               <>
                 {/* Humidity Card */}
