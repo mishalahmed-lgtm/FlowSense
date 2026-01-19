@@ -344,7 +344,7 @@ export default function DeviceDashboardPage() {
         } catch (dashErr) {
           // Dashboard config load failed - that's okay, we'll use empty config
           console.log("⚠️ Dashboard config not found (using empty config):", dashErr.response?.status);
-          if (user?.tenant_id !== 2) {
+          if (user?.tenant_id !== 2 && user?.tenant_id !== 3) {
             // Only show error for non-Firebase tenants
             console.warn("Dashboard config load failed for non-Firebase tenant");
           }
@@ -425,9 +425,9 @@ export default function DeviceDashboardPage() {
   useEffect(() => {
     if (!deviceId || !token) return;
     
-    // Skip external data loading for tenant_id = 2 (uses Firebase)
-    if (user?.tenant_id === 2) {
-      console.log("⏭️ Skipping external data load for tenant_id = 2 (using Firebase)");
+    // Skip external data loading for Firebase tenants (tenant_id = 2 or 3)
+    if (user?.tenant_id === 2 || user?.tenant_id === 3) {
+      console.log(`⏭️ Skipping external data load for tenant_id = ${user?.tenant_id} (using Firebase)`);
       setExternalDataLoading(false);
       return;
     }
@@ -622,8 +622,8 @@ export default function DeviceDashboardPage() {
       try {
         let allReadings = [];
         
-        // For tenant_id = 2, create readings from Firebase telemetry data
-        if (user?.tenant_id === 2 && device?.telemetry) {
+        // For Firebase tenants (tenant_id = 2 or 3), create readings from Firebase telemetry data
+        if ((user?.tenant_id === 2 || user?.tenant_id === 3) && device?.telemetry) {
           console.log("📊 Creating readings from Firebase telemetry data...");
           const firebaseReadings = [];
           const telemetryData = device.telemetry.data || {};

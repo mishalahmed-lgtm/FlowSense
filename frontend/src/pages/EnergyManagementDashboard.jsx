@@ -47,11 +47,11 @@ export default function EnergyManagementDashboard() {
   });
 
   const loadEnergyData = useCallback(async (forceRefresh = false) => {
-    // For tenant_id = 2, clear old cache and always generate fresh data
-    if (user?.tenant_id === 2) {
+    // For Firebase tenants (tenant_id = 2 or 3), clear old cache and always generate fresh data
+    if (user?.tenant_id === 2 || user?.tenant_id === 3) {
       const oldCacheKey = getCacheKey('energy_data', { timeRange, tenant_id: user?.tenant_id });
       clearCache(oldCacheKey);
-      console.log("🔥 [ENERGY] Cleared old cache for tenant_id = 2 to show updated numbers");
+      console.log(`🔥 [ENERGY] Cleared old cache for tenant_id = ${user?.tenant_id} to show updated numbers`);
       forceRefresh = true;
     }
     
@@ -154,7 +154,7 @@ export default function EnergyManagementDashboard() {
         }
       }
       
-      // For tenant_id = 2, use dummy energy data (NO FIREBASE FETCH)
+      // For tenant_id = 2 (not SmartLPG), use dummy energy data (NO FIREBASE FETCH)
       if (user?.tenant_id === 2) {
         console.log("🔥 [ENERGY] Generating dummy energy data for tenant_id = 2 (instant)");
         

@@ -142,9 +142,9 @@ export default function DeviceHealthPage() {
         }
       }
       
-      // Skip PostgreSQL calls for tenant_id = 2 (Firebase only)
-      if (user?.tenant_id === 2) {
-        console.log("⚠️ Skipping PostgreSQL calls for tenant_id = 2");
+      // Skip PostgreSQL calls for Firebase tenants (tenant_id = 2 or 3)
+      if (user?.tenant_id === 2 || user?.tenant_id === 3) {
+        console.log(`⚠️ Skipping PostgreSQL calls for tenant_id = ${user?.tenant_id} (Firebase only)`);
         return;
       }
       
@@ -389,8 +389,8 @@ export default function DeviceHealthPage() {
         console.log(`✅ Total devices loaded: ${finalDevices.length}`);
         console.log(`   Devices with health data: ${finalDevices.filter(d => d.uptime_24h_percent !== null || d.connectivity_score !== null).length}`);
         
-        // For tenant_id = 2 OR if no health data, generate dummy health data
-        if (user?.tenant_id === 2 || finalDevices.every(d => !d.uptime_24h_percent)) {
+        // For Firebase tenants (tenant_id = 2 or 3) OR if no health data, generate dummy health data
+        if (user?.tenant_id === 2 || user?.tenant_id === 3 || finalDevices.every(d => !d.uptime_24h_percent)) {
           console.log("📊 Generating dummy health data for devices (tenant_id = 2 or missing health data)");
           const dummyHealthData = generateDummyHealthData(finalDevices);
           

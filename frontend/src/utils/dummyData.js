@@ -404,3 +404,112 @@ export function generateDummyAlerts(devices, count = 15) {
   return alerts.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
+/**
+ * Generate SmartLPG-specific alerts for degraded devices and low gas levels
+ */
+export function generateSmartLPGAlerts(devices, tekelekDevices = []) {
+  const alerts = [];
+  
+  // 1. Generate alerts for degraded devices
+  const degradedDevices = devices.filter(d => d.current_status === 'degraded' || d.status === 'degraded');
+  degradedDevices.forEach((device, idx) => {
+    const createdMinutesAgo = random(0, 1440); // Up to 24 hours ago
+    const createdAt = new Date(Date.now() - createdMinutesAgo * 60 * 1000);
+    
+    alerts.push({
+      id: generateId(),
+      tenant_id: 3,
+      device_id: device.device_id || device.id,
+      device_name: device.name || device.device_name || device.device_id,
+      rule_id: generateId(),
+      rule_name: 'Device Degraded',
+      priority: 'high',
+      status: 'open',
+      title: 'Device Performance Degraded',
+      message: `Device ${device.name || device.device_id} is experiencing degraded performance. Please investigate.`,
+      trigger_data: {
+        field: 'status',
+        value: 'degraded',
+        threshold: 'online',
+        operator: '!=',
+      },
+      created_at: createdAt.toISOString(),
+      updated_at: createdAt.toISOString(),
+      acknowledged_at: null,
+      resolved_at: null,
+    });
+  });
+  
+  // 2. Generate critical alerts for low gas levels (<30%)
+  const lowGasDevices = tekelekDevices.filter(device => {
+    const levelPercent = device.telemetry?.data?.level_percent || device.level_percent || 100;
+    return levelPercent < 30;
+  });
+  
+  lowGasDevices.forEach((device, idx) => {
+    const levelPercent = device.telemetry?.data?.level_percent || device.level_percent || 0;
+    const createdMinutesAgo = random(0, 720); // Up to 12 hours ago
+    const createdAt = new Date(Date.now() - createdMinutesAgo * 60 * 1000);
+    
+    alerts.push({
+      id: generateId(),
+      tenant_id: 3,
+      device_id: device.device_id || device.id,
+      device_name: device.name || device.device_name || device.device_id,
+      rule_id: generateId(),
+      rule_name: 'Low Gas Level Alert',
+      priority: 'critical',
+      status: 'open',
+      title: 'Gas Tank Low - Refill Required',
+      message: `Gas level is at ${levelPercent.toFixed(1)}% for device ${device.name || device.device_id}. Please schedule refill.`,
+      trigger_data: {
+        field: 'level_percent',
+        value: levelPercent,
+        threshold: 30,
+        operator: '<',
+      },
+      created_at: createdAt.toISOString(),
+      updated_at: createdAt.toISOString(),
+      acknowledged_at: null,
+      resolved_at: null,
+    });
+  });
+  
+  // 3. Add some offline device alerts
+  const offlineDevices = devices.filter(d => d.current_status === 'offline' || d.status === 'offline');
+  offlineDevices.slice(0, Math.min(5, offlineDevices.length)).forEach((device) => {
+    const createdMinutesAgo = random(60, 2880); // 1 hour to 2 days ago
+    const createdAt = new Date(Date.now() - createdMinutesAgo * 60 * 1000);
+    
+    alerts.push({
+      id: generateId(),
+      tenant_id: 3,
+      device_id: device.device_id || device.id,
+      device_name: device.name || device.device_name || device.device_id,
+      rule_id: generateId(),
+      rule_name: 'Device Offline',
+      priority: 'critical',
+      status: 'open',
+      title: 'Device Offline',
+      message: `Device ${device.name || device.device_id} has been offline for ${Math.floor(createdMinutesAgo / 60)} hours.`,
+      trigger_data: {
+        field: 'status',
+        value: 'offline',
+        threshold: 'online',
+        operator: '!=',
+      },
+      created_at: createdAt.toISOString(),
+      updated_at: createdAt.toISOString(),
+      acknowledged_at: null,
+      resolved_at: null,
+    });
+  });
+  
+  return alerts.sort((a, b) => {
+    // Sort by priority first (critical > high > medium), then by date
+    const priorityOrder = { critical: 3, high: 2, medium: 1, low: 0 };
+    const priorityDiff = (priorityOrder[b.priority] || 0) - (priorityOrder[a.priority] || 0);
+    if (priorityDiff !== 0) return priorityDiff;
+    return new Date(b.created_at) - new Date(a.created_at);
+  });
+}
