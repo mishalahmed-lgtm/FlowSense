@@ -50,7 +50,7 @@ export default function DashboardPage() {
     let unsubscribe = null;
     
     // Initial load (uses cache if available)
-    fetchFunction(false).then(firebaseData => {
+    fetchFunction(false).then(async (firebaseData) => {
         if (firebaseData.success) {
           console.log("✅ Firebase data loaded successfully!");
           console.log("📊 Metrics:", firebaseData.metrics);
@@ -90,9 +90,9 @@ export default function DashboardPage() {
           let allAlerts;
           if (isSmartLPG) {
             const { generateSmartLPGAlerts } = await import("../utils/dummyData.js");
-            allAlerts = generateSmartLPGAlerts(firebaseData.devices, firebaseData.tekelekDevices || []);
+            allAlerts = generateSmartLPGAlerts(firebaseData.devices || [], firebaseData.tekelekDevices || []);
           } else {
-            allAlerts = generateDummyAlerts(firebaseData.devices, 25);
+            allAlerts = generateDummyAlerts(firebaseData.devices || [], 25);
           }
           const openAlerts = allAlerts.filter(alert => alert.status === "open").slice(0, 10);
           setRecentAlerts(openAlerts);
