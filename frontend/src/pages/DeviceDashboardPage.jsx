@@ -596,6 +596,13 @@ export default function DeviceDashboardPage() {
   // Load available keys for filter dropdown
   useEffect(() => {
     if (!deviceId || !device) return;
+    
+    // For Firebase tenants (tenant_id = 2 or 3), skip backend API call - keys already set from Firebase
+    if (user?.tenant_id === 2 || user?.tenant_id === 3) {
+      console.log("⏭️ Skipping backend keys API for Firebase tenant - using Firebase telemetry keys");
+      return;
+    }
+    
     const loadKeys = async () => {
       try {
         // Get all unique keys from recent readings
@@ -609,11 +616,18 @@ export default function DeviceDashboardPage() {
       }
     };
     loadKeys();
-  }, [api, deviceId, device]);
+  }, [api, deviceId, device, user?.tenant_id]);
 
   // Load discovered fields from telemetry for dynamic widgets
   useEffect(() => {
     if (!deviceId || !device) return;
+    
+    // For Firebase tenants (tenant_id = 2 or 3), skip backend API call - fields already set from Firebase
+    if (user?.tenant_id === 2 || user?.tenant_id === 3) {
+      console.log("⏭️ Skipping backend fields API for Firebase tenant - using Firebase telemetry fields");
+      return;
+    }
+    
     const loadFields = async () => {
       try {
         const resp = await api.get(`/dashboard/devices/${deviceId}/fields`);
@@ -630,7 +644,7 @@ export default function DeviceDashboardPage() {
       }
     };
     loadFields();
-  }, [api, deviceId, device]);
+  }, [api, deviceId, device, user?.tenant_id]);
 
   // Load readings when component mounts (will be shown/hidden by Collapsible)
   useEffect(() => {
