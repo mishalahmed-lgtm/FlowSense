@@ -10,14 +10,16 @@ export function isFirebaseTenant(tenantId) {
 }
 
 /**
- * Check if tenant uses SmartLPG collection (tenant_id = "0078" or 78)
+ * Check if tenant uses SmartLPG collection (tenant_id = 3, "0078", or 78)
  */
 export function isSmartLPGTenant(tenantId) {
-  // Handle various formats: "0078", 78, "78", etc.
+  // Handle various formats: 3, "0078", 78, "78", "smartlpg", etc.
   const normalized = String(tenantId).trim();
   const asNumber = Number(tenantId);
   
   const isMatch = 
+    asNumber === 3 ||           // SmartLPG tenant in database
+    normalized === "3" ||
     normalized === "0078" || 
     normalized === "78" ||
     asNumber === 78 ||
