@@ -346,17 +346,42 @@ export default function DevicesPage() {
         }
       }
       
-      // Frontend filter: if backend doesn't filter properly, filter here
-      if (filterStatus !== "all" && data && data.devices) {
-        const filtered = data.devices.filter(device => {
-          if (filterStatus === "active") return device.is_active === true;
-          if (filterStatus === "inactive") return device.is_active === false;
-          return true;
+      // Normalize device status and apply filters
+      if (data && data.devices) {
+        data.devices = data.devices.map(device => {
+          // Use current_status if available
+          if (device.current_status) {
+            return { ...device, status: device.current_status };
+          }
+          // Fallback: determine status from other fields
+          let status = "offline";
+          if (device.is_active !== false) {
+            status = device.is_active ? "online" : "offline";
+          } else if (device.last_seen_at || device.last_seen) {
+            const lastSeen = new Date(device.last_seen_at || device.last_seen);
+            const diffMinutes = (Date.now() - lastSeen.getTime()) / 60000;
+            status = diffMinutes < 60 ? "online" : "offline";
+          } else if (device.status) {
+            if (device.status === "active") status = "online";
+            else if (device.status === "inactive") status = "offline";
+            else status = device.status;
+          }
+          return { ...device, status };
         });
-        console.log(`🔧 Frontend filtered: ${filtered.length} devices (from ${data.devices.length})`);
-        data.devices = filtered;
-        data.total = filtered.length;
-        data.total_pages = Math.ceil(filtered.length / itemsPerPage);
+        
+        // Apply client-side filters
+        if (filterStatus !== "all") {
+          const filtered = data.devices.filter(device => {
+            if (filterStatus === "online") return device.status === "online";
+            if (filterStatus === "degraded") return device.status === "degraded";
+            if (filterStatus === "offline") return device.status === "offline";
+            return true;
+          });
+          console.log(`🔧 Frontend filtered: ${filtered.length} devices (from ${data.devices.length})`);
+          data.devices = filtered;
+          data.total = filtered.length;
+          data.total_pages = Math.ceil(filtered.length / itemsPerPage);
+        }
       }
       
       console.log(`Loaded ${data.devices?.length || data.length || 0} devices (page ${data.page || currentPage}, total: ${data.total || totalDeviceCount})`);
