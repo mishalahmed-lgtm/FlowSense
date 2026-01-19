@@ -56,7 +56,7 @@ export default function DeviceHealthPage() {
   const loadHealthSummary = async (healthDevices = null) => {
     try {
       // For Firebase tenants, generate dummy summary from device data (NO PostgreSQL calls)
-      const { usesFirebase } = await import("../utils/tenantHelpers");
+      const { usesFirebase } = await import("../utils/tenantHelpers.js");
       if (usesFirebase(user?.tenant_id)) {
         if (healthDevices) {
           console.log("📊 Generating dummy health summary for tenant_id = 2");
@@ -97,7 +97,7 @@ export default function DeviceHealthPage() {
       const allDevicesMap = new Map();
       
       // For Firebase tenants, load devices from Firebase
-      const { isSmartLPGTenant } = await import("../utils/tenantHelpers");
+      const { isSmartLPGTenant } = await import("../utils/tenantHelpers.js");
       const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
       
       if (user?.tenant_id === 2 || isSmartLPG) {

@@ -123,7 +123,7 @@ export default function DeviceRulesListPage() {
     try {
       // For tenant_id = 2, use Firebase devices
       if (user?.tenant_id === 2) {
-        const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+        const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
         const firebaseData = await fetchFirebaseDataForDashboard();
         if (firebaseData.success && firebaseData.devices) {
           setDevices(firebaseData.devices.slice(0, 10)); // Use first 10 devices

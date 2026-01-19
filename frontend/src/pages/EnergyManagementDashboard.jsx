@@ -84,12 +84,12 @@ export default function EnergyManagementDashboard() {
       const hours = timeRange === "24h" ? 24 : timeRange === "7d" ? 168 : 720;
       
       // For Firebase tenants, use appropriate data source
-      const { isSmartLPGTenant } = await import("../utils/tenantHelpers");
+      const { isSmartLPGTenant } = await import("../utils/tenantHelpers.js");
       const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
       
       if (isSmartLPG) {
         console.log("🔥 [ENERGY] Loading SmartLPG gas consumption data...");
-        const { fetchSmartLPGDataForDashboard, calculateGasConsumption } = await import("../services/smartLPGDataMapper");
+        const { fetchSmartLPGDataForDashboard, calculateGasConsumption } = await import("../services/smartLPGDataMapper.js");
         const smartLPGData = await fetchSmartLPGDataForDashboard();
         
         if (smartLPGData.success && smartLPGData.tekelekDevices) {

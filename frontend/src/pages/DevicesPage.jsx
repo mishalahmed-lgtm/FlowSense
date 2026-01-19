@@ -79,7 +79,7 @@ export default function DevicesPage() {
   const loadDevices = async (pageNum = currentPage, forceRefresh = false) => {
     try {
       // For Firebase tenants, use Firebase instead of PostgreSQL
-      const { isSmartLPGTenant } = await import("../utils/tenantHelpers");
+      const { isSmartLPGTenant } = await import("../utils/tenantHelpers.js");
       const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
       
       if (user?.tenant_id === 2 || isSmartLPG) {

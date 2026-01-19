@@ -243,7 +243,7 @@ export default function DeviceDashboardPage() {
         
         if (user?.tenant_id === 2) {
           console.log("🔥 Loading device data from Firebase for tenant_id = 2...");
-          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
           const firebaseData = await fetchFirebaseDataForDashboard();
           
           if (firebaseData.success) {

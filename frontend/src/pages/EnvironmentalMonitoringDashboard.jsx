@@ -119,7 +119,7 @@ export default function EnvironmentalMonitoringDashboard() {
       if (user?.tenant_id === 2) {
         console.log("🔥 Generating dummy environmental data for tenant_id = 2...");
         try {
-          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
           const firebaseData = await fetchFirebaseDataForDashboard();
           
           if (firebaseData.success && firebaseData.devices) {
