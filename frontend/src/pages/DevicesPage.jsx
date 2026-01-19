@@ -665,8 +665,9 @@ export default function DevicesPage() {
             onChange={(e) => setFilterStatus(e.target.value)}
           >
             <option value="all">All Status</option>
-            <option value="active">Online</option>
-            <option value="inactive">Offline</option>
+            <option value="online">Online</option>
+            <option value="degraded">Degraded</option>
+            <option value="offline">Offline</option>
           </select>
 
           {/* Protocol Filter */}
