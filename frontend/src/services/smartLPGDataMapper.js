@@ -133,7 +133,7 @@ export async function fetchSmartLPGDataForDashboard(forceRefresh = false) {
       
       // Consistent status distribution using device ID hash for reproducibility
       // ~80% online, ~15% degraded, ~5% offline
-      const idHash = device_id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const idHash = deviceId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
       const statusValue = idHash % 100;
       const deviceStatus = statusValue < 80 ? "online" : statusValue < 95 ? "degraded" : "offline";
       device.current_status = deviceStatus;
