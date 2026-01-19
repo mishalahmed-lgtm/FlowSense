@@ -654,9 +654,9 @@ export default function EnergyManagementDashboard() {
               <div className="card__body">
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={[
-                    { name: "Electricity", value: energyData.totals.electricity?.consumption || 0, unit: "kWh" },
-                    { name: "Gas", value: energyData.totals.gas?.consumption || 0, unit: "units" },
-                    { name: "Water", value: energyData.totals.water?.consumption || 0, unit: "m³" },
+                    ...(!isSmartLPG || (energyData.totals.electricity?.consumption > 0) ? [{ name: "Electricity", value: energyData.totals.electricity?.consumption || 0, unit: "kWh" }] : []),
+                    { name: "Gas", value: energyData.totals.gas?.consumption || 0, unit: isSmartLPG ? "kg" : "units" },
+                    ...(!isSmartLPG || (energyData.totals.water?.consumption > 0) ? [{ name: "Water", value: energyData.totals.water?.consumption || 0, unit: "m³" }] : []),
                   ]}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
