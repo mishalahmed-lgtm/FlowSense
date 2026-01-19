@@ -83,6 +83,71 @@ export default function EnergyManagementDashboard() {
       
       const hours = timeRange === "24h" ? 24 : timeRange === "7d" ? 168 : 720;
       
+      // For Firebase tenants, use appropriate data source
+      const { isSmartLPGTenant } = await import("../utils/tenantHelpers");
+      const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      
+      if (isSmartLPG) {
+        console.log("🔥 [ENERGY] Loading SmartLPG gas consumption data...");
+        const { fetchSmartLPGDataForDashboard, calculateGasConsumption } = await import("../services/smartLPGDataMapper");
+        const smartLPGData = await fetchSmartLPGDataForDashboard();
+        
+        if (smartLPGData.success && smartLPGData.tekelekDevices) {
+          // Calculate gas consumption for all Tekelek devices
+          const gasData = smartLPGData.tekelekDevices.map(device => {
+            const consumption = calculateGasConsumption(device);
+            return {
+              device_id: device.device_id,
+              device_name: device.name,
+              utility_kind: "gas",
+              consumption: parseFloat(consumption.monthly_consumption_kg),
+              cost: parseFloat(consumption.monthly_cost_aed),
+              currency: "AED"
+            };
+          });
+          
+          // Calculate totals
+          const totalConsumption = gasData.reduce((sum, d) => sum + d.consumption, 0);
+          const totalCost = gasData.reduce((sum, d) => sum + d.cost, 0);
+          
+          // Generate trends (hourly data)
+          const trends = [];
+          for (let i = hours - 1; i >= 0; i--) {
+            const timestamp = new Date(Date.now() - i * 60 * 60 * 1000);
+            trends.push({
+              timestamp: timestamp.toISOString(),
+              consumption: totalConsumption / hours,
+              cost: totalCost / hours
+            });
+          }
+          
+          setEnergyData({
+            realtime: {
+              power_w: 0,
+              voltage_v: 0,
+              current_a: 0
+            },
+            totals: {
+              gas: {
+                consumption: totalConsumption,
+                cost: totalCost,
+                currency: "AED"
+              }
+            },
+            trends: trends,
+            topConsumers: gasData.sort((a, b) => b.consumption - a.consumption).slice(0, 10),
+            costBreakdown: [{ type: "gas", cost: totalCost, currency: "AED" }]
+          });
+          
+          const cacheKey = getCacheKey('energy_data', { timeRange, tenant_id: user?.tenant_id });
+          saveToCache(cacheKey, { energyData: { totals: { gas: { consumption: totalConsumption, cost: totalCost, currency: "AED" } } }, dateRange: { from: '', to: '', label: '' } });
+          
+          setLoading(false);
+          console.log(`✅ [ENERGY] SmartLPG gas data loaded: ${gasData.length} devices, ${totalConsumption.toFixed(2)} kg, ${totalCost.toFixed(2)} AED`);
+          return;
+        }
+      }
+      
       // For tenant_id = 2, use dummy energy data (NO FIREBASE FETCH)
       if (user?.tenant_id === 2) {
         console.log("🔥 [ENERGY] Generating dummy energy data for tenant_id = 2 (instant)");

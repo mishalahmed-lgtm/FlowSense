@@ -55,8 +55,9 @@ export default function DeviceHealthPage() {
 
   const loadHealthSummary = async (healthDevices = null) => {
     try {
-      // For tenant_id = 2, generate dummy summary from device data (NO PostgreSQL calls)
-      if (user?.tenant_id === 2) {
+      // For Firebase tenants, generate dummy summary from device data (NO PostgreSQL calls)
+      const { usesFirebase } = await import("../utils/tenantHelpers");
+      if (usesFirebase(user?.tenant_id)) {
         if (healthDevices) {
           console.log("📊 Generating dummy health summary for tenant_id = 2");
           const dummySummary = generateDummyHealthSummary(healthDevices);
@@ -95,11 +96,17 @@ export default function DeviceHealthPage() {
       setLoading(true);
       const allDevicesMap = new Map();
       
-      // For tenant_id = 2, load devices from Firebase
-      if (user?.tenant_id === 2) {
-        console.log("🔥 Loading devices from Firebase for tenant_id = 2 health page...");
+      // For Firebase tenants, load devices from Firebase
+      const { isSmartLPGTenant } = await import("../utils/tenantHelpers");
+      const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      
+      if (user?.tenant_id === 2 || isSmartLPG) {
+        console.log(`🔥 Loading devices from Firebase for tenant_id = ${user?.tenant_id} health page...`);
         try {
-          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
+          const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
+          const fetchFunction = isSmartLPG ? "fetchSmartLPGDataForDashboard" : "fetchFirebaseDataForDashboard";
+          const mapper = await import(mapperModule);
+          const fetchFirebaseDataForDashboard = mapper[fetchFunction];
           const firebaseData = await fetchFirebaseDataForDashboard();
           
           if (firebaseData.success && firebaseData.devices) {

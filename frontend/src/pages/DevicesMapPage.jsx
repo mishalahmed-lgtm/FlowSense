@@ -208,11 +208,16 @@ export default function DevicesMapPage() {
       setError(null);
       setLoading(true);
       
-      // Check if tenant_id = 2, use Firebase
-      if (user?.tenant_id === 2) {
-        console.log("🗺️ DevicesMapPage: Loading from Firebase for tenant_id = 2...");
-        const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper");
-        const firebaseData = await fetchFirebaseDataForDashboard(forceRefresh);
+      // Check if Firebase tenant, use Firebase
+      const { isSmartLPGTenant } = await import("../utils/tenantHelpers");
+      const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      
+      if (user?.tenant_id === 2 || isSmartLPG) {
+        console.log(`🗺️ DevicesMapPage: Loading from Firebase for tenant_id = ${user?.tenant_id}...`);
+        const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
+        const fetchFunction = isSmartLPG ? "fetchSmartLPGDataForDashboard" : "fetchFirebaseDataForDashboard";
+        const mapper = await import(mapperModule);
+        const firebaseData = await mapper[fetchFunction](forceRefresh);
         
         if (firebaseData.success) {
           const devices = firebaseData.devices || [];

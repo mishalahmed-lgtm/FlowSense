@@ -20,6 +20,11 @@ service cloud.firestore {
     match /test/{document=**} {
       allow read, write: if true;
     }
+    
+    // Allow read/write to smartLPG collection (for Smart LPG devices)
+    match /smartLPG/{document=**} {
+      allow read, write: if true;
+    }
   }
 }
 

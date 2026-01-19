@@ -90,3 +90,12 @@ test_*.py
 
 # Simulators (dummy data generators)
 simulators/
+
+# SmartLPG population scripts (temporary)
+scripts/populate_smartlpg_*.py
+scripts/populate_smartlpg_*.mjs
+scripts/populate_smartlpg_*.js
+frontend/scripts/populate_smartlpg.mjs
+frontend/scripts/check_smartlpg.mjs
+frontend/scripts/add_missing_teltonika.mjs
+populate_smartlpg.log

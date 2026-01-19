@@ -78,11 +78,16 @@ export default function DevicesPage() {
 
   const loadDevices = async (pageNum = currentPage, forceRefresh = false) => {
     try {
-      // For tenant_id = 2, use Firebase instead of PostgreSQL
-      if (user?.tenant_id === 2) {
-        console.log("🔥 Loading devices from Firebase for tenant_id = 2...");
-        const { getDevicesForPage } = await import("../services/firebaseDataMapper");
-        const firebaseData = await getDevicesForPage(pageNum, itemsPerPage);
+      // For Firebase tenants, use Firebase instead of PostgreSQL
+      const { isSmartLPGTenant } = await import("../utils/tenantHelpers");
+      const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      
+      if (user?.tenant_id === 2 || isSmartLPG) {
+        console.log(`🔥 Loading devices from Firebase for tenant_id = ${user?.tenant_id}...`);
+        const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
+        const fetchFunction = isSmartLPG ? "getSmartLPGDevicesForPage" : "getDevicesForPage";
+        const mapper = await import(mapperModule);
+        const firebaseData = await mapper[fetchFunction](pageNum, itemsPerPage);
         
         if (firebaseData) {
           setDevices(firebaseData.devices);

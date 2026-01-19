@@ -6,6 +6,7 @@ import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { isFirebaseTenant, isSmartLPGTenant, usesFirebase } from "../utils/tenantHelpers.js";
 
 export default function DashboardPage() {
   const { token, user } = useAuth();
@@ -17,12 +18,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
 
-  // Skip WebSocket for tenant_id = 2 (uses Firebase real-time listeners instead)
-  const skipWebSocket = user?.tenant_id === 2;
+  // Skip WebSocket for Firebase tenants (use Firebase real-time listeners instead)
+  const skipWebSocket = usesFirebase(user?.tenant_id);
 
-  // Load Firebase data for tenant_id = 2 (with real-time listeners - no WebSocket needed)
+  // Load Firebase data for Firebase tenants (with real-time listeners - no WebSocket needed)
   useEffect(() => {
-    if (!token || !user || user.tenant_id !== 2) return;
+    if (!token || !user || !usesFirebase(user.tenant_id)) return;
     
     console.log("🔥 Loading Firebase data for tenant_id = 2 (flowset)...");
     console.log("📡 Using Firestore real-time listeners (no WebSocket needed)");
@@ -90,12 +91,12 @@ export default function DashboardPage() {
         import("../utils/firebase"),
         import("firebase/firestore")
       ]).then(([{ db }, { collection, onSnapshot }]) => {
-        const installationsRef = collection(db, "installations");
+        const collectionRef = collection(db, collectionName);
         
-        console.log("📡 Setting up Firestore real-time listener...");
-        unsubscribe = onSnapshot(installationsRef, (snapshot) => {
+        console.log(`📡 Setting up Firestore real-time listener for ${collectionName}...`);
+        unsubscribe = onSnapshot(collectionRef, (snapshot) => {
           console.log("🔄 Firestore real-time update received!");
-          console.log(`📊 ${snapshot.size} installations in snapshot`);
+          console.log(`📊 ${snapshot.size} documents in snapshot`);
           
           // Re-fetch and update metrics (force refresh for real-time updates)
           fetchFirebaseDataForDashboard(true).then(firebaseData => {
@@ -123,8 +124,8 @@ export default function DashboardPage() {
 
   // Initial load from database (one-time, even if empty)
   useEffect(() => {
-    // Skip for tenant_id = 2 (Firebase tenant - loads separately)
-    if (user?.tenant_id === 2) {
+    // Skip for Firebase tenants (load separately)
+    if (usesFirebase(user?.tenant_id)) {
       setLoading(false);
       return;
     }
@@ -264,7 +265,7 @@ export default function DashboardPage() {
     if (wsConnectedState && !skipWebSocket) {
       console.log("✓ Dashboard WebSocket connected - receiving live updates");
     } else if (skipWebSocket) {
-      console.log("🔥 Skipping WebSocket for tenant_id = 2 (using Firebase real-time listeners)");
+      console.log(`🔥 Skipping WebSocket for tenant_id = ${user?.tenant_id} (using Firebase real-time listeners)`);
     }
   }, [wsConnectedState]);
 
