@@ -38,10 +38,13 @@ export async function fetchSmartLPGDataForDashboard(forceRefresh = false) {
   }
   
   console.log("🔄 Fetching SmartLPG data from Firestore...");
+  console.log("   Collection: smartLPG");
   
   try {
     const smartLPGRef = collection(db, "smartLPG");
+    console.log("   📍 Firestore path: smartLPG");
     const querySnapshot = await getDocs(smartLPGRef);
+    console.log(`   📊 Query returned ${querySnapshot.size} documents`);
     
     const devices = [];
     const tekelekDevices = [];

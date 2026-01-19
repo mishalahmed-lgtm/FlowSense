@@ -10,10 +10,25 @@ export function isFirebaseTenant(tenantId) {
 }
 
 /**
- * Check if tenant uses SmartLPG collection (tenant_id = "0078")
+ * Check if tenant uses SmartLPG collection (tenant_id = "0078" or 78)
  */
 export function isSmartLPGTenant(tenantId) {
-  return tenantId === "0078" || tenantId === 78 || tenantId === "78";
+  // Handle various formats: "0078", 78, "78", etc.
+  const normalized = String(tenantId).trim();
+  const asNumber = Number(tenantId);
+  
+  const isMatch = 
+    normalized === "0078" || 
+    normalized === "78" ||
+    asNumber === 78 ||
+    normalized === "smartlpg" ||
+    normalized.toLowerCase() === "smartlpg";
+  
+  if (isMatch) {
+    console.log(`✅ SmartLPG tenant detected: tenant_id = ${tenantId} (normalized: ${normalized})`);
+  }
+  
+  return isMatch;
 }
 
 /**

@@ -23,14 +23,31 @@ export default function DashboardPage() {
 
   // Load Firebase data for Firebase tenants (with real-time listeners - no WebSocket needed)
   useEffect(() => {
-    if (!token || !user || !usesFirebase(user.tenant_id)) return;
+    if (!token || !user) return;
     
-    console.log("🔥 Loading Firebase data for tenant_id = 2 (flowset)...");
+    console.log("🔍 Dashboard: Checking tenant_id for Firebase support...");
+    console.log("   user.tenant_id:", user.tenant_id);
+    console.log("   user.tenant_id type:", typeof user.tenant_id);
+    console.log("   usesFirebase check:", usesFirebase(user.tenant_id));
+    
+    if (!usesFirebase(user.tenant_id)) return;
+    
+    console.log(`🔥 Loading Firebase data for tenant_id = ${user.tenant_id}...`);
     console.log("📡 Using Firestore real-time listeners (no WebSocket needed)");
     
     let unsubscribe = null;
     
-    import("../services/firebaseDataMapper").then(async ({ fetchFirebaseDataForDashboard }) => {
+    // Dynamically import appropriate Firebase mapper
+    const isSmartLPG = isSmartLPGTenant(user.tenant_id);
+    const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
+    const fetchFunction = isSmartLPG ? "fetchSmartLPGDataForDashboard" : "fetchFirebaseDataForDashboard";
+    const collectionName = isSmartLPG ? "smartLPG" : "installations";
+    
+    console.log(`   Using mapper: ${mapperModule}`);
+    console.log(`   Collection: ${collectionName}`);
+    
+    import(mapperModule).then(async (module) => {
+      const fetchFirebaseDataForDashboard = module[fetchFunction];
       const { generateDummyAlerts } = await import("../utils/dummyData");
       
       // Initial load (uses cache if available)
