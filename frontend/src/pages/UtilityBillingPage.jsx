@@ -46,7 +46,7 @@ export default function UtilityBillingPage() {
     try {
       // For tenant_id = 2 or 3 (SmartLPG), use dummy data
       if (user?.tenant_id === 2 || user?.tenant_id === 3) {
-        console.log("🔥 Generating dummy utility billing data for tenant_id = 2");
+        console.log(`🔥 Generating dummy utility billing data for tenant_id = ${user?.tenant_id}`);
         
         // Calculate days between dates
         const fromDateObj = new Date(fromDate);
@@ -75,8 +75,8 @@ export default function UtilityBillingPage() {
             const consumption = device.consumption || device.total_kwh || 0;
             const cost = device.cost || consumption * 0.5;
             return {
-              tenant_id: 2,
-              tenant_name: "Demo Tenant",
+              tenant_id: user?.tenant_id || 2,
+              tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
               device_id: device.device_id,
               device_external_id: device.device_id,
               device_name: device.device_name,
@@ -114,8 +114,8 @@ export default function UtilityBillingPage() {
           
           const consolidatedRows = [
             {
-              tenant_id: 2,
-              tenant_name: "Demo Tenant",
+              tenant_id: user?.tenant_id || 2,
+              tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
               utility_kind: "electricity",
               period_start: fromDate,
               period_end: toDate,
@@ -126,8 +126,8 @@ export default function UtilityBillingPage() {
               device_count: dummyDeviceCount,
             },
             {
-              tenant_id: 2,
-              tenant_name: "Demo Tenant",
+              tenant_id: user?.tenant_id || 2,
+              tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
               utility_kind: "gas",
               period_start: fromDate,
               period_end: toDate,
@@ -138,8 +138,8 @@ export default function UtilityBillingPage() {
               device_count: dummyDeviceCount,
             },
             {
-              tenant_id: 2,
-              tenant_name: "Demo Tenant",
+              tenant_id: user?.tenant_id || 2,
+              tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
               utility_kind: "water",
               period_start: fromDate,
               period_end: toDate,

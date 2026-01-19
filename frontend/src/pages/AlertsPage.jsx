@@ -59,19 +59,35 @@ export default function AlertsPage() {
     setError(null);
     
     try {
-      // For tenant_id = 2, use dummy alerts (NO FIREBASE FETCH NEEDED)
-      if (user?.tenant_id === 2) {
-        console.log("🔥 [ALERTS] Generating dummy alerts for tenant_id = 2 (instant)");
-        const { generateDummyAlerts } = await import("../utils/dummyData");
+      // For tenant_id = 2 or 3, use dummy/SmartLPG alerts
+      if (user?.tenant_id === 2 || user?.tenant_id === 3) {
+        console.log(`🔥 [ALERTS] Generating alerts for tenant_id = ${user?.tenant_id} (instant)`);
         
-        // Generate alerts based on a fixed device count (no Firebase fetch)
-        const dummyDeviceCount = 2000;
-        const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
-          device_id: `device_${i + 1}`,
-          name: `Device ${i + 1}`,
-        }));
+        let allAlerts = [];
         
-        const allAlerts = generateDummyAlerts(dummyDevices, 25);
+        if (user?.tenant_id === 3) {
+          // For SmartLPG tenant, fetch devices and generate SmartLPG-specific alerts
+          const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
+          const { generateSmartLPGAlerts } = await import("../utils/dummyData.js");
+          
+          const firebaseData = await fetchSmartLPGDataForDashboard();
+          if (firebaseData.success) {
+            const tekelekDevices = firebaseData.devices.filter(d => 
+              d.device_type && d.device_type.includes("Tekelek")
+            );
+            allAlerts = generateSmartLPGAlerts(firebaseData.devices, tekelekDevices);
+            console.log(`✅ [ALERTS] Generated ${allAlerts.length} SmartLPG alerts`);
+          }
+        } else {
+          // For tenant_id = 2, use dummy alerts
+          const { generateDummyAlerts } = await import("../utils/dummyData");
+          const dummyDeviceCount = 2000;
+          const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
+            device_id: `device_${i + 1}`,
+            name: `Device ${i + 1}`,
+          }));
+          allAlerts = generateDummyAlerts(dummyDevices, 25);
+        }
         
         // Apply filters
         let filteredAlerts = allAlerts;

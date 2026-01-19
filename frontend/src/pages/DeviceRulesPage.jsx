@@ -28,11 +28,17 @@ export default function DeviceRulesPage() {
       setError(null);
       
       try {
-        // For tenant_id = 2, use Firebase devices
-        if (user?.tenant_id === 2) {
+        // For tenant_id = 2 or 3, use Firebase devices
+        if (user?.tenant_id === 2 || user?.tenant_id === 3) {
           try {
-            const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
-            const firebaseData = await fetchFirebaseDataForDashboard();
+            const isSmartLPG = user?.tenant_id === 3;
+            const mapper = isSmartLPG 
+              ? await import("../services/smartLPGDataMapper.js")
+              : await import("../services/firebaseDataMapper.js");
+            const fetchFunction = isSmartLPG 
+              ? mapper.fetchSmartLPGDataForDashboard 
+              : mapper.fetchFirebaseDataForDashboard;
+            const firebaseData = await fetchFunction();
             
             if (firebaseData.success && firebaseData.devices) {
               const found = firebaseData.devices.find((d) => d.device_id === deviceId);

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../context/AuthContext.jsx";
 import Icon from "./Icon.jsx";
 
 const CUSTOM_FIELD_VALUE = "__custom_field__";
@@ -44,6 +45,7 @@ const actionPresets = [
 ];
 
 export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal, setShowModal }) {
+  const { user } = useAuth();
   const [rules, setRules] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -117,6 +119,89 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal,
     setIsLoading(true);
     setError(null);
     try {
+      // For tenant_id = 3 (SmartLPG), generate static rules
+      if (user?.tenant_id === 3) {
+        console.log("🔥 Generating static rules for SmartLPG tenant");
+        const staticRules = [
+          {
+            id: 1,
+            device_id: deviceId,
+            name: "Low Gas Level Alert",
+            priority: 100,
+            is_active: true,
+            condition: {
+              field: "payload.level_percent",
+              operator: "<",
+              value: 30
+            },
+            actions: [
+              {
+                type: "alert",
+                config: {
+                  title: "Gas Tank Low - Refill Required",
+                  message: "Gas level is below 30%. Please schedule refill.",
+                  priority: "critical"
+                }
+              }
+            ],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 2,
+            device_id: deviceId,
+            name: "Device Offline Alert",
+            priority: 90,
+            is_active: true,
+            condition: {
+              field: "payload.status",
+              operator: "==",
+              value: "offline"
+            },
+            actions: [
+              {
+                type: "alert",
+                config: {
+                  title: "Device Offline",
+                  message: "Device has gone offline. Please check connectivity.",
+                  priority: "high"
+                }
+              }
+            ],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          },
+          {
+            id: 3,
+            device_id: deviceId,
+            name: "Battery Low Warning",
+            priority: 80,
+            is_active: true,
+            condition: {
+              field: "payload.battery_volt",
+              operator: "<",
+              value: 3.3
+            },
+            actions: [
+              {
+                type: "alert",
+                config: {
+                  title: "Low Battery Warning",
+                  message: "Device battery is below 3.3V. Consider replacing battery.",
+                  priority: "medium"
+                }
+              }
+            ],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ];
+        setRules(staticRules);
+        setIsLoading(false);
+        return;
+      }
+      
+      // For other tenants, use backend API
       const response = await api.get(`/admin/devices/${deviceId}/rules`);
       setRules(response.data || []);
     } catch (err) {
