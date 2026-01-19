@@ -251,7 +251,14 @@ export default function DeviceDashboardPage() {
           const firebaseData = await fetchFunction();
           
           if (firebaseData.success) {
-            found = firebaseData.devices.find((d) => d.device_id === deviceId);
+            // Try multiple ID formats for device lookup
+            found = firebaseData.devices.find((d) => 
+              d.device_id === deviceId || 
+              d.id === deviceId ||
+              d.name === deviceId ||
+              (d.device_id && d.device_id.toLowerCase() === deviceId.toLowerCase()) ||
+              (d.name && d.name.toLowerCase() === deviceId.toLowerCase())
+            );
             if (found) {
               console.log("✅ Device found in Firebase:", found);
               console.log("📊 Device telemetry data:", found.telemetry);
