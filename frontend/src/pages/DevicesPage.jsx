@@ -6,7 +6,7 @@ import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import DeviceForm from "../components/DeviceForm.jsx";
-import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import Modal from "../components/Modal.jsx";
 import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 import { isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
 import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";

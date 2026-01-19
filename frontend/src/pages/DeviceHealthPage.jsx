@@ -395,10 +395,12 @@ export default function DeviceHealthPage() {
           const dummyHealthData = generateDummyHealthData(finalDevices);
           
           // Merge dummy health data with devices
-          finalDevices = finalDevices.map((device, idx) => ({
+          const devicesWithHealth = finalDevices.map((device, idx) => ({
             ...device,
             ...dummyHealthData[idx],
           }));
+          finalDevices.length = 0;
+          finalDevices.push(...devicesWithHealth);
           
           console.log("✅ Applied dummy health data to", finalDevices.length, "devices");
         }

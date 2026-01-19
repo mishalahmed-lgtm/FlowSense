@@ -67,10 +67,9 @@ export default function EnvironmentalMonitoringDashboard() {
       aqi: null,
     },
     weather: {
-      temperature: null,
-      humidity: null,
+    temperature: null,
+    humidity: null,
     },
-    trends: [],
     noise: {
       level: null,
       peak: null,
