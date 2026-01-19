@@ -128,15 +128,17 @@ export default function EnergyManagementDashboard() {
               current_a: 0
             },
             totals: {
+              electricity: { consumption: 0, cost: 0, currency: "AED" },
               gas: {
                 consumption: totalConsumption,
                 cost: totalCost,
                 currency: "AED"
-              }
+              },
+              water: { consumption: 0, cost: 0, currency: "AED" }
             },
             trends: trends,
             topConsumers: gasData.sort((a, b) => b.consumption - a.consumption).slice(0, 10),
-            costBreakdown: [{ type: "gas", cost: totalCost, currency: "AED" }]
+            costBreakdown: [{ name: "Gas", value: totalCost, color: UTILITY_COLORS.gas }]
           });
           
           const cacheKey = getCacheKey('energy_data', { timeRange, tenant_id: user?.tenant_id });
@@ -547,37 +549,43 @@ export default function EnergyManagementDashboard() {
       ) : (
         <>
           {/* Summary Metrics */}
-          <div className="metrics-grid" style={{ marginBottom: "var(--space-6)", gridTemplateColumns: "repeat(4, 1fr)" }}>
-            <div className="metric-card">
-              <div className="metric-card__header">
-                <span className="metric-card__label">Total Energy Consumption</span>
-                <Icon name="zap" size="lg" />
+          <div className="metrics-grid" style={{ marginBottom: "var(--space-6)", gridTemplateColumns: `repeat(${isSmartLPG ? 2 : 4}, 1fr)` }}>
+            {/* Only show electricity card if not SmartLPG tenant or if it has consumption */}
+            {(!isSmartLPG || (energyData.totals.electricity?.consumption > 0)) && (
+              <div className="metric-card">
+                <div className="metric-card__header">
+                  <span className="metric-card__label">Total Energy Consumption</span>
+                  <Icon name="zap" size="lg" />
+                </div>
+                <div className="metric-card__value">
+                  {energyData.totals.electricity?.consumption?.toFixed(2) || "0.00"}
+                  <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> kWh</span>
+                </div>
+                <div className="metric-card__footer">
+                  Cost: {currency} {energyData.totals.electricity?.cost?.toFixed(2) || "0.00"}
+                  <span style={{ fontSize: "var(--font-size-xs)", marginLeft: "var(--space-2)", opacity: 0.7 }}>
+                    (All devices)
+                  </span>
+                </div>
               </div>
-              <div className="metric-card__value">
-                {energyData.totals.electricity?.consumption?.toFixed(2) || "0.00"}
-                <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> kWh</span>
-              </div>
-              <div className="metric-card__footer">
-                Cost: {currency} {energyData.totals.electricity?.cost?.toFixed(2) || "0.00"}
-                <span style={{ fontSize: "var(--font-size-xs)", marginLeft: "var(--space-2)", opacity: 0.7 }}>
-                  (All devices)
-                </span>
-              </div>
-            </div>
+            )}
 
-            <div className="metric-card">
-              <div className="metric-card__header">
-                <span className="metric-card__label">Water Usage</span>
-                <Icon name="droplet" size="lg" />
+            {/* Only show water card if not SmartLPG tenant or if it has consumption */}
+            {(!isSmartLPG || (energyData.totals.water?.consumption > 0)) && (
+              <div className="metric-card">
+                <div className="metric-card__header">
+                  <span className="metric-card__label">Water Usage</span>
+                  <Icon name="droplet" size="lg" />
+                </div>
+                <div className="metric-card__value">
+                  {energyData.totals.water?.consumption?.toFixed(2) || "0.00"}
+                  <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> m³</span>
+                </div>
+                <div className="metric-card__footer">
+                  Cost: {currency} {energyData.totals.water?.cost?.toFixed(2) || "0.00"}
+                </div>
               </div>
-              <div className="metric-card__value">
-                {energyData.totals.water?.consumption?.toFixed(2) || "0.00"}
-                <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> m³</span>
-              </div>
-              <div className="metric-card__footer">
-                Cost: {currency} {energyData.totals.water?.cost?.toFixed(2) || "0.00"}
-              </div>
-            </div>
+            )}
 
             <div className="metric-card">
               <div className="metric-card__header">
@@ -586,7 +594,7 @@ export default function EnergyManagementDashboard() {
               </div>
               <div className="metric-card__value">
                 {energyData.totals.gas?.consumption?.toFixed(2) || "0.00"}
-                <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> units</span>
+                <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> {isSmartLPG ? "kg" : "units"}</span>
               </div>
               <div className="metric-card__footer">
                 Cost: {currency} {energyData.totals.gas?.cost?.toFixed(2) || "0.00"}

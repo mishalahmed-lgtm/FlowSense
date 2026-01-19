@@ -46,8 +46,92 @@ export default function UtilityBillingPage() {
     try {
       // For tenant_id = 2 or 3 (SmartLPG), use dummy data
       if (user?.tenant_id === 2 || user?.tenant_id === 3) {
-        console.log(`🔥 Generating dummy utility billing data for tenant_id = ${user?.tenant_id}`);
+        console.log(`🔥 Generating utility billing data for tenant_id = ${user?.tenant_id}`);
         
+        const isSmartLPG = user?.tenant_id === 3;
+        
+        if (isSmartLPG) {
+          // For SmartLPG tenant, use same gas consumption calculation as Energy Dashboard
+          const { fetchSmartLPGDataForDashboard, calculateGasConsumption } = await import("../services/smartLPGDataMapper.js");
+          const smartLPGData = await fetchSmartLPGDataForDashboard();
+          
+          if (smartLPGData.success && smartLPGData.tekelekDevices) {
+            // Calculate days between dates
+            const fromDateObj = new Date(fromDate);
+            const toDateObj = new Date(toDate);
+            const daysDiff = Math.ceil((toDateObj - fromDateObj) / (1000 * 60 * 60 * 24));
+            
+            // Calculate gas consumption for all Tekelek devices
+            const gasData = smartLPGData.tekelekDevices.map(device => {
+              const consumption = calculateGasConsumption(device);
+              // Scale monthly consumption to the report period
+              const periodConsumption = (parseFloat(consumption.monthly_consumption_kg) / 30) * daysDiff;
+              const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysDiff;
+              
+              return {
+                device_id: device.device_id,
+                device_name: device.name,
+                consumption: periodConsumption,
+                cost: periodCost,
+                currency: "AED"
+              };
+            });
+            
+            if (viewMode === "per-device") {
+              // Map to billing row format (show top 50 devices)
+              const mappedRows = gasData.sort((a, b) => b.consumption - a.consumption).slice(0, 50).map((device, idx) => {
+                return {
+                  tenant_id: 3,
+                  tenant_name: "SmartLPG",
+                  device_id: device.device_id,
+                  device_external_id: device.device_id,
+                  device_name: device.device_name,
+                  utility_kind: "gas",
+                  index_key: `gas_consumption_${idx}`,
+                  period_start: fromDate,
+                  period_end: toDate,
+                  start_index: null,
+                  end_index: null,
+                  consumption: Math.round(device.consumption * 100) / 100,
+                  unit: "kg",
+                  rate_per_unit: device.consumption > 0 ? Math.round((device.cost / device.consumption) * 100) / 100 : 2.5,
+                  currency: "AED",
+                  amount: Math.round(device.cost * 100) / 100,
+                };
+              });
+              
+              setRows(mappedRows);
+              setConsolidatedRows([]);
+            } else {
+              // Consolidated view - only gas
+              const totalConsumption = gasData.reduce((sum, d) => sum + d.consumption, 0);
+              const totalCost = gasData.reduce((sum, d) => sum + d.cost, 0);
+              
+              const consolidatedRows = [
+                {
+                  tenant_id: 3,
+                  tenant_name: "SmartLPG",
+                  utility_kind: "gas",
+                  period_start: fromDate,
+                  period_end: toDate,
+                  total_consumption: Math.round(totalConsumption * 100) / 100,
+                  unit: "kg",
+                  total_cost: Math.round(totalCost * 100) / 100,
+                  currency: "AED",
+                  device_count: gasData.length,
+                }
+              ];
+              
+              setConsolidatedRows(consolidatedRows);
+              setRows([]);
+            }
+            
+            setLoading(false);
+            return;
+          }
+        }
+        
+        // For tenant_id = 2, use dummy data
         // Calculate days between dates
         const fromDateObj = new Date(fromDate);
         const toDateObj = new Date(toDate);
