@@ -337,23 +337,30 @@ export default function DeviceDashboardPage() {
           }
         }
         
-        // If not found in Firebase or not tenant_id = 2, try backend API
+        // If not found in Firebase, try backend API (but skip for Firebase-only tenants)
         if (!found) {
+          if (isFirebaseTenant) {
+            console.error(`❌ Device ${deviceId} not found in Firebase collection`);
+            console.log("Available devices (first 5):", firebaseData.devices?.slice(0, 5).map(d => ({ id: d.device_id, name: d.name })));
+            setError(`Device "${deviceId}" not found in Firebase. Please check the device ID.`);
+            setLoading(false);
+            return;
+          }
           console.log("Loading device from backend API...");
           const devicesResp = await api.get("/admin/devices");
         
-        // Handle paginated response format
-        const devices = Array.isArray(devicesResp.data) 
-          ? devicesResp.data 
-          : (devicesResp.data?.devices || []);
+          // Handle paginated response format
+          const devices = Array.isArray(devicesResp.data) 
+            ? devicesResp.data 
+            : (devicesResp.data?.devices || []);
         
           found = devices.find((d) => d.device_id === deviceId);
-        if (!found) {
-          setError("Device not found");
-          setLoading(false);
-          return;
-        }
-        setDevice(found);
+          if (!found) {
+            setError("Device not found");
+            setLoading(false);
+            return;
+          }
+          setDevice(found);
         }
         
         // Load dashboard config from backend (works for all tenants)
