@@ -410,8 +410,9 @@ export function generateDummyAlerts(devices, count = 15) {
 export function generateSmartLPGAlerts(devices, tekelekDevices = []) {
   const alerts = [];
   
-  // 1. Generate alerts for degraded devices
+  // 1. Generate alerts for degraded devices (all of them)
   const degradedDevices = devices.filter(d => d.current_status === 'degraded' || d.status === 'degraded');
+  // Generate alerts for all degraded devices (not just a subset)
   degradedDevices.forEach((device, idx) => {
     const createdMinutesAgo = random(0, 1440); // Up to 24 hours ago
     const createdAt = new Date(Date.now() - createdMinutesAgo * 60 * 1000);
@@ -475,9 +476,9 @@ export function generateSmartLPGAlerts(devices, tekelekDevices = []) {
     });
   });
   
-  // 3. Add some offline device alerts
+  // 3. Add some offline device alerts (more than before)
   const offlineDevices = devices.filter(d => d.current_status === 'offline' || d.status === 'offline');
-  offlineDevices.slice(0, Math.min(5, offlineDevices.length)).forEach((device) => {
+  offlineDevices.slice(0, Math.min(15, offlineDevices.length)).forEach((device) => {
     const createdMinutesAgo = random(60, 2880); // 1 hour to 2 days ago
     const createdAt = new Date(Date.now() - createdMinutesAgo * 60 * 1000);
     

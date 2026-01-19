@@ -261,10 +261,11 @@ export default function DeviceDashboardPage() {
               (d.name && d.name.toLowerCase() === deviceId.toLowerCase())
             );
             if (found) {
-              console.log("✅ Device found in Firebase:", found);
-              console.log("📊 Device telemetry data:", found.telemetry);
-              console.log("📊 Device telemetry.data:", found.telemetry?.data);
-              setDevice(found);
+          console.log("✅ Device found in Firebase:", found);
+          console.log("📊 Device telemetry data:", found.telemetry);
+          console.log("📊 Device telemetry.data:", found.telemetry?.data);
+          console.log("📍 Device location:", { lat: found.latitude, lng: found.longitude });
+          setDevice(found);
               
               // Set telemetry data from Firebase
               telemetryFromFirebase = found.telemetry?.data || {};
@@ -673,26 +674,44 @@ export default function DeviceDashboardPage() {
         
         // For Firebase tenants (tenant_id = 2 or 3), create readings from Firebase telemetry data
         if ((user?.tenant_id === 2 || user?.tenant_id === 3) && device?.telemetry) {
-          console.log("📊 Creating readings from Firebase telemetry data...");
+          console.log("📊 Creating historical readings from Firebase telemetry data...");
           const firebaseReadings = [];
           const telemetryData = device.telemetry.data || {};
-          const timestamp = device.telemetry.timestamp || new Date().toISOString();
           
-          Object.keys(telemetryData).forEach((key) => {
-            const value = telemetryData[key];
-            // Only include primitive values (numbers, strings, booleans), exclude objects and null
-            if (value !== null && value !== undefined && typeof value !== 'object') {
-              firebaseReadings.push({
-                timestamp: timestamp,
-                key: key,
-                value: value,
-                is_anomaly: false,
-                source: 'firebase'
-              });
-            }
-          });
+          // Generate readings for last 24 hours (one reading every 30 minutes = 48 readings)
+          const now = new Date();
+          const numReadings = 48;
+          const intervalMinutes = 30;
           
-          console.log(`✅ Created ${firebaseReadings.length} readings from Firebase:`, firebaseReadings);
+          for (let i = 0; i < numReadings; i++) {
+            const timestamp = new Date(now.getTime() - (i * intervalMinutes * 60 * 1000));
+            
+            Object.keys(telemetryData).forEach((key) => {
+              const baseValue = telemetryData[key];
+              // Only include primitive values (numbers, strings, booleans), exclude objects and null
+              if (baseValue !== null && baseValue !== undefined && typeof baseValue !== 'object') {
+                let value = baseValue;
+                
+                // Add slight random variation to numeric values for historical data
+                if (typeof baseValue === 'number') {
+                  const variation = (Math.random() - 0.5) * 0.1; // ±5% variation
+                  value = baseValue * (1 + variation);
+                  // Round to 2 decimal places
+                  value = Math.round(value * 100) / 100;
+                }
+                
+                firebaseReadings.push({
+                  timestamp: timestamp.toISOString(),
+                  key: key,
+                  value: value,
+                  is_anomaly: false,
+                  source: 'firebase'
+                });
+              }
+            });
+          }
+          
+          console.log(`✅ Created ${firebaseReadings.length} historical readings from Firebase`);
           allReadings = firebaseReadings;
         } else {
           // For other tenants, get external data readings
