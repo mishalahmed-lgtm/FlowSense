@@ -131,12 +131,14 @@ export async function fetchSmartLPGDataForDashboard(forceRefresh = false) {
         gateways.push(device);
       }
       
-      // Random status distribution
-      const statusRand = Math.random();
-      const deviceStatus = statusRand < 0.85 ? "online" : statusRand < 0.95 ? "degraded" : "offline";
+      // Consistent status distribution using device ID hash for reproducibility
+      // ~80% online, ~15% degraded, ~5% offline
+      const idHash = device_id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+      const statusValue = idHash % 100;
+      const deviceStatus = statusValue < 80 ? "online" : statusValue < 95 ? "degraded" : "offline";
       device.current_status = deviceStatus;
       device.status = deviceStatus;
-      device.is_active = deviceStatus === "online";
+      device.is_active = deviceStatus !== "offline";
       
       devices.push(device);
       
@@ -146,7 +148,7 @@ export async function fetchSmartLPGDataForDashboard(forceRefresh = false) {
         name: name,
         latitude: latitude,
         longitude: longitude,
-        is_active: deviceStatus === "online",
+        is_active: deviceStatus !== "offline",
         current_status: deviceStatus,
         status: deviceStatus,
         battery: device.battery || null,
