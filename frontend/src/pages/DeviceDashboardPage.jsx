@@ -255,15 +255,29 @@ export default function DeviceDashboardPage() {
             if (found) {
               console.log("✅ Device found in Firebase:", found);
               console.log("📊 Device telemetry data:", found.telemetry);
+              console.log("📊 Device telemetry.data:", found.telemetry?.data);
               setDevice(found);
               
               // Set telemetry data from Firebase
               telemetryFromFirebase = found.telemetry?.data || {};
               setTelemetryData(telemetryFromFirebase);
               
+              console.log("📊 TelemetryFromFirebase:", telemetryFromFirebase);
+              console.log("📊 TelemetryFromFirebase keys:", Object.keys(telemetryFromFirebase));
+              
               // Discover fields from Firebase data
-              const fields = Object.keys(telemetryFromFirebase);
+              // Filter out null values, undefined, and objects (keep only primitive values)
+              const fields = Object.keys(telemetryFromFirebase).filter(key => {
+                const value = telemetryFromFirebase[key];
+                const isValid = value !== null && value !== undefined && typeof value !== 'object';
+                console.log(`  Field ${key}: value=${value}, type=${typeof value}, isValid=${isValid}`);
+                return isValid;
+              });
               setAvailableKeys(fields);
+              
+              console.log("📊 Raw telemetry keys:", Object.keys(telemetryFromFirebase));
+              console.log("📊 Filtered fields (numeric only):", fields);
+              console.log("📊 Filtered fields count:", fields.length);
               
               // Convert to field objects format expected by widget library
               const fieldObjects = fields.map(key => {
@@ -636,11 +650,13 @@ export default function DeviceDashboardPage() {
           const timestamp = device.telemetry.timestamp || new Date().toISOString();
           
           Object.keys(telemetryData).forEach((key) => {
-            if (telemetryData[key] !== null && telemetryData[key] !== undefined) {
+            const value = telemetryData[key];
+            // Only include primitive values (numbers, strings, booleans), exclude objects and null
+            if (value !== null && value !== undefined && typeof value !== 'object') {
               firebaseReadings.push({
                 timestamp: timestamp,
                 key: key,
-                value: telemetryData[key],
+                value: value,
                 is_anomaly: false,
                 source: 'firebase'
               });
