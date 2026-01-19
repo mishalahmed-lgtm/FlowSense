@@ -476,6 +476,7 @@ export default function EnergyManagementDashboard() {
   const totalCost = Object.values(energyData.totals).reduce((sum, util) => sum + (util.cost || 0), 0);
   const totalConsumption = Object.values(energyData.totals).reduce((sum, util) => sum + (util.consumption || 0), 0);
   // Get currency from totals - should be set from API/placeholder
+  const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
   const currency = energyData.totals.electricity?.currency || 
                    energyData.totals.gas?.currency || 
                    energyData.totals.water?.currency || 
