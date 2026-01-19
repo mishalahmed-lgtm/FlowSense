@@ -93,15 +93,29 @@ export default function EnergyManagementDashboard() {
         const smartLPGData = await fetchSmartLPGDataForDashboard();
         
         if (smartLPGData.success && smartLPGData.tekelekDevices) {
-          // Calculate gas consumption for all Tekelek devices
-          const gasData = smartLPGData.tekelekDevices.map(device => {
+          // Calculate days for the timeRange (to match Utility Billing scaling)
+          const daysForTimeRange = timeRange === "24h" ? 1 : timeRange === "7d" ? 7 : 30;
+          
+          // Filter only active Tekelek devices (same as Utility Billing)
+          const activeTekelekDevices = smartLPGData.tekelekDevices.filter(device => 
+            device.is_active !== false && (device.current_status === 'online' || device.current_status === 'degraded')
+          );
+          
+          console.log(`📊 [ENERGY] Using ${activeTekelekDevices.length} active Tekelek devices out of ${smartLPGData.tekelekDevices.length} total`);
+          
+          // Calculate gas consumption for all active Tekelek devices (scale monthly to timeRange)
+          const gasData = activeTekelekDevices.map(device => {
             const consumption = calculateGasConsumption(device);
+            // Scale monthly consumption to the selected timeRange (same as Utility Billing)
+            const periodConsumption = (parseFloat(consumption.monthly_consumption_kg) / 30) * daysForTimeRange;
+            const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysForTimeRange;
+            
             return {
               device_id: device.device_id,
               device_name: device.name,
               utility_kind: "gas",
-              consumption: parseFloat(consumption.monthly_consumption_kg),
-              cost: parseFloat(consumption.monthly_cost_aed),
+              consumption: periodConsumption,
+              cost: periodCost,
               currency: "AED"
             };
           });
@@ -110,14 +124,16 @@ export default function EnergyManagementDashboard() {
           const totalConsumption = gasData.reduce((sum, d) => sum + d.consumption, 0);
           const totalCost = gasData.reduce((sum, d) => sum + d.cost, 0);
           
-          // Generate trends (hourly data)
+          // Generate trends (hourly data) - scale hourly consumption
           const trends = [];
+          const hourlyConsumption = totalConsumption / hours;
+          const hourlyCost = totalCost / hours;
           for (let i = hours - 1; i >= 0; i--) {
             const timestamp = new Date(Date.now() - i * 60 * 60 * 1000);
             trends.push({
               timestamp: timestamp.toISOString(),
-              consumption: totalConsumption / hours,
-              cost: totalCost / hours
+              consumption: hourlyConsumption,
+              cost: hourlyCost
             });
           }
           
@@ -146,7 +162,7 @@ export default function EnergyManagementDashboard() {
           
           setLoading(false);
           setError(null);
-          console.log(`✅ [ENERGY] SmartLPG gas data loaded: ${gasData.length} devices, ${totalConsumption.toFixed(2)} kg, ${totalCost.toFixed(2)} AED`);
+          console.log(`✅ [ENERGY] SmartLPG gas data loaded: ${gasData.length} active devices (${daysForTimeRange} days), ${totalConsumption.toFixed(2)} kg, ${totalCost.toFixed(2)} AED`);
           return;
         } else {
           console.error("❌ SmartLPG data load failed or no Tekelek devices");

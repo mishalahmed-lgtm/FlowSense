@@ -61,8 +61,15 @@ export default function UtilityBillingPage() {
             const toDateObj = new Date(toDate);
             const daysDiff = Math.ceil((toDateObj - fromDateObj) / (1000 * 60 * 60 * 24));
             
-            // Calculate gas consumption for all Tekelek devices
-            const gasData = smartLPGData.tekelekDevices.map(device => {
+            // Filter only active Tekelek devices (same as Energy Dashboard)
+            const activeTekelekDevices = smartLPGData.tekelekDevices.filter(device => 
+              device.is_active !== false && (device.current_status === 'online' || device.current_status === 'degraded')
+            );
+            
+            console.log(`📊 [UTILITY] Using ${activeTekelekDevices.length} active Tekelek devices out of ${smartLPGData.tekelekDevices.length} total`);
+            
+            // Calculate gas consumption for all active Tekelek devices
+            const gasData = activeTekelekDevices.map(device => {
               const consumption = calculateGasConsumption(device);
               // Scale monthly consumption to the report period
               const periodConsumption = (parseFloat(consumption.monthly_consumption_kg) / 30) * daysDiff;
@@ -78,8 +85,8 @@ export default function UtilityBillingPage() {
             });
             
             if (viewMode === "per-device") {
-              // Map to billing row format (show top 50 devices)
-              const mappedRows = gasData.sort((a, b) => b.consumption - a.consumption).slice(0, 50).map((device, idx) => {
+              // Map to billing row format (show all devices, not just top 50)
+              const mappedRows = gasData.sort((a, b) => b.consumption - a.consumption).map((device, idx) => {
                 return {
                   tenant_id: 3,
                   tenant_name: "SmartLPG",
@@ -118,7 +125,7 @@ export default function UtilityBillingPage() {
                   unit: "kg",
                   total_cost: Math.round(totalCost * 100) / 100,
                   currency: "AED",
-                  device_count: gasData.length,
+                  device_count: gasData.length, // Active devices count
                 }
               ];
               
