@@ -237,14 +237,18 @@ export default function DeviceDashboardPage() {
       setLoading(true);
       setError(null);
       try {
-        // Check if tenant_id = 2, use Firebase for device data (user already available from useAuth)
+        // Check if Firebase tenant (tenant_id = 2 or 3), use Firebase for device data
         let found = null;
         let telemetryFromFirebase = null;
         
-        if (user?.tenant_id === 2) {
-          console.log("🔥 Loading device data from Firebase for tenant_id = 2...");
-          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
-          const firebaseData = await fetchFirebaseDataForDashboard();
+        const isFirebaseTenant = user?.tenant_id === 2 || user?.tenant_id === 3;
+        if (isFirebaseTenant) {
+          const isSmartLPG = user?.tenant_id === 3;
+          console.log(`🔥 Loading device data from Firebase for tenant_id = ${user?.tenant_id}...`);
+          const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper.js" : "../services/firebaseDataMapper.js";
+          const { fetchFirebaseDataForDashboard, fetchSmartLPGDataForDashboard } = await import(mapperModule);
+          const fetchFunction = isSmartLPG ? fetchSmartLPGDataForDashboard : fetchFirebaseDataForDashboard;
+          const firebaseData = await fetchFunction();
           
           if (firebaseData.success) {
             found = firebaseData.devices.find((d) => d.device_id === deviceId);

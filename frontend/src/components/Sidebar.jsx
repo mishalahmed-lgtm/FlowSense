@@ -139,7 +139,7 @@ export default function Sidebar() {
                 <span>Energy Management</span>
               </NavLink>
             )}
-            {hasModule("dashboards") && (
+            {hasModule("dashboards") && user?.tenant_id !== 3 && (
               <NavLink 
                 to="/dashboard/environmental" 
                 className="sidebar__link"

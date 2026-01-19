@@ -45,8 +45,12 @@ export function generateDummyHealthData(devices) {
   const degradedCount = 300;
   
   return devices.map((device, index) => {
+    // Preserve existing status if present (for SmartLPG tenant)
+    const existingStatus = device.current_status || device.status;
     let status;
-    if (index < onlineCount) {
+    if (existingStatus) {
+      status = existingStatus; // Use existing status
+    } else if (index < onlineCount) {
       status = 'online';
     } else if (index < onlineCount + degradedCount) {
       status = 'degraded';

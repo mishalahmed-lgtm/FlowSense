@@ -143,7 +143,13 @@ export default function EnergyManagementDashboard() {
           saveToCache(cacheKey, { energyData: { totals: { gas: { consumption: totalConsumption, cost: totalCost, currency: "AED" } } }, dateRange: { from: '', to: '', label: '' } });
           
           setLoading(false);
+          setError(null);
           console.log(`✅ [ENERGY] SmartLPG gas data loaded: ${gasData.length} devices, ${totalConsumption.toFixed(2)} kg, ${totalCost.toFixed(2)} AED`);
+          return;
+        } else {
+          console.error("❌ SmartLPG data load failed or no Tekelek devices");
+          setError("Failed to load SmartLPG gas consumption data");
+          setLoading(false);
           return;
         }
       }

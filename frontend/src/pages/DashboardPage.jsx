@@ -86,8 +86,14 @@ export default function DashboardPage() {
           });
           console.log("📊 Generated dummy activity data:", totalEvents, "total events across 24 hours");
           
-          // Generate and set dummy alerts
-          const allAlerts = generateDummyAlerts(firebaseData.devices, 25);
+          // Generate and set alerts
+          let allAlerts;
+          if (isSmartLPG) {
+            const { generateSmartLPGAlerts } = await import("../utils/dummyData.js");
+            allAlerts = generateSmartLPGAlerts(firebaseData.devices, firebaseData.tekelekDevices || []);
+          } else {
+            allAlerts = generateDummyAlerts(firebaseData.devices, 25);
+          }
           const openAlerts = allAlerts.filter(alert => alert.status === "open").slice(0, 10);
           setRecentAlerts(openAlerts);
           console.log("📢 Generated", openAlerts.length, "open alerts");

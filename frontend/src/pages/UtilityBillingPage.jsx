@@ -44,8 +44,8 @@ export default function UtilityBillingPage() {
     setHasRun(true);
     
     try {
-      // For tenant_id = 2, use dummy data
-      if (user?.tenant_id === 2) {
+      // For tenant_id = 2 or 3 (SmartLPG), use dummy data
+      if (user?.tenant_id === 2 || user?.tenant_id === 3) {
         console.log("🔥 Generating dummy utility billing data for tenant_id = 2");
         
         // Calculate days between dates
