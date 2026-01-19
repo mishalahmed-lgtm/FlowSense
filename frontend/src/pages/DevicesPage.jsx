@@ -90,11 +90,8 @@ export default function DevicesPage() {
         const mapper = isSmartLPG ? fetchSmartLPGDataForDashboard : fetchFirebaseDataForDashboard;
         const firebaseFullData = await mapper(false);
         
-        // Paginate the results
+        // Get all devices
         const allDevices = firebaseFullData.devices || [];
-        const startIdx = (pageNum - 1) * itemsPerPage;
-        const endIdx = startIdx + itemsPerPage;
-        const paginatedDevices = allDevices.slice(startIdx, endIdx);
         
         // Normalize device status (same logic as DevicesMapPage)
         const normalizedDevices = allDevices.map(device => {
