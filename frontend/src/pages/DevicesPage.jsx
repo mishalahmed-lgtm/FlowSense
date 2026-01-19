@@ -96,12 +96,65 @@ export default function DevicesPage() {
         const endIdx = startIdx + itemsPerPage;
         const paginatedDevices = allDevices.slice(startIdx, endIdx);
         
+        // Normalize device status (same logic as DevicesMapPage)
+        const normalizedDevices = allDevices.map(device => {
+          // Use current_status if available (from Firebase with fixed distribution)
+          if (device.current_status) {
+            return { ...device, status: device.current_status };
+          }
+          // Fallback: determine status from other fields
+          let status = "offline";
+          if (device.is_active !== false) {
+            status = device.is_active ? "online" : "offline";
+          } else if (device.last_seen_at || device.last_seen) {
+            const lastSeen = new Date(device.last_seen_at || device.last_seen);
+            const diffMinutes = (Date.now() - lastSeen.getTime()) / 60000;
+            // Online if seen within last 60 minutes
+            status = diffMinutes < 60 ? "online" : "offline";
+          } else if (device.status) {
+            // Map old status values to new ones
+            if (device.status === "active") status = "online";
+            else if (device.status === "inactive") status = "offline";
+            else status = device.status;
+          }
+          return { ...device, status };
+        });
+        
+        // Apply filters before pagination
+        let filteredDevices = normalizedDevices;
+        if (searchQuery && searchQuery.trim()) {
+          const query = searchQuery.toLowerCase().trim();
+          filteredDevices = filteredDevices.filter(device => 
+            (device.device_name || device.name || "").toLowerCase().includes(query) ||
+            (device.device_id || "").toLowerCase().includes(query)
+          );
+        }
+        if (filterStatus !== "all") {
+          if (filterStatus === "online") {
+            filteredDevices = filteredDevices.filter(d => d.status === "online");
+          } else if (filterStatus === "degraded") {
+            filteredDevices = filteredDevices.filter(d => d.status === "degraded");
+          } else if (filterStatus === "offline") {
+            filteredDevices = filteredDevices.filter(d => d.status === "offline");
+          }
+        }
+        if (filterProtocol !== "all") {
+          filteredDevices = filteredDevices.filter(d => 
+            (d.protocol || "").toLowerCase() === filterProtocol.toLowerCase()
+          );
+        }
+        
+        // Paginate filtered results
+        const startIdx = (pageNum - 1) * itemsPerPage;
+        const endIdx = startIdx + itemsPerPage;
+        const paginatedDevices = filteredDevices.slice(startIdx, endIdx);
+        
         const firebaseData = {
           devices: paginatedDevices,
-          total: allDevices.length,
-          total_pages: Math.ceil(allDevices.length / itemsPerPage),
-          total_active: allDevices.filter(d => d.is_active).length,
-          total_inactive: allDevices.filter(d => !d.is_active).length
+          total: filteredDevices.length,
+          total_pages: Math.ceil(filteredDevices.length / itemsPerPage),
+          total_active: filteredDevices.filter(d => d.status === "online" || d.status === "degraded").length,
+          total_inactive: filteredDevices.filter(d => d.status === "offline").length
         };
         
         if (firebaseData) {
@@ -110,7 +163,7 @@ export default function DevicesPage() {
           setTotalPages(firebaseData.total_pages);
           setTotalActiveCount(firebaseData.total_active);
           setTotalInactiveCount(firebaseData.total_inactive);
-          console.log(`✅ Loaded ${firebaseData.devices.length} devices from Firebase`);
+          console.log(`✅ Loaded ${firebaseData.devices.length} devices from Firebase (filtered: ${filteredDevices.length} total)`);
           return;
         }
       }

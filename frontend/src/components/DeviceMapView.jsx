@@ -99,19 +99,30 @@ export default function DeviceMapView({
       setError(null);
       setLoading(true);
       
-      // Try Firebase first for tenant_id = 2 (user is already available from useAuth hook)
-      if (user?.tenant_id === 2) {
+      // Try Firebase first for tenant_id = 2 or 3 (user is already available from useAuth hook)
+      if (user?.tenant_id === 2 || user?.tenant_id === 3) {
         try {
-          console.log("🗺️ Loading map devices from Firebase for tenant_id = 2...");
-          console.log("📍 Extracting latitude/longitude from installations collection...");
-          const { getDevicesForMap } = await import("../services/firebaseDataMapper");
-          let firebaseDevices = await getDevicesForMap();
+          const isSmartLPG = user?.tenant_id === 3;
+          console.log(`🗺️ Loading map devices from Firebase for tenant_id = ${user?.tenant_id}...`);
+          
+          let firebaseDevices = [];
+          if (isSmartLPG) {
+            const { getSmartLPGDevicesForMap } = await import("../services/smartLPGDataMapper");
+            firebaseDevices = await getSmartLPGDevicesForMap();
+          } else {
+            const { getDevicesForMap } = await import("../services/firebaseDataMapper");
+            firebaseDevices = await getDevicesForMap();
+          }
           
           console.log(`📍 Found ${firebaseDevices.length} devices with location data`);
           
           // Filter by deviceIds if provided
           if (deviceIds && deviceIds.length > 0) {
-            firebaseDevices = firebaseDevices.filter(d => deviceIds.includes(d.device_id));
+            firebaseDevices = firebaseDevices.filter(d => 
+              deviceIds.includes(d.device_id) || 
+              deviceIds.includes(d.id) ||
+              deviceIds.includes(d.name)
+            );
           }
           
           setDevices(firebaseDevices);
