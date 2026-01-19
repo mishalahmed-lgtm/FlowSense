@@ -79,15 +79,27 @@ export default function DevicesPage() {
   const loadDevices = async (pageNum = currentPage, forceRefresh = false) => {
     try {
       // For Firebase tenants, use Firebase instead of PostgreSQL
-      const { isSmartLPGTenant } = await import("../utils/tenantHelpers.js");
       const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      const isFirebase = isFirebaseTenant(user?.tenant_id);
       
-      if (user?.tenant_id === 2 || isSmartLPG) {
+      if (isFirebase || isSmartLPG) {
         console.log(`🔥 Loading devices from Firebase for tenant_id = ${user?.tenant_id}...`);
-        const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
-        const fetchFunction = isSmartLPG ? "getSmartLPGDevicesForPage" : "getDevicesForPage";
-        const mapper = await import(mapperModule);
-        const firebaseData = await mapper[fetchFunction](pageNum, itemsPerPage);
+        const mapper = isSmartLPG ? fetchSmartLPGDataForDashboard : fetchFirebaseDataForDashboard;
+        const firebaseFullData = await mapper(false);
+        
+        // Paginate the results
+        const allDevices = firebaseFullData.devices || [];
+        const startIdx = (pageNum - 1) * itemsPerPage;
+        const endIdx = startIdx + itemsPerPage;
+        const paginatedDevices = allDevices.slice(startIdx, endIdx);
+        
+        const firebaseData = {
+          devices: paginatedDevices,
+          total: allDevices.length,
+          total_pages: Math.ceil(allDevices.length / itemsPerPage),
+          total_active: allDevices.filter(d => d.is_active).length,
+          total_inactive: allDevices.filter(d => !d.is_active).length
+        };
         
         if (firebaseData) {
           setDevices(firebaseData.devices);

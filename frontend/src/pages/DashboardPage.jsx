@@ -7,6 +7,11 @@ import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { isFirebaseTenant, isSmartLPGTenant, usesFirebase } from "../utils/tenantHelpers.js";
+import { fetchFirebaseDataForDashboard } from "../services/firebaseDataMapper.js";
+import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";
+import { generateDummyAlerts } from "../utils/dummyData.js";
+import { db } from "../utils/firebase.js";
+import { collection, onSnapshot } from "firebase/firestore";
 
 export default function DashboardPage() {
   const { token, user } = useAuth();
@@ -49,9 +54,11 @@ export default function DashboardPage() {
     import(mapperModule).then(async (module) => {
       const fetchFirebaseDataForDashboard = module[fetchFunction];
       const { generateDummyAlerts } = await import("../utils/dummyData.js");
-      
-      // Initial load (uses cache if available)
-      fetchFirebaseDataForDashboard(false).then(firebaseData => {
+    
+    let unsubscribe = null;
+    
+    // Initial load (uses cache if available)
+    fetchFunction(false).then(firebaseData => {
         if (firebaseData.success) {
           console.log("✅ Firebase data loaded successfully!");
           console.log("📊 Metrics:", firebaseData.metrics);
@@ -101,34 +108,28 @@ export default function DashboardPage() {
         }
       }).catch(err => {
         console.error("❌ Error loading Firebase data:", err);
-      });
-      
-      // Set up real-time listener (replaces WebSocket)
-      Promise.all([
-        import("../utils/firebase.js"),
-        import("firebase/firestore")
-      ]).then(([{ db }, { collection, onSnapshot }]) => {
-        const collectionRef = collection(db, collectionName);
-        
-        console.log(`📡 Setting up Firestore real-time listener for ${collectionName}...`);
-        unsubscribe = onSnapshot(collectionRef, (snapshot) => {
-          console.log("🔄 Firestore real-time update received!");
-          console.log(`📊 ${snapshot.size} documents in snapshot`);
-          
-          // Re-fetch and update metrics (force refresh for real-time updates)
-          fetchFirebaseDataForDashboard(true).then(firebaseData => {
-            if (firebaseData.success) {
-              setMetrics(firebaseData.metrics);
-              console.log("✅ Metrics updated from Firestore real-time listener");
-            }
-          });
-        }, (error) => {
-          console.error("❌ Firestore listener error:", error);
-        });
-        
-        console.log("✅ Firestore real-time listener active (replaces WebSocket)");
-      });
     });
+    
+    // Set up real-time listener (replaces WebSocket)
+    const collectionRef = collection(db, collectionName);
+    
+    console.log(`📡 Setting up Firestore real-time listener for ${collectionName}...`);
+    unsubscribe = onSnapshot(collectionRef, (snapshot) => {
+      console.log("🔄 Firestore real-time update received!");
+      console.log(`📊 ${snapshot.size} documents in snapshot`);
+      
+      // Re-fetch and update metrics (force refresh for real-time updates)
+      fetchFunction(true).then(firebaseData => {
+        if (firebaseData.success) {
+          setMetrics(firebaseData.metrics);
+          console.log("✅ Metrics updated from Firestore real-time listener");
+        }
+      });
+    }, (error) => {
+      console.error("❌ Firestore listener error:", error);
+    });
+    
+    console.log("✅ Firestore real-time listener active (replaces WebSocket)");
     
     // Cleanup listener on unmount
     return () => {

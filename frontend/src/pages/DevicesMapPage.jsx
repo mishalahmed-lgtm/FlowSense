@@ -6,6 +6,9 @@ import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
 import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
+import { isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
+import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";
+import { fetchFirebaseDataForDashboard } from "../services/firebaseDataMapper.js";
 import "leaflet/dist/leaflet.css";
 import "./DevicesMapPage.css";
 import L from "leaflet";
@@ -209,15 +212,13 @@ export default function DevicesMapPage() {
       setLoading(true);
       
       // Check if Firebase tenant, use Firebase
-      const { isSmartLPGTenant } = await import("../utils/tenantHelpers.js");
       const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      const isFirebase = isFirebaseTenant(user?.tenant_id);
       
-      if (user?.tenant_id === 2 || isSmartLPG) {
+      if (isFirebase || isSmartLPG) {
         console.log(`🗺️ DevicesMapPage: Loading from Firebase for tenant_id = ${user?.tenant_id}...`);
-        const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
-        const fetchFunction = isSmartLPG ? "fetchSmartLPGDataForDashboard" : "fetchFirebaseDataForDashboard";
-        const mapper = await import(mapperModule);
-        const firebaseData = await mapper[fetchFunction](forceRefresh);
+        const fetchFunction = isSmartLPG ? fetchSmartLPGDataForDashboard : fetchFirebaseDataForDashboard;
+        const firebaseData = await fetchFunction(forceRefresh);
         
         if (firebaseData.success) {
           const devices = firebaseData.devices || [];

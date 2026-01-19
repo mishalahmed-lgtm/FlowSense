@@ -9,6 +9,9 @@ import Icon from "../components/Icon.jsx";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { generateDummyHealthData, generateDummyHealthSummary } from "../utils/dummyData.js";
 import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
+import { usesFirebase, isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
+import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";
+import { fetchFirebaseDataForDashboard } from "../services/firebaseDataMapper.js";
 
 export default function DeviceHealthPage() {
   const { token, isTenantAdmin, hasModule, user } = useAuth();
@@ -56,7 +59,6 @@ export default function DeviceHealthPage() {
   const loadHealthSummary = async (healthDevices = null) => {
     try {
       // For Firebase tenants, generate dummy summary from device data (NO PostgreSQL calls)
-      const { usesFirebase } = await import("../utils/tenantHelpers.js");
       if (usesFirebase(user?.tenant_id)) {
         if (healthDevices) {
           console.log("📊 Generating dummy health summary for tenant_id = 2");
@@ -97,17 +99,14 @@ export default function DeviceHealthPage() {
       const allDevicesMap = new Map();
       
       // For Firebase tenants, load devices from Firebase
-      const { isSmartLPGTenant } = await import("../utils/tenantHelpers.js");
       const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      const isFirebase = isFirebaseTenant(user?.tenant_id);
       
-      if (user?.tenant_id === 2 || isSmartLPG) {
+      if (isFirebase || isSmartLPG) {
         console.log(`🔥 Loading devices from Firebase for tenant_id = ${user?.tenant_id} health page...`);
         try {
-          const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
-          const fetchFunction = isSmartLPG ? "fetchSmartLPGDataForDashboard" : "fetchFirebaseDataForDashboard";
-          const mapper = await import(mapperModule);
-          const fetchFirebaseDataForDashboard = mapper[fetchFunction];
-          const firebaseData = await fetchFirebaseDataForDashboard();
+          const fetchFunction = isSmartLPG ? fetchSmartLPGDataForDashboard : fetchFirebaseDataForDashboard;
+          const firebaseData = await fetchFunction();
           
           if (firebaseData.success && firebaseData.devices) {
             console.log(`✅ Loaded ${firebaseData.devices.length} devices from Firebase`);

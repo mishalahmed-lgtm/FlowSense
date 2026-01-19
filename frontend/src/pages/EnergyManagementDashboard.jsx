@@ -5,6 +5,8 @@ import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
 import { saveToCache, loadFromCache, getCacheKey, clearCache } from "../utils/pageCache.js";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
+import { fetchSmartLPGDataForDashboard, calculateGasConsumption } from "../services/smartLPGDataMapper.js";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
 import { generateDummyEnergyData } from "../utils/dummyData.js";
 
@@ -84,12 +86,10 @@ export default function EnergyManagementDashboard() {
       const hours = timeRange === "24h" ? 24 : timeRange === "7d" ? 168 : 720;
       
       // For Firebase tenants, use appropriate data source
-      const { isSmartLPGTenant } = await import("../utils/tenantHelpers.js");
       const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
       
       if (isSmartLPG) {
         console.log("🔥 [ENERGY] Loading SmartLPG gas consumption data...");
-        const { fetchSmartLPGDataForDashboard, calculateGasConsumption } = await import("../services/smartLPGDataMapper.js");
         const smartLPGData = await fetchSmartLPGDataForDashboard();
         
         if (smartLPGData.success && smartLPGData.tekelekDevices) {
