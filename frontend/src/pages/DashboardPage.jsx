@@ -39,7 +39,7 @@ export default function DashboardPage() {
     
     // Dynamically import appropriate Firebase mapper
     const isSmartLPG = isSmartLPGTenant(user.tenant_id);
-    const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper" : "../services/firebaseDataMapper";
+    const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper.js" : "../services/firebaseDataMapper.js";
     const fetchFunction = isSmartLPG ? "fetchSmartLPGDataForDashboard" : "fetchFirebaseDataForDashboard";
     const collectionName = isSmartLPG ? "smartLPG" : "installations";
     
@@ -48,7 +48,7 @@ export default function DashboardPage() {
     
     import(mapperModule).then(async (module) => {
       const fetchFirebaseDataForDashboard = module[fetchFunction];
-      const { generateDummyAlerts } = await import("../utils/dummyData");
+      const { generateDummyAlerts } = await import("../utils/dummyData.js");
       
       // Initial load (uses cache if available)
       fetchFirebaseDataForDashboard(false).then(firebaseData => {
@@ -105,7 +105,7 @@ export default function DashboardPage() {
       
       // Set up real-time listener (replaces WebSocket)
       Promise.all([
-        import("../utils/firebase"),
+        import("../utils/firebase.js"),
         import("firebase/firestore")
       ]).then(([{ db }, { collection, onSnapshot }]) => {
         const collectionRef = collection(db, collectionName);
