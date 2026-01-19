@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useRef, useCallback } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
-import DeviceForm from "../components/DeviceForm.jsx";
-import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
-import DeviceMapView from "../components/DeviceMapView.jsx";
+import DeviceForm from "../components/DeviceForm.jsx";
+import ConfirmDialog from "../components/ConfirmDialog.jsx";
+import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
+import { isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
+import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";
+import { fetchFirebaseDataForDashboard } from "../services/firebaseDataMapper.js";
 
 // Helper function to load initial state from cache
 function getInitialStateFromCache(page, search, status, protocol) {
