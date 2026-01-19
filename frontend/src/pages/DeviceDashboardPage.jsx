@@ -273,12 +273,18 @@ export default function DeviceDashboardPage() {
                 
                 // Determine unit based on field name
                 let unit = '';
-                if (keyLower.includes('cm') || keyLower.includes('distance') || keyLower.includes('dis')) {
+                if (keyLower.includes('level_percent') || keyLower.includes('percent')) {
+                  unit = '%';
+                } else if (keyLower.includes('level_cm') || keyLower.includes('cm')) {
                   unit = 'cm';
                 } else if (keyLower.includes('temp') || keyLower.includes('temperature')) {
                   unit = '°C';
-                } else if (keyLower.includes('battery')) {
+                } else if (keyLower.includes('battery_volt') || keyLower.includes('voltage')) {
+                  unit = 'V';
+                } else if (keyLower.includes('battery') && !keyLower.includes('volt')) {
                   unit = '%';
+                } else if (keyLower.includes('signal_rssi') || keyLower.includes('rssi')) {
+                  unit = 'dBm';
                 } else if (keyLower.includes('humidity')) {
                   unit = '%';
                 } else if (keyLower.includes('pm') || keyLower.includes('co2') || keyLower.includes('aqi')) {
