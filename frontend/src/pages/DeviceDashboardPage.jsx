@@ -243,10 +243,8 @@ export default function DeviceDashboardPage() {
         
         const isFirebaseTenant = user?.tenant_id === 2 || user?.tenant_id === 3;
         if (isFirebaseTenant) {
-          const isSmartLPG = user?.tenant_id === 3;
+          const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
           console.log(`🔥 Loading device data from Firebase for tenant_id = ${user?.tenant_id}...`);
-          const mapperModule = isSmartLPG ? "../services/smartLPGDataMapper.js" : "../services/firebaseDataMapper.js";
-          const { fetchFirebaseDataForDashboard, fetchSmartLPGDataForDashboard } = await import(mapperModule);
           const fetchFunction = isSmartLPG ? fetchSmartLPGDataForDashboard : fetchFirebaseDataForDashboard;
           const firebaseData = await fetchFunction();
           
