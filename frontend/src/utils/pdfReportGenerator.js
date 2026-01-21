@@ -64,21 +64,21 @@ function generateReportHTML(reportData, companyDetails) {
   if (reportType === 'per-device' && devices && devices.length > 0) {
     deviceRowsHTML = devices.map((device, index) => `
       <tr style="${index % 2 === 0 ? 'background-color: #f9f9f9;' : ''}">
-        <td style="padding: 12px 8px; border-bottom: 1px solid #e0e0e0;">${index + 1}</td>
-        <td style="padding: 12px 8px; border-bottom: 1px solid #e0e0e0;">
+        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">${index + 1}</td>
+        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">
           <strong>${device.device_name || device.device_id}</strong><br/>
           <small style="color: #666;">${device.device_id}</small>
         </td>
-        <td style="padding: 12px 8px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
           ${device.tank_capacity || '1,000'} L
         </td>
-        <td style="padding: 12px 8px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
           ${device.current_level_percent || '0'}%
         </td>
-        <td style="padding: 12px 8px; border-bottom: 1px solid #e0e0e0; text-align: right;">
+        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
           ${device.consumption ? parseFloat(device.consumption).toFixed(2) : '0.00'} L
         </td>
-        <td style="padding: 12px 8px; border-bottom: 1px solid #e0e0e0; text-align: right;">
+        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
           ${formatCurrency(device.cost || 0)}
         </td>
       </tr>
@@ -93,18 +93,18 @@ function generateReportHTML(reportData, companyDetails) {
   <title>${reportTitle}</title>
   <style>
     @media print {
-      body { margin: 0; padding: 20px; }
+      body { margin: 0; padding: 30px 40px; }
       .no-print { display: none !important; }
-      @page { margin: 1.5cm; }
+      @page { margin: 1cm; size: landscape; }
     }
     
     body {
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       color: #333;
       line-height: 1.6;
-      max-width: 210mm;
+      max-width: 280mm;
       margin: 0 auto;
-      padding: 20px;
+      padding: 30px 40px;
       background: white;
     }
     
@@ -229,7 +229,7 @@ function generateReportHTML(reportData, companyDetails) {
     }
     
     th {
-      padding: 15px 8px;
+      padding: 16px 16px;
       text-align: left;
       font-weight: 600;
       font-size: 13px;
@@ -356,13 +356,13 @@ function generateReportHTML(reportData, companyDetails) {
         </tbody>
         <tfoot style="background: #f3f4f6; font-weight: bold;">
           <tr>
-            <td colspan="4" style="padding: 15px 8px; text-align: right; border-top: 2px solid #d1d5db;">
+            <td colspan="4" style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
               <strong>TOTAL:</strong>
             </td>
-            <td style="padding: 15px 8px; text-align: right; border-top: 2px solid #d1d5db;">
+            <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
               ${parseFloat(summary.totalConsumption || 0).toFixed(2)} L
             </td>
-            <td style="padding: 15px 8px; text-align: right; border-top: 2px solid #d1d5db; color: #f97316;">
+            <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db; color: #f97316;">
               ${formatCurrency(summary.totalAmount || 0)}
             </td>
           </tr>
