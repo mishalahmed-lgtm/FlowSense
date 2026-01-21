@@ -426,7 +426,7 @@ export function generateBillingReport(reportData, companyDetails = null) {
 export function preparePerDeviceReportData(devices, fromDate, toDate) {
   const deviceReports = devices.map(device => {
     const consumption = parseFloat(device.consumption || 0);
-    const cost = parseFloat(device.cost || 0);
+    const cost = parseFloat(device.amount || device.cost || 0);
     
     return {
       device_id: device.device_id,
@@ -439,7 +439,7 @@ export function preparePerDeviceReportData(devices, fromDate, toDate) {
   });
   
   const totalConsumption = devices.reduce((sum, d) => sum + parseFloat(d.consumption || 0), 0);
-  const totalAmount = devices.reduce((sum, d) => sum + parseFloat(d.cost || 0), 0);
+  const totalAmount = devices.reduce((sum, d) => sum + parseFloat(d.amount || d.cost || 0), 0);
   
   return {
     reportTitle: 'LPG Consumption Billing Report',
