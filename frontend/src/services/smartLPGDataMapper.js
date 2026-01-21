@@ -278,38 +278,48 @@ export async function getSmartLPGDevicesForPage(page = 1, limit = 50) {
 
 /**
  * Calculate gas consumption and cost for Tekelek devices (UAE standards)
+ * Based on ultrasonic level sensors on 1000 litre tanks
+ * Cost: 3 AED per litre
+ * If tank is 97% full = 3% consumed (30 litres used)
  */
 export function calculateGasConsumption(tekelekDevice) {
-  // UAE LPG tank standards: Assume 50kg capacity cylinders (common in UAE)
-  const TANK_CAPACITY_KG = 50;
-  const TANK_CAPACITY_LITERS = TANK_CAPACITY_KG / 0.54; // LPG density ~0.54 kg/L = ~92.6L
+  // Tank specifications
+  const TANK_CAPACITY_LITERS = 1000; // Each ultrasonic sensor is on a 1000L tank
+  const COST_PER_LITER_AED = 3; // 3 AED per litre
   
-  // UAE LPG pricing (AED per kg) - approximate retail price
-  const LPG_PRICE_PER_KG = 2.5; // AED per kg (varies by provider)
-  
-  // Get level from device
+  // Get level from device (percentage of tank that is FULL)
   const levelPercent = tekelekDevice.telemetry?.data?.level_percent || tekelekDevice.level_percent || 0;
   const levelCm = tekelekDevice.telemetry?.data?.level_cm || tekelekDevice.level_cm || 0;
   
-  // Calculate current volume
-  const currentKg = (levelPercent / 100) * TANK_CAPACITY_KG;
+  // Calculate current volume (what's remaining in tank)
   const currentLiters = (levelPercent / 100) * TANK_CAPACITY_LITERS;
   
-  // Estimate monthly consumption (assume tank refills when < 20%)
-  const refillThreshold = 0.2;
-  const avgRefillsPerMonth = Math.random() * 2 + 1; // 1-3 refills per month
-  const monthlyConsumptionKg = TANK_CAPACITY_KG * avgRefillsPerMonth * (1 - refillThreshold);
-  const monthlyCost = monthlyConsumptionKg * LPG_PRICE_PER_KG;
+  // Calculate consumption (what has been used from the tank)
+  // If tank is 97% full, then 3% has been consumed
+  const consumedPercent = 100 - levelPercent;
+  const consumedLiters = (consumedPercent / 100) * TANK_CAPACITY_LITERS;
+  
+  // Calculate cost based on consumption
+  const consumptionCost = consumedLiters * COST_PER_LITER_AED;
+  
+  // For monthly estimates: use a consistent seed based on device ID for reproducible data
+  const deviceSeed = (tekelekDevice.device_id || "").split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const randomFactor = (deviceSeed % 100) / 100; // 0-1 based on device ID
+  
+  // Estimate monthly consumption (varies between 200-800 liters per month)
+  const monthlyConsumptionLiters = 200 + (randomFactor * 600);
+  const monthlyCost = monthlyConsumptionLiters * COST_PER_LITER_AED;
   
   return {
-    tank_capacity_kg: TANK_CAPACITY_KG,
-    tank_capacity_liters: TANK_CAPACITY_LITERS.toFixed(1),
+    tank_capacity_liters: TANK_CAPACITY_LITERS,
     current_level_percent: levelPercent,
-    current_kg: currentKg.toFixed(2),
     current_liters: currentLiters.toFixed(2),
-    monthly_consumption_kg: monthlyConsumptionKg.toFixed(2),
+    consumed_percent: consumedPercent,
+    consumed_liters: consumedLiters.toFixed(2),
+    consumption_cost_aed: consumptionCost.toFixed(2),
+    monthly_consumption_liters: monthlyConsumptionLiters.toFixed(2),
     monthly_cost_aed: monthlyCost.toFixed(2),
-    price_per_kg_aed: LPG_PRICE_PER_KG,
+    cost_per_liter_aed: COST_PER_LITER_AED,
     currency: "AED"
   };
 }

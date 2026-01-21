@@ -6,6 +6,8 @@ import Tabs from "../components/Tabs.jsx";
 import Collapsible from "../components/Collapsible.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
+import CompanyDetailsModal from "../components/CompanyDetailsModal.jsx";
+import { generateBillingReport, preparePerDeviceReportData, prepareConsolidatedReportData } from "../utils/pdfReportGenerator.js";
 
 const UTILITY_KINDS = [
   { value: "electricity", label: "Electricity", icon: "zap", color: "#facc15" },
@@ -37,6 +39,7 @@ export default function UtilityBillingPage() {
   const [error, setError] = useState(null);
   const [downloading, setDownloading] = useState(false);
   const [hasRun, setHasRun] = useState(false);
+  const [showCompanyModal, setShowCompanyModal] = useState(false);
 
   const runReport = async () => {
     setLoading(true);
@@ -72,7 +75,7 @@ export default function UtilityBillingPage() {
             const gasData = activeTekelekDevices.map(device => {
               const consumption = calculateGasConsumption(device);
               // Scale monthly consumption to the report period
-              const periodConsumption = (parseFloat(consumption.monthly_consumption_kg) / 30) * daysDiff;
+              const periodConsumption = (parseFloat(consumption.monthly_consumption_liters) / 30) * daysDiff;
               const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysDiff;
               
               return {
@@ -80,7 +83,8 @@ export default function UtilityBillingPage() {
                 device_name: device.name,
                 consumption: periodConsumption,
                 cost: periodCost,
-                currency: "AED"
+                currency: "AED",
+                current_level_percent: consumption.current_level_percent
               };
             });
             
@@ -100,10 +104,11 @@ export default function UtilityBillingPage() {
                   start_index: null,
                   end_index: null,
                   consumption: Math.round(device.consumption * 100) / 100,
-                  unit: "kg",
-                  rate_per_unit: device.consumption > 0 ? Math.round((device.cost / device.consumption) * 100) / 100 : 2.5,
+                  unit: "L",
+                  rate_per_unit: 3, // 3 AED per litre
                   currency: "AED",
                   amount: Math.round(device.cost * 100) / 100,
+                  current_level_percent: device.current_level_percent,
                 };
               });
               
@@ -122,7 +127,9 @@ export default function UtilityBillingPage() {
                   period_start: fromDate,
                   period_end: toDate,
                   total_consumption: Math.round(totalConsumption * 100) / 100,
-                  unit: "kg",
+                  unit: "L",
+                  rate_per_unit: 3, // 3 AED per litre
+                  total_amount: Math.round(totalCost * 100) / 100,
                   total_cost: Math.round(totalCost * 100) / 100,
                   currency: "AED",
                   device_count: gasData.length, // Active devices count
@@ -436,6 +443,25 @@ export default function UtilityBillingPage() {
     setDownloading(true);
     
     try {
+      // For SmartLPG tenant (tenant_id = 3), use client-side PDF generation
+      if (user?.tenant_id === 3) {
+        let reportData;
+        
+        if (viewMode === "per-device") {
+          // Prepare per-device report data
+          reportData = preparePerDeviceReportData(rows, fromDate, toDate);
+        } else {
+          // Prepare consolidated report data
+          reportData = prepareConsolidatedReportData(consolidatedRows, fromDate, toDate);
+        }
+        
+        // Generate and open PDF in new window
+        generateBillingReport(reportData);
+        setDownloading(false);
+        return;
+      }
+      
+      // For other tenants, use backend PDF generation
       // Add 1 day to toDate since backend uses exclusive end date (< period_end)
       const toDateObj = new Date(toDate);
       toDateObj.setDate(toDateObj.getDate() + 1);
@@ -1025,11 +1051,28 @@ export default function UtilityBillingPage() {
             Generate reports and invoices for utility consumption across all devices
           </p>
         </div>
+        {user?.tenant_id === 3 && (
+          <div className="page-header__actions">
+            <button 
+              className="btn btn--secondary"
+              onClick={() => setShowCompanyModal(true)}
+            >
+              <Icon name="settings" size={18} />
+              Company Details
+            </button>
+          </div>
+        )}
       </div>
 
       <Breadcrumbs items={[{ label: "Utility Billing", path: "/utility/billing" }]} />
 
       <Tabs tabs={tabs} defaultTab={viewMode} onChange={handleTabChange} />
+      
+      {/* Company Details Modal */}
+      <CompanyDetailsModal 
+        isOpen={showCompanyModal} 
+        onClose={() => setShowCompanyModal(false)} 
+      />
     </div>
   );
 }
