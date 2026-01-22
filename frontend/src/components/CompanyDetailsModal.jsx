@@ -49,6 +49,16 @@ export default function CompanyDetailsModal({ isOpen, onClose }) {
   };
   
   const handleSave = () => {
+    // Validate required fields
+    if (!details.headerText || !details.headerText.trim()) {
+      alert('Header Text is required. Please enter header text for reports.');
+      return;
+    }
+    if (!details.footerText || !details.footerText.trim()) {
+      alert('Footer Text is required. Please enter footer text for reports.');
+      return;
+    }
+    
     setSaving(true);
     saveCompanyDetails(details);
     setTimeout(() => {
@@ -203,6 +213,46 @@ export default function CompanyDetailsModal({ isOpen, onClose }) {
                 onChange={(e) => setDetails(prev => ({ ...prev, taxId: e.target.value }))}
                 placeholder="TRN: 100000000000003"
               />
+            </div>
+            
+            {/* Header Text */}
+            <div className="form-group">
+              <label className="form-label" htmlFor="headerText">
+                <Icon name="type" size={16} />
+                Header Text <span style={{ color: 'var(--color-error)' }}>*</span>
+              </label>
+              <textarea
+                id="headerText"
+                className="form-input"
+                rows="3"
+                value={details.headerText || ''}
+                onChange={(e) => setDetails(prev => ({ ...prev, headerText: e.target.value }))}
+                placeholder="Enter header text to display at the top of reports"
+                required
+              />
+              <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-2)' }}>
+                This text will appear at the top of the report (required)
+              </p>
+            </div>
+            
+            {/* Footer Text */}
+            <div className="form-group">
+              <label className="form-label" htmlFor="footerText">
+                <Icon name="type" size={16} />
+                Footer Text <span style={{ color: 'var(--color-error)' }}>*</span>
+              </label>
+              <textarea
+                id="footerText"
+                className="form-input"
+                rows="3"
+                value={details.footerText || ''}
+                onChange={(e) => setDetails(prev => ({ ...prev, footerText: e.target.value }))}
+                placeholder="Enter footer text to display at the bottom of reports"
+                required
+              />
+              <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-2)' }}>
+                This text will appear at the bottom of the report (required)
+              </p>
             </div>
           </div>
         </div>

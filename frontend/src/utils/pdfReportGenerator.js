@@ -23,7 +23,9 @@ export function getCompanyDetails() {
     phone: '+971 4 XXX XXXX',
     email: 'billing@smartlpg.ae',
     taxId: 'TRN: 100000000000003',
-    logo: null // Base64 encoded image or null
+    logo: null, // Base64 encoded image or null (optional)
+    headerText: '', // Header text for reports (required)
+    footerText: '' // Footer text for reports (required)
   };
 }
 
@@ -114,7 +116,7 @@ function generateReportHTML(reportData, companyDetails) {
       align-items: flex-start;
       margin-bottom: 40px;
       padding-bottom: 20px;
-      border-bottom: 3px solid #f97316;
+      border-bottom: 3px solid #3b82f6;
     }
     
     .company-info {
@@ -124,7 +126,7 @@ function generateReportHTML(reportData, companyDetails) {
     .company-name {
       font-size: 24px;
       font-weight: bold;
-      color: #f97316;
+      color: #3b82f6;
       margin-bottom: 10px;
     }
     
@@ -162,7 +164,7 @@ function generateReportHTML(reportData, companyDetails) {
       padding: 25px;
       border-radius: 8px;
       margin-bottom: 30px;
-      border-left: 4px solid #f97316;
+      border-left: 4px solid #3b82f6;
     }
     
     .summary-title {
@@ -197,7 +199,7 @@ function generateReportHTML(reportData, companyDetails) {
     }
     
     .summary-value.highlight {
-      color: #f97316;
+      color: #3b82f6;
     }
     
     .details-section {
@@ -224,7 +226,7 @@ function generateReportHTML(reportData, companyDetails) {
     }
     
     thead {
-      background: #f97316;
+      background: #3b82f6;
       color: white;
     }
     
@@ -273,7 +275,7 @@ function generateReportHTML(reportData, companyDetails) {
       position: fixed;
       top: 20px;
       right: 20px;
-      background: #f97316;
+      background: #3b82f6;
       color: white;
       border: none;
       padding: 12px 24px;
@@ -286,7 +288,7 @@ function generateReportHTML(reportData, companyDetails) {
     }
     
     .print-button:hover {
-      background: #ea580c;
+      background: #2563eb;
     }
   </style>
 </head>
@@ -294,6 +296,7 @@ function generateReportHTML(reportData, companyDetails) {
   <button class="print-button no-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
   
   <div class="header">
+    ${companyDetails.headerText ? `<div style="margin-bottom: 20px; padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 14px; color: #1e40af; line-height: 1.6;">${companyDetails.headerText}</div>` : ''}
     <div class="company-info">
       ${logoHTML}
       <div class="company-name">${companyDetails.companyName}</div>
@@ -362,7 +365,7 @@ function generateReportHTML(reportData, companyDetails) {
             <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
               ${parseFloat(summary.totalConsumption || 0).toFixed(2)} L
             </td>
-            <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db; color: #f97316;">
+            <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db; color: #3b82f6;">
               ${formatCurrency(summary.totalAmount || 0)}
             </td>
           </tr>
@@ -381,6 +384,7 @@ function generateReportHTML(reportData, companyDetails) {
   </div>
   
   <div class="footer">
+    ${companyDetails.footerText ? `<div style="margin-bottom: 15px; padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 13px; color: #1e40af; line-height: 1.6;">${companyDetails.footerText}</div>` : ''}
     <p>
       <strong>${companyDetails.companyName}</strong><br/>
       ${companyDetails.address} | ${companyDetails.phone} | ${companyDetails.email}
