@@ -61,30 +61,114 @@ function generateReportHTML(reportData, companyDetails) {
     logoHTML = `<img src="${companyDetails.logo}" alt="Company Logo" style="max-width: 150px; max-height: 80px; margin-bottom: 10px;" />`;
   }
   
-  // Generate device rows
+  // Generate device rows with pagination (30 devices per page)
+  const DEVICES_PER_PAGE = 30;
   let deviceRowsHTML = '';
+  
   if (reportType === 'per-device' && devices && devices.length > 0) {
-    deviceRowsHTML = devices.map((device, index) => `
-      <tr style="${index % 2 === 0 ? 'background-color: #f9f9f9;' : ''}">
-        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">${index + 1}</td>
-        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">
-          <strong>${device.device_name || device.device_id}</strong><br/>
-          <small style="color: #666;">${device.device_id}</small>
-        </td>
-        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
-          ${device.tank_capacity || '1,000'} L
-        </td>
-        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
-          ${device.current_level_percent || '0'}%
-        </td>
-        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
-          ${device.consumption ? parseFloat(device.consumption).toFixed(2) : '0.00'} L
-        </td>
-        <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
-          ${formatCurrency(device.cost || 0)}
-        </td>
-      </tr>
-    `).join('');
+    const totalPages = Math.ceil(devices.length / DEVICES_PER_PAGE);
+    
+    for (let page = 0; page < totalPages; page++) {
+      const startIdx = page * DEVICES_PER_PAGE;
+      const endIdx = Math.min(startIdx + DEVICES_PER_PAGE, devices.length);
+      const pageDevices = devices.slice(startIdx, endIdx);
+      
+      // Generate rows for this page
+      const pageRows = pageDevices.map((device, idx) => {
+        const globalIndex = startIdx + idx;
+        return `
+          <tr style="${globalIndex % 2 === 0 ? 'background-color: #f9f9f9;' : ''}">
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">${globalIndex + 1}</td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">
+              <strong>${device.device_name || device.device_id}</strong><br/>
+              <small style="color: #666;">${device.device_id}</small>
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+              ${device.tank_capacity || '1,000'} L
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+              ${device.current_level_percent || '0'}%
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
+              ${device.consumption ? parseFloat(device.consumption).toFixed(2) : '0.00'} L
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
+              ${formatCurrency(device.cost || 0)}
+            </td>
+          </tr>
+        `;
+      }).join('');
+      
+      // Calculate page totals
+      const pageConsumption = pageDevices.reduce((sum, d) => sum + parseFloat(d.consumption || 0), 0);
+      const pageAmount = pageDevices.reduce((sum, d) => sum + parseFloat(d.cost || 0), 0);
+      
+      // Build table for this page
+      deviceRowsHTML += `
+        ${page > 0 ? '<div style="page-break-before: always;"></div>' : ''}
+        <div class="page-section">
+          ${page > 0 ? `
+            <div class="page-header-repeat">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid #3b82f6;">
+                <div>
+                  <div style="font-size: 20px; font-weight: bold; color: #1f2937;">${reportTitle}</div>
+                  <div style="font-size: 12px; color: #666; margin-top: 5px;">
+                    Period: ${formatDate(periodStart)} - ${formatDate(periodEnd)}
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <div style="font-size: 14px; color: #666;">Page ${page + 1} of ${totalPages}</div>
+                </div>
+              </div>
+            </div>
+          ` : ''}
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 5%;">#</th>
+                <th style="width: 30%;">Device</th>
+                <th class="text-center" style="width: 15%;">Tank Capacity</th>
+                <th class="text-center" style="width: 15%;">Current Level</th>
+                <th class="text-right" style="width: 17.5%;">Consumption (L)</th>
+                <th class="text-right" style="width: 17.5%;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pageRows}
+            </tbody>
+            ${page === totalPages - 1 ? `
+              <tfoot style="background: #f3f4f6; font-weight: bold;">
+                <tr>
+                  <td colspan="4" style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
+                    <strong>TOTAL:</strong>
+                  </td>
+                  <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
+                    ${parseFloat(summary.totalConsumption || 0).toFixed(2)} L
+                  </td>
+                  <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db; color: #3b82f6;">
+                    ${formatCurrency(summary.totalAmount || 0)}
+                  </td>
+                </tr>
+              </tfoot>
+            ` : `
+              <tfoot style="background: #f3f4f6; font-weight: bold;">
+                <tr>
+                  <td colspan="4" style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
+                    <strong>Page Subtotal:</strong>
+                  </td>
+                  <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
+                    ${pageConsumption.toFixed(2)} L
+                  </td>
+                  <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db; color: #3b82f6;">
+                    ${formatCurrency(pageAmount)}
+                  </td>
+                </tr>
+              </tfoot>
+            `}
+          </table>
+        </div>
+      `;
+    }
   }
   
   return `
@@ -97,7 +181,29 @@ function generateReportHTML(reportData, companyDetails) {
     @media print {
       body { margin: 0; padding: 30px 40px; }
       .no-print { display: none !important; }
-      @page { margin: 1cm; size: landscape; }
+      @page { 
+        margin: 1cm; 
+        size: landscape;
+      }
+      .page-section {
+        page-break-inside: avoid;
+      }
+      .page-header-repeat {
+        page-break-after: avoid;
+      }
+      table {
+        page-break-inside: auto;
+      }
+      tr {
+        page-break-inside: avoid;
+        page-break-after: auto;
+      }
+      thead {
+        display: table-header-group;
+      }
+      tfoot {
+        display: table-footer-group;
+      }
     }
     
     body {
@@ -343,34 +449,7 @@ function generateReportHTML(reportData, companyDetails) {
   ${reportType === 'per-device' && devices && devices.length > 0 ? `
     <div class="details-section">
       <div class="section-title">📋 Device Consumption Details</div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width: 5%;">#</th>
-            <th style="width: 30%;">Device</th>
-            <th class="text-center" style="width: 15%;">Tank Capacity</th>
-            <th class="text-center" style="width: 15%;">Current Level</th>
-            <th class="text-right" style="width: 17.5%;">Consumption (L)</th>
-            <th class="text-right" style="width: 17.5%;">Amount</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${deviceRowsHTML}
-        </tbody>
-        <tfoot style="background: #f3f4f6; font-weight: bold;">
-          <tr>
-            <td colspan="4" style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
-              <strong>TOTAL:</strong>
-            </td>
-            <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db;">
-              ${parseFloat(summary.totalConsumption || 0).toFixed(2)} L
-            </td>
-            <td style="padding: 18px 16px; text-align: right; border-top: 2px solid #d1d5db; color: #3b82f6;">
-              ${formatCurrency(summary.totalAmount || 0)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+      ${deviceRowsHTML}
     </div>
   ` : ''}
   
