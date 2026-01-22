@@ -107,7 +107,8 @@ export default function EnergyManagementDashboard() {
           const gasData = activeTekelekDevices.map(device => {
             const consumption = calculateGasConsumption(device);
             // Scale monthly consumption to the selected timeRange (same as Utility Billing)
-            const periodConsumption = (parseFloat(consumption.monthly_consumption_kg) / 30) * daysForTimeRange;
+            // Use monthly_consumption_liters (not monthly_consumption_kg) - updated for 1000L tanks
+            const periodConsumption = (parseFloat(consumption.monthly_consumption_liters) / 30) * daysForTimeRange;
             const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysForTimeRange;
             
             return {
@@ -162,7 +163,7 @@ export default function EnergyManagementDashboard() {
           
           setLoading(false);
           setError(null);
-          console.log(`✅ [ENERGY] SmartLPG gas data loaded: ${gasData.length} active devices (${daysForTimeRange} days), ${totalConsumption.toFixed(2)} kg, ${totalCost.toFixed(2)} AED`);
+          console.log(`✅ [ENERGY] SmartLPG gas data loaded: ${gasData.length} active devices (${daysForTimeRange} days), ${totalConsumption.toFixed(2)} L, ${totalCost.toFixed(2)} AED`);
           return;
         } else {
           console.error("❌ SmartLPG data load failed or no Tekelek devices");
@@ -611,7 +612,7 @@ export default function EnergyManagementDashboard() {
               </div>
               <div className="metric-card__value">
                 {energyData.totals.gas?.consumption?.toFixed(2) || "0.00"}
-                <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> {isSmartLPG ? "kg" : "units"}</span>
+                <span style={{ fontSize: "var(--font-size-sm)", fontWeight: "normal" }}> {isSmartLPG ? "L" : "units"}</span>
               </div>
               <div className="metric-card__footer">
                 Cost: {currency} {energyData.totals.gas?.cost?.toFixed(2) || "0.00"}
@@ -672,7 +673,7 @@ export default function EnergyManagementDashboard() {
                 <ResponsiveContainer width="100%" height={300}>
                   <BarChart data={[
                     ...(!isSmartLPG || (energyData.totals.electricity?.consumption > 0) ? [{ name: "Electricity", value: energyData.totals.electricity?.consumption || 0, unit: "kWh" }] : []),
-                    { name: "Gas", value: energyData.totals.gas?.consumption || 0, unit: isSmartLPG ? "kg" : "units" },
+                    { name: "Gas", value: energyData.totals.gas?.consumption || 0, unit: isSmartLPG ? "L" : "units" },
                     ...(!isSmartLPG || (energyData.totals.water?.consumption > 0) ? [{ name: "Water", value: energyData.totals.water?.consumption || 0, unit: "m³" }] : []),
                   ]}>
                     <CartesianGrid strokeDasharray="3 3" />
