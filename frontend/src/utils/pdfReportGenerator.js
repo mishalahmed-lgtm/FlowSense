@@ -401,8 +401,13 @@ function generateReportHTML(reportData, companyDetails) {
 <body>
   <button class="print-button no-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
   
+  ${companyDetails.headerText ? `
+    <div style="margin-bottom: 25px; padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 14px; color: #1e40af; line-height: 1.6;">
+      ${companyDetails.headerText}
+    </div>
+  ` : ''}
+  
   <div class="header">
-    ${companyDetails.headerText ? `<div style="margin-bottom: 20px; padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 14px; color: #1e40af; line-height: 1.6;">${companyDetails.headerText}</div>` : ''}
     <div class="company-info">
       ${logoHTML}
       <div class="company-name">${companyDetails.companyName}</div>
