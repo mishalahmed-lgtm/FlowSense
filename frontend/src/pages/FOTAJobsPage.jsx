@@ -352,17 +352,6 @@ export default function FOTAJobsPage() {
           onClose={() => setShowCreateModal(false)}
           title="Create Firmware Update Job"
         >
-          {(isSmartLPGTenant(user?.tenant_id) || isFirebaseTenant(user?.tenant_id)) && (
-            <div className="badge badge--warning" style={{ 
-              display: "block", 
-              padding: "var(--space-3)", 
-              marginBottom: "var(--space-4)",
-              fontSize: "var(--font-size-sm)"
-            }}>
-              <Icon name="alert-triangle" size={16} style={{ marginRight: "var(--space-2)" }} />
-              Note: FOTA jobs require devices to be synced to PostgreSQL. Firebase-only devices may not be available for firmware updates.
-            </div>
-          )}
           <form onSubmit={handleCreateJob} className="form">
             <div className="form-group">
               <label className="form-label form-label--required">Job Name</label>
