@@ -510,11 +510,38 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Protocol Distribution - Combined MQTT and HTTP in one card */}
+            {/* Protocol Distribution - Show all protocols */}
             {(() => {
               const sources = metrics.sources || {};
-              const hasMqtt = (sources.MQTT || sources.mqtt || 0) > 0;
-              const hasHttp = (sources.HTTP || sources.http || 0) > 0;
+              
+              // Get all protocols with their counts, sorted by count (descending)
+              const protocols = Object.entries(sources)
+                .filter(([protocol, count]) => count > 0)
+                .map(([protocol, count]) => ({
+                  name: protocol,
+                  count: count
+                }))
+                .sort((a, b) => b.count - a.count);
+              
+              // Normalize protocol names for display
+              const normalizeProtocolName = (name) => {
+                const normalized = name.toUpperCase();
+                // Handle common variations
+                if (normalized.includes('NB-IOT') || normalized.includes('NB_IOT') || normalized === 'NB-IOT') {
+                  return 'NB-IoT';
+                }
+                if (normalized === 'LORAWAN') {
+                  return 'LoRaWAN';
+                }
+                if (normalized === 'MODBUS_TCP' || normalized === 'MODBUS-TCP') {
+                  return 'Modbus TCP';
+                }
+                return normalized;
+              };
+              
+              if (protocols.length === 0) {
+                return null; // Don't show card if no protocols
+              }
               
               return (
                 <div className="metric-card">
@@ -533,12 +560,11 @@ export default function DashboardPage() {
                     gap: "var(--space-2)",
                     fontWeight: "var(--font-weight-medium)"
                   }}>
-                    {hasMqtt && (
-                      <div>MQTT</div>
-                    )}
-                    {hasHttp && (
-                      <div>HTTP</div>
-                    )}
+                    {protocols.map((protocol) => (
+                      <div key={protocol.name}>
+                        {normalizeProtocolName(protocol.name)} ({protocol.count})
+                      </div>
+                    ))}
                   </div>
                 </div>
               );
