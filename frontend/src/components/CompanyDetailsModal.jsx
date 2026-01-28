@@ -9,12 +9,14 @@ export default function CompanyDetailsModal({ isOpen, onClose }) {
   const [details, setDetails] = useState(getCompanyDetails());
   const [logoPreview, setLogoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [templatePreview, setTemplatePreview] = useState(null);
   
   useEffect(() => {
     if (isOpen) {
       const current = getCompanyDetails();
       setDetails(current);
       setLogoPreview(current.logo);
+      setTemplatePreview(current.customTemplate);
     }
   }, [isOpen]);
   
@@ -46,6 +48,36 @@ export default function CompanyDetailsModal({ isOpen, onClose }) {
   const handleRemoveLogo = () => {
     setLogoPreview(null);
     setDetails(prev => ({ ...prev, logo: null }));
+  };
+  
+  const handleTemplateUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.name.endsWith('.html')) {
+      alert('Please upload an HTML file (.html)');
+      return;
+    }
+    
+    // Validate file size (max 500KB)
+    if (file.size > 500 * 1024) {
+      alert('Template file must be less than 500KB');
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const templateContent = event.target.result;
+      setTemplatePreview(templateContent);
+      setDetails(prev => ({ ...prev, customTemplate: templateContent }));
+    };
+    reader.readAsText(file);
+  };
+  
+  const handleRemoveTemplate = () => {
+    setTemplatePreview(null);
+    setDetails(prev => ({ ...prev, customTemplate: null }));
   };
   
   const handleSave = () => {
@@ -253,6 +285,81 @@ export default function CompanyDetailsModal({ isOpen, onClose }) {
               <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-2)' }}>
                 This text will appear at the bottom of the report (required)
               </p>
+            </div>
+            
+            {/* Custom Template Upload */}
+            <div className="form-group">
+              <label className="form-label">
+                <Icon name="file" size={16} />
+                Custom Report Template (Optional)
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+                <input
+                  type="file"
+                  accept=".html"
+                  onChange={handleTemplateUpload}
+                  className="form-input"
+                />
+                {templatePreview && (
+                  <>
+                    <div style={{ 
+                      padding: 'var(--space-3)', 
+                      background: 'var(--color-bg-secondary)', 
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-md)',
+                      maxHeight: '200px',
+                      overflow: 'auto',
+                      fontSize: 'var(--font-size-xs)',
+                      fontFamily: 'monospace'
+                    }}>
+                      <div style={{ fontWeight: 'bold', marginBottom: 'var(--space-2)' }}>
+                        Template Preview (first 500 chars):
+                      </div>
+                      <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {templatePreview.substring(0, 500)}{templatePreview.length > 500 ? '...' : ''}
+                      </pre>
+                    </div>
+                    <button 
+                      type="button"
+                      className="btn btn--sm btn--error"
+                      onClick={handleRemoveTemplate}
+                    >
+                      <Icon name="trash" size={14} />
+                      Remove Custom Template
+                    </button>
+                  </>
+                )}
+                <div>
+                  <p className="text-muted" style={{ fontSize: 'var(--font-size-xs)', marginTop: 'var(--space-2)' }}>
+                    Upload a custom HTML template to override the default report layout. Max size: 500KB.
+                    <a 
+                      href="/report-template-example.html" 
+                      download 
+                      style={{ marginLeft: 'var(--space-2)', color: 'var(--color-primary)' }}
+                    >
+                      Download example template
+                    </a>
+                  </p>
+                  <details style={{ marginTop: 'var(--space-2)' }}>
+                    <summary style={{ cursor: 'pointer', fontSize: 'var(--font-size-xs)', color: 'var(--color-text-secondary)' }}>
+                      Available template variables
+                    </summary>
+                    <div style={{ 
+                      marginTop: 'var(--space-2)', 
+                      padding: 'var(--space-3)', 
+                      background: 'var(--color-bg-secondary)',
+                      borderRadius: 'var(--radius-md)',
+                      fontSize: 'var(--font-size-xs)',
+                      fontFamily: 'monospace'
+                    }}>
+                      <div><strong>Company:</strong> {'{{companyName}}'}, {'{{companyAddress}}'}, {'{{companyPhone}}'}, {'{{companyEmail}}'}, {'{{companyTaxId}}'}, {'{{companyLogo}}'}</div>
+                      <div style={{ marginTop: 'var(--space-2)' }}><strong>Report:</strong> {'{{reportTitle}}'}, {'{{periodStart}}'}, {'{{periodEnd}}'}, {'{{generatedDate}}'}</div>
+                      <div style={{ marginTop: 'var(--space-2)' }}><strong>Summary:</strong> {'{{totalDevices}}'}, {'{{totalConsumption}}'}, {'{{costPerLitre}}'}, {'{{totalAmount}}'}, {'{{currency}}'}</div>
+                      <div style={{ marginTop: 'var(--space-2)' }}><strong>Content:</strong> {'{{headerText}}'}, {'{{footerText}}'}, {'{{deviceTable}}'}</div>
+                    </div>
+                  </details>
+                </div>
+              </div>
             </div>
           </div>
         </div>

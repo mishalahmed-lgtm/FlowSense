@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>{{reportTitle}}</title>
+  <style>
+    @media print {
+      body { margin: 0; padding: 20px; }
+      .no-print { display: none !important; }
+      @page { margin: 1.5cm; size: landscape; }
+    }
+    
+    body {
+      font-family: Arial, sans-serif;
+      color: #333;
+      max-width: 280mm;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 30px;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #3b82f6;
+    }
+    
+    .company-info {
+      flex: 1;
+    }
+    
+    .company-name {
+      font-size: 24px;
+      font-weight: bold;
+      color: #3b82f6;
+      margin-bottom: 10px;
+    }
+    
+    .report-info {
+      text-align: right;
+    }
+    
+    .report-title {
+      font-size: 22px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    
+    .summary {
+      background: #f0f9ff;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 20px;
+    }
+    
+    th {
+      background: #3b82f6;
+      color: white;
+      padding: 12px;
+      text-align: left;
+    }
+    
+    td {
+      padding: 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    
+    .footer {
+      margin-top: 30px;
+      padding-top: 15px;
+      border-top: 1px solid #e5e7eb;
+      text-align: center;
+      font-size: 11px;
+      color: #666;
+    }
+    
+    .print-button {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #3b82f6;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+  </style>
+</head>
+<body>
+  <button class="print-button no-print" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  
+  {{headerText}}
+  
+  <div class="header">
+    <div class="company-info">
+      {{companyLogo}}
+      <div class="company-name">{{companyName}}</div>
+      <div>
+        {{companyAddress}}<br/>
+        Phone: {{companyPhone}}<br/>
+        Email: {{companyEmail}}<br/>
+        {{companyTaxId}}
+      </div>
+    </div>
+    <div class="report-info">
+      <div class="report-title">{{reportTitle}}</div>
+      <div>Period: {{periodStart}} - {{periodEnd}}</div>
+      <div style="font-size: 11px; color: #666;">Generated: {{generatedDate}}</div>
+    </div>
+  </div>
+  
+  <div class="summary">
+    <h3>Report Summary</h3>
+    <p><strong>Total Devices:</strong> {{totalDevices}}</p>
+    <p><strong>Total Consumption:</strong> {{totalConsumption}} {{totalConsumptionUnit}}</p>
+    <p><strong>Cost Per Litre:</strong> {{costPerLitre}}</p>
+    <p><strong>Total Amount:</strong> {{totalAmount}}</p>
+  </div>
+  
+  <h3>Device Details</h3>
+  {{deviceTable}}
+  
+  {{footerText}}
+  
+  <div class="footer">
+    <p><strong>{{companyName}}</strong></p>
+    <p>{{companyAddress}} | {{companyPhone}} | {{companyEmail}}</p>
+    <p style="margin-top: 10px; font-size: 10px;">This is a computer-generated document.</p>
+  </div>
+</body>
+</html>

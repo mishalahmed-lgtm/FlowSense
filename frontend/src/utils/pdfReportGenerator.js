@@ -25,7 +25,8 @@ export function getCompanyDetails() {
     taxId: 'TRN: 100000000000003',
     logo: null, // Base64 encoded image or null (optional)
     headerText: '', // Header text for reports (required)
-    footerText: '' // Footer text for reports (required)
+    footerText: '', // Footer text for reports (required)
+    customTemplate: null // Custom HTML template (optional)
   };
 }
 
@@ -37,9 +38,141 @@ export function saveCompanyDetails(details) {
 }
 
 /**
+ * Replace template variables with actual data
+ */
+function replaceTemplateVariables(template, reportData, companyDetails) {
+  const {
+    reportTitle,
+    periodStart,
+    periodEnd,
+    devices,
+    summary,
+    reportType = 'per-device'
+  } = reportData;
+  
+  const formatCurrency = (amount) => `${summary.currency || 'AED'} ${parseFloat(amount).toFixed(2)}`;
+  const formatDate = (dateStr) => new Date(dateStr).toLocaleDateString('en-US', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+  
+  // Build device rows HTML (same logic as default template)
+  const DEVICES_PER_PAGE = 30;
+  let deviceRowsHTML = '';
+  
+  if (reportType === 'per-device' && devices && devices.length > 0) {
+    const totalPages = Math.ceil(devices.length / DEVICES_PER_PAGE);
+    
+    for (let page = 0; page < totalPages; page++) {
+      const startIdx = page * DEVICES_PER_PAGE;
+      const endIdx = Math.min(startIdx + DEVICES_PER_PAGE, devices.length);
+      const pageDevices = devices.slice(startIdx, endIdx);
+      
+      const pageRows = pageDevices.map((device, idx) => {
+        const globalIndex = startIdx + idx;
+        return `
+          <tr style="${globalIndex % 2 === 0 ? 'background-color: #f9f9f9;' : ''}">
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">${globalIndex + 1}</td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0;">
+              <strong>${device.device_name || device.device_id}</strong><br/>
+              <small style="color: #666;">${device.device_id}</small>
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+              ${device.tank_capacity || '1,000'} L
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: center;">
+              ${device.current_level_percent || '0'}%
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
+              ${device.consumption ? parseFloat(device.consumption).toFixed(2) : '0.00'} L
+            </td>
+            <td style="padding: 14px 16px; border-bottom: 1px solid #e0e0e0; text-align: right;">
+              ${formatCurrency(device.cost || 0)}
+            </td>
+          </tr>
+        `;
+      }).join('');
+      
+      const pageConsumption = pageDevices.reduce((sum, d) => sum + parseFloat(d.consumption || 0), 0);
+      const pageAmount = pageDevices.reduce((sum, d) => sum + parseFloat(d.cost || 0), 0);
+      
+      deviceRowsHTML += `
+        ${page > 0 ? '<div style="page-break-before: always;"></div>' : ''}
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Device</th>
+              <th>Tank Capacity</th>
+              <th>Current Level</th>
+              <th>Consumption (L)</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pageRows}
+          </tbody>
+        </table>
+      `;
+    }
+  }
+  
+  // Template variables mapping
+  const variables = {
+    // Company details
+    '{{companyName}}': companyDetails.companyName || '',
+    '{{companyAddress}}': companyDetails.address || '',
+    '{{companyPhone}}': companyDetails.phone || '',
+    '{{companyEmail}}': companyDetails.email || '',
+    '{{companyTaxId}}': companyDetails.taxId || '',
+    '{{companyLogo}}': companyDetails.logo ? `<img src="${companyDetails.logo}" alt="Logo" style="max-width: 150px; max-height: 80px;" />` : '',
+    
+    // Report details
+    '{{reportTitle}}': reportTitle || '',
+    '{{periodStart}}': formatDate(periodStart),
+    '{{periodEnd}}': formatDate(periodEnd),
+    '{{generatedDate}}': formatDate(new Date()),
+    
+    // Summary
+    '{{totalDevices}}': summary.totalDevices || 0,
+    '{{totalConsumption}}': parseFloat(summary.totalConsumption || 0).toFixed(2),
+    '{{totalConsumptionUnit}}': 'L',
+    '{{costPerLitre}}': formatCurrency(summary.costPerLitre || 3),
+    '{{totalAmount}}': formatCurrency(summary.totalAmount || 0),
+    '{{currency}}': summary.currency || 'AED',
+    
+    // Header and footer (with styling if provided)
+    '{{headerText}}': companyDetails.headerText ? `<div style="margin-bottom: 25px; padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 14px; color: #1e40af; line-height: 1.6;">${companyDetails.headerText}</div>` : '',
+    '{{footerText}}': companyDetails.footerText ? `<div style="margin-bottom: 15px; padding: 15px; background: #eff6ff; border-left: 4px solid #3b82f6; border-radius: 4px; font-size: 13px; color: #1e40af; line-height: 1.6;">${companyDetails.footerText}</div>` : '',
+    
+    // Device table
+    '{{deviceTable}}': deviceRowsHTML,
+    
+    // Raw data (for advanced templates)
+    '{{devices}}': JSON.stringify(devices || []),
+    '{{summary}}': JSON.stringify(summary)
+  };
+  
+  // Replace all variables in template
+  let result = template;
+  for (const [key, value] of Object.entries(variables)) {
+    result = result.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
+  }
+  
+  return result;
+}
+
+/**
  * Generate HTML for the billing report
  */
 function generateReportHTML(reportData, companyDetails) {
+  // If custom template is provided, use it instead of default
+  if (companyDetails.customTemplate) {
+    return replaceTemplateVariables(companyDetails.customTemplate, reportData, companyDetails);
+  }
+  
+  // Otherwise, use default template
   const {
     reportTitle,
     periodStart,
