@@ -61,11 +61,30 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal,
   }, [deviceId]);
 
   useEffect(() => {
+    if (!deviceId) return;
+    
     const loadFieldOptions = async () => {
       let options = [];
       
+      // For SmartLPG tenant (tenant_id = 3), skip backend API call
+      if (user?.tenant_id === 3) {
+        // Use common SmartLPG fields
+        options = [
+          { label: "Level CM (payload.level_cm)", value: "payload.level_cm" },
+          { label: "Level Percent (payload.level_percent)", value: "payload.level_percent" },
+          { label: "Temperature (payload.temperature)", value: "payload.temperature" },
+          { label: "Battery (payload.battery)", value: "payload.battery" },
+        ];
+        setFieldOptions(options);
+        setFormState((prev) => ({
+          ...prev,
+          conditionFieldChoice: options[0]?.value || CUSTOM_FIELD_VALUE,
+        }));
+        return;
+      }
+      
       // Always try to fetch from actual telemetry first (most accurate)
-      if (deviceId) {
+      if (deviceId && api) {
         try {
           const resp = await api.get(`/dashboard/devices/${deviceId}/fields`);
           if (resp.data && resp.data.length > 0) {
@@ -110,7 +129,7 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal,
     };
     
     loadFieldOptions();
-  }, [deviceType?.id, deviceId, api]);
+  }, [deviceType?.id, deviceId, user?.tenant_id]);
 
   const loadRules = async () => {
     if (!deviceId) {
