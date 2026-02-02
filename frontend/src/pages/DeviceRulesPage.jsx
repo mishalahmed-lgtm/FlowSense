@@ -19,9 +19,11 @@ export default function DeviceRulesPage() {
   const [showAddRuleModal, setShowAddRuleModal] = useState(false);
 
   useEffect(() => {
-    if (!token || !isTenantAdmin) {
+    if (!token || !isTenantAdmin || !deviceId) {
       return;
     }
+
+    let isMounted = true;
 
     const load = async () => {
       setLoading(true);
@@ -40,8 +42,14 @@ export default function DeviceRulesPage() {
               : mapper.fetchFirebaseDataForDashboard;
             const firebaseData = await fetchFunction();
             
+            if (!isMounted) return;
+            
             if (firebaseData.success && firebaseData.devices) {
-              const found = firebaseData.devices.find((d) => d.device_id === deviceId);
+              const found = firebaseData.devices.find((d) => 
+                d.device_id === deviceId || 
+                d.id === deviceId ||
+                (d.device_id && d.device_id.toLowerCase() === deviceId.toLowerCase())
+              );
               if (found) {
                 setDevice({
                   ...found,
@@ -52,28 +60,51 @@ export default function DeviceRulesPage() {
                 return;
               }
             }
+            
+            // Device not found in Firebase, create placeholder
+            if (!isMounted) return;
+            setDevice({
+              device_id: deviceId,
+              name: `Device ${deviceId}`,
+              device_type_id: 1,
+            });
+            setDeviceType(null);
+            setLoading(false);
+            return;
           } catch (fbErr) {
             console.warn("Firebase load failed, continuing:", fbErr);
+            if (!isMounted) return;
+            // Still show rules panel even if Firebase fails
+            setDevice({
+              device_id: deviceId,
+              name: `Device ${deviceId}`,
+              device_type_id: 1,
+            });
+            setDeviceType(null);
+            setLoading(false);
+            return;
           }
         }
         
         // For other tenants or fallback, use API
-      try {
-        const [devicesResp, typesResp] = await Promise.all([
-          api.get("/admin/devices"),
+        try {
+          const [devicesResp, typesResp] = await Promise.all([
+            api.get("/admin/devices"),
             api.get("/admin/device-types").catch(() => ({ data: [] })), // Don't fail if types endpoint doesn't exist
-        ]);
+          ]);
           
-        // Handle paginated response format
-        const devices = Array.isArray(devicesResp.data) 
-          ? devicesResp.data 
-          : (devicesResp.data?.devices || []);
-        
-        const found = devices.find((d) => d.device_id === deviceId);
+          if (!isMounted) return;
+          
+          // Handle paginated response format
+          const devices = Array.isArray(devicesResp.data) 
+            ? devicesResp.data 
+            : (devicesResp.data?.devices || []);
+          
+          const found = devices.find((d) => d.device_id === deviceId);
           if (found) {
-        setDevice(found);
+            setDevice(found);
             const dt = typesResp.data?.find((t) => t.id === found.device_type_id);
-        setDeviceType(dt || null);
+            setDeviceType(dt || null);
           } else {
             // Device not found, but still show rules panel with deviceId
             setDevice({
@@ -86,6 +117,7 @@ export default function DeviceRulesPage() {
         } catch (apiErr) {
           // If API fails, still show rules panel with deviceId
           console.warn("API load failed, showing rules panel anyway:", apiErr);
+          if (!isMounted) return;
           setDevice({
             device_id: deviceId,
             name: `Device ${deviceId}`,
@@ -95,6 +127,7 @@ export default function DeviceRulesPage() {
         }
       } catch (err) {
         console.error("Failed to load device:", err);
+        if (!isMounted) return;
         // Don't set error - still show rules panel
         setDevice({
           device_id: deviceId,
@@ -103,12 +136,18 @@ export default function DeviceRulesPage() {
         });
         setDeviceType(null);
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
 
     load();
-  }, [token, api, deviceId, user]);
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [token, deviceId, user?.tenant_id]);
 
   return (
     <div className="page">
