@@ -450,17 +450,19 @@ export default function DeviceRulesListPage() {
       </div>
 
       {/* Create/Edit Modal */}
-      <Modal isOpen={showModal} onClose={closeModal}>
+      <Modal isOpen={showModal} onClose={closeModal} title={selectedRule ? "Edit Device Rule" : "Create Device Rule"}>
         <form className="form" onSubmit={handleSubmit}>
-          <h3 style={{ marginBottom: "var(--space-6)" }}>{selectedRule ? "Edit Device Rule" : "Create Device Rule"}</h3>
-
           <div className="form-group">
             <label className="form-label form-label--required">Name</label>
             <input
               type="text"
               className="form-input"
-              value={formState.name}
-              onChange={(e) => setFormState({ ...formState, name: e.target.value })}
+              value={formState.name || ""}
+              onChange={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setFormState({ ...formState, name: e.target.value });
+              }}
               required
             />
           </div>
@@ -469,8 +471,12 @@ export default function DeviceRulesListPage() {
             <label className="form-label">Description</label>
             <textarea
               className="form-textarea"
-              value={formState.description}
-              onChange={(e) => setFormState({ ...formState, description: e.target.value })}
+              value={formState.description || ""}
+              onChange={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setFormState({ ...formState, description: e.target.value });
+              }}
               rows={3}
             />
           </div>
@@ -515,11 +521,15 @@ export default function DeviceRulesListPage() {
                   type="text"
                   className="form-input"
                   placeholder="e.g., payload.temperature"
-                  value={formState.condition.field}
-                  onChange={(e) => setFormState({
-                    ...formState,
-                    condition: { ...formState.condition, field: e.target.value }
-                  })}
+                  value={formState.condition?.field || ""}
+                  onChange={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setFormState({
+                      ...formState,
+                      condition: { ...formState.condition, field: e.target.value }
+                    });
+                  }}
                   required
                 />
               </div>
@@ -547,11 +557,15 @@ export default function DeviceRulesListPage() {
                 <input
                   type="text"
                   className="form-input"
-                  value={formState.condition.value}
-                  onChange={(e) => setFormState({
-                    ...formState,
-                    condition: { ...formState.condition, value: e.target.value }
-                  })}
+                  value={formState.condition?.value || ""}
+                  onChange={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setFormState({
+                      ...formState,
+                      condition: { ...formState.condition, value: e.target.value }
+                    });
+                  }}
                   required
                 />
               </div>
