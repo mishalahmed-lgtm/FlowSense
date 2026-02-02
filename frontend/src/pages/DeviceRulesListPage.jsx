@@ -214,17 +214,38 @@ export default function DeviceRulesListPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const payload = {
+        ...formState,
+        condition: {
+          field: formState.condition.field,
+          operator: formState.condition.operator,
+          value: formState.condition.value,
+        },
+      };
+
+      // For tenant_id = 3 (SmartLPG), save to Firebase
+      if (user?.tenant_id === 3) {
+        const { saveDeviceRuleToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        
+        const ruleToSave = {
+          ...payload,
+          id: selectedRule?.id,
+          device_name: devices.find(d => d.device_id === payload.device_id)?.name || (payload.device_id ? `Device ${payload.device_id}` : "All Devices"),
+          created_at: selectedRule?.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        await saveDeviceRuleToFirebase(ruleToSave);
+        setSuccessMessage(selectedRule ? "Device rule updated successfully" : "Device rule created successfully");
+        await loadRules();
+        setTimeout(() => {
+          closeModal();
+        }, 1500);
+        return;
+      }
+      
       // For tenant_id = 2, just update local state (dummy data)
       if (user?.tenant_id === 2) {
-        const payload = {
-          ...formState,
-          condition: {
-            field: formState.condition.field,
-            operator: formState.condition.operator,
-            value: formState.condition.value,
-          },
-        };
-
         if (selectedRule) {
           // Update existing rule
           setRules(rules.map(r => r.id === selectedRule.id ? { ...selectedRule, ...payload } : r));
@@ -249,15 +270,6 @@ export default function DeviceRulesListPage() {
       }
       
       // For other tenants, use API
-      const payload = {
-        ...formState,
-        condition: {
-          field: formState.condition.field,
-          operator: formState.condition.operator,
-          value: formState.condition.value,
-        },
-      };
-
       if (selectedRule) {
         await api.put(`/devices/rules/${selectedRule.id}`, payload);
         setSuccessMessage("Device rule updated successfully");
