@@ -400,10 +400,33 @@ export default function DevicesPage() {
 
   const loadReferenceData = async () => {
     try {
+      // For SmartLPG tenant, use default device types (don't query DB)
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const defaultDeviceTypes = [
+          { id: 1, name: "HTTP", protocol: "HTTP", description: "HTTP device" },
+          { id: 2, name: "MQTT", protocol: "MQTT", description: "MQTT device" },
+          { id: 3, name: "NB-IoT", protocol: "NB-IoT", description: "NB-IoT device" },
+        ];
+        setDeviceTypes(defaultDeviceTypes);
+        console.log("Using default device types for SmartLPG tenant");
+        return;
+      }
+      
       const typesResponse = await api.get("/admin/device-types");
       setDeviceTypes(typesResponse.data);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to load reference data");
+      // If DB is unavailable, use default device types for SmartLPG tenant
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const defaultDeviceTypes = [
+          { id: 1, name: "HTTP", protocol: "HTTP", description: "HTTP device" },
+          { id: 2, name: "MQTT", protocol: "MQTT", description: "MQTT device" },
+          { id: 3, name: "NB-IoT", protocol: "NB-IoT", description: "NB-IoT device" },
+        ];
+        setDeviceTypes(defaultDeviceTypes);
+        console.log("DB unavailable, using default device types for SmartLPG tenant");
+      } else {
+        setError(err.response?.data?.detail || "Failed to load reference data");
+      }
     }
   };
 

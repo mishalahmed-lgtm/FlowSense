@@ -623,9 +623,18 @@ export default function DeviceDashboardPage() {
   useEffect(() => {
     if (!deviceId || !device) return;
     
-    // For Firebase tenants (tenant_id = 2 or 3), skip backend API call - keys already set from Firebase
+    // For Firebase tenants (tenant_id = 2 or 3), extract keys from Firebase telemetry
     if (user?.tenant_id === 2 || user?.tenant_id === 3) {
-      console.log("⏭️ Skipping backend keys API for Firebase tenant - using Firebase telemetry keys");
+      console.log("⏭️ Using Firebase telemetry keys for filter dropdown");
+      if (device?.telemetry?.data) {
+        const keys = Object.keys(device.telemetry.data).filter(key => {
+          const value = device.telemetry.data[key];
+          // Include all keys (not just numeric) for readings display
+          return value !== null && value !== undefined;
+        }).sort();
+        setAvailableKeys(keys);
+        console.log(`✅ Set ${keys.length} available keys from Firebase telemetry`);
+      }
       return;
     }
     
@@ -757,7 +766,8 @@ export default function DeviceDashboardPage() {
         
         // Apply filters
         let filteredReadings = allReadings;
-        if (readingsFilter.key) {
+        // Only filter by key if a specific key is selected (not empty or "All Fields")
+        if (readingsFilter.key && readingsFilter.key !== "" && readingsFilter.key !== "All Fields") {
           filteredReadings = filteredReadings.filter(r => r.key === readingsFilter.key);
         }
         if (readingsFilter.fromDate) {
@@ -901,7 +911,8 @@ export default function DeviceDashboardPage() {
       setLayout(layoutToSave);
       setEditMode(false);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to save dashboard");
+      console.error("Dashboard save error:", err);
+      setError(err.message || err.response?.data?.detail || "Failed to save dashboard");
     } finally {
       setSaving(false);
     }
@@ -1212,8 +1223,8 @@ export default function DeviceDashboardPage() {
                     <label className="form-label">Field Key</label>
                     <select
                       className="form-select"
-                      value={readingsFilter.key}
-                      onChange={(e) => setReadingsFilter({ ...readingsFilter, key: e.target.value })}
+                      value={readingsFilter.key || ""}
+                      onChange={(e) => setReadingsFilter({ ...readingsFilter, key: e.target.value || "" })}
                     >
                       <option value="">All Fields</option>
                       {availableKeys.map((key) => (

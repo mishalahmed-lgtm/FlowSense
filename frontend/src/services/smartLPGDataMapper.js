@@ -79,7 +79,7 @@ export async function fetchSmartLPGDataForDashboard(forceRefresh = false) {
         is_active: isActive,
         device_type: deviceType,
         device_type_id: deviceType.includes("Tekelek") ? 1 : deviceType.includes("Valve") ? 2 : 3,
-        protocol: data.protocol || "NB-IoT",
+        protocol: data.protocol || "NB-IoT/CAT-M1" || "NB-IoT",
         tenant: "SmartLPG",
         tenant_id: "0078",
         metadata: {},
