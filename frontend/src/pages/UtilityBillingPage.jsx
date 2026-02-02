@@ -4,6 +4,8 @@ import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Tabs from "../components/Tabs.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
+import CompanyDetailsModal from "../components/CompanyDetailsModal.jsx";
+import { generateBillingReport, preparePerDeviceReportData, prepareConsolidatedReportData } from "../utils/pdfReportGenerator.js";
 
 const UTILITY_KINDS = [
   { value: "electricity", label: "Electricity", icon: "zap", color: "#facc15" },
@@ -31,6 +33,8 @@ export default function UtilityBillingPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasRun, setHasRun] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [showCompanyModal, setShowCompanyModal] = useState(false);
 
   useEffect(() => {
     loadDevices();
@@ -164,6 +168,39 @@ export default function UtilityBillingPage() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (downloading) return;
+    
+    try {
+      setDownloading(true);
+      
+      // For SmartLPG tenant, use client-side PDF generation
+      if (user?.tenant_id === 3) {
+        let reportData;
+        
+        if (rows.length > 0) {
+          // Per-device report
+          reportData = preparePerDeviceReportData(rows, fromDate, toDate);
+        } else if (consolidatedRows.length > 0) {
+          // Consolidated report
+          reportData = prepareConsolidatedReportData(consolidatedRows, fromDate, toDate);
+        } else {
+          setError("No data available to generate report");
+          return;
+        }
+        
+        generateBillingReport(reportData);
+      } else {
+        setError("PDF generation not available for this tenant");
+      }
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      setError("Failed to generate PDF report");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (!isTenantAdmin) {
     return (
       <div className="page">
@@ -201,6 +238,17 @@ export default function UtilityBillingPage() {
             Generate consumption reports and billing statements for {user?.tenant_id === 3 ? "SmartLPG" : "your"} devices
           </p>
         </div>
+        {user?.tenant_id === 3 && (
+          <div className="page-header__actions">
+            <button 
+              className="btn btn--secondary"
+              onClick={() => setShowCompanyModal(true)}
+            >
+              <Icon name="edit" size={18} />
+              Company Details
+            </button>
+          </div>
+        )}
       </div>
 
       <Tabs
@@ -276,10 +324,11 @@ export default function UtilityBillingPage() {
                         </button>
                         <button 
                           className="btn btn--primary" 
-                          disabled={loading || rows.length === 0}
+                          onClick={handleDownloadPdf}
+                          disabled={loading || downloading || rows.length === 0}
                         >
                           <Icon name="download" size={18} />
-                          Download PDF
+                          {downloading ? "Generating..." : "Download PDF"}
                         </button>
                       </div>
                     </div>
@@ -418,10 +467,11 @@ export default function UtilityBillingPage() {
                         </button>
                         <button 
                           className="btn btn--primary" 
-                          disabled={loading || consolidatedRows.length === 0}
+                          onClick={handleDownloadPdf}
+                          disabled={loading || downloading || consolidatedRows.length === 0}
                         >
                           <Icon name="download" size={18} />
-                          Download PDF
+                          {downloading ? "Generating..." : "Download PDF"}
                         </button>
                       </div>
                     </div>
