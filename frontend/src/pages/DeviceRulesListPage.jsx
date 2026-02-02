@@ -292,6 +292,15 @@ export default function DeviceRulesListPage() {
       return;
     }
     try {
+      // For tenant_id = 3 (SmartLPG), delete from Firebase
+      if (user?.tenant_id === 3) {
+        const { deleteDeviceRuleFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await deleteDeviceRuleFromFirebase(ruleId);
+        setSuccessMessage("Device rule deleted successfully");
+        await loadRules();
+        return;
+      }
+      
       // For tenant_id = 2, just update local state
       if (user?.tenant_id === 2) {
         setRules(rules.filter(r => r.id !== ruleId));
