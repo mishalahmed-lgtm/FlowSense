@@ -669,17 +669,72 @@ def list_device_types(
     db: Session = Depends(get_db),
 ):
     """Return available device types. Accessible to all authenticated users."""
-    device_types = db.query(DeviceType).all()
-    return [
-        DeviceTypeResponse(
-            id=dt.id,
-            name=dt.name,
-            protocol=dt.protocol,
-            description=dt.description,
-            schema_definition=_safe_load_json(dt.schema_definition),
-        )
-        for dt in device_types
-    ]
+    # For SmartLPG tenant (tenant_id = 3), return default device types without DB query
+    if current_user.tenant_id == 3:
+        logger.info("Returning default device types for SmartLPG tenant (skipping DB query)")
+        return [
+            DeviceTypeResponse(
+                id=1,
+                name="HTTP",
+                protocol="HTTP",
+                description="HTTP device",
+                schema_definition={"type": "object", "additionalProperties": True},
+            ),
+            DeviceTypeResponse(
+                id=2,
+                name="MQTT",
+                protocol="MQTT",
+                description="MQTT device",
+                schema_definition={"type": "object", "additionalProperties": True},
+            ),
+            DeviceTypeResponse(
+                id=3,
+                name="NB-IoT",
+                protocol="NB-IoT",
+                description="NB-IoT device",
+                schema_definition={"type": "object", "additionalProperties": True},
+            ),
+        ]
+    
+    try:
+        device_types = db.query(DeviceType).all()
+        return [
+            DeviceTypeResponse(
+                id=dt.id,
+                name=dt.name,
+                protocol=dt.protocol,
+                description=dt.description,
+                schema_definition=_safe_load_json(dt.schema_definition),
+            )
+            for dt in device_types
+        ]
+    except Exception as e:
+        logger.error(f"Error querying device types from database: {e}", exc_info=True)
+        # If DB is unavailable, return default device types
+        logger.warning("Database unavailable, returning default device types")
+        return [
+            DeviceTypeResponse(
+                id=1,
+                name="HTTP",
+                protocol="HTTP",
+                description="HTTP device",
+                schema_definition={"type": "object", "additionalProperties": True},
+            ),
+            DeviceTypeResponse(
+                id=2,
+                name="MQTT",
+                protocol="MQTT",
+                description="MQTT device",
+                schema_definition={"type": "object", "additionalProperties": True},
+            ),
+            DeviceTypeResponse(
+                id=3,
+                name="NB-IoT",
+                protocol="NB-IoT",
+                description="NB-IoT device",
+                schema_definition={"type": "object", "additionalProperties": True},
+            ),
+        ]
 
 
 class TenantResponse(BaseModel):
