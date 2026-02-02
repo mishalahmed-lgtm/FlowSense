@@ -460,7 +460,7 @@ export default function DeviceRulesListPage() {
                     </td>
                     <td>
                       <span className={`badge ${getRuleTypeBadgeClass(rule.rule_type)}`}>
-                        {rule.rule_type.toUpperCase()}
+                        {rule.rule_type ? rule.rule_type.toUpperCase() : "AUTOMATION"}
                       </span>
                     </td>
                     <td>
@@ -469,7 +469,7 @@ export default function DeviceRulesListPage() {
                       </code>
                     </td>
                     <td>
-                      <span className="badge badge--info">{rule.action}</span>
+                      <span className="badge badge--info">{rule.action || "log"}</span>
                     </td>
                     <td>
                       <span className={`badge ${rule.is_active ? "badge--success" : "badge--neutral"}`}>
