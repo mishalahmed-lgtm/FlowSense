@@ -93,18 +93,18 @@ export async function getDeviceDashboardFromFirebase(deviceId) {
 /**
  * Save alert rule to Firebase
  */
-export async function saveAlertRuleToFirebase(alertRule) {
+export async function saveAlertRuleToFirebase(rule) {
   try {
-    const alertRuleId = alertRule.id || `alert_rule_${Date.now()}`;
-    const alertRuleRef = doc(db, "smartLPG_alert_rules", alertRuleId);
-    await setDoc(alertRuleRef, {
-      ...alertRule,
-      id: alertRuleId,
-      created_at: Timestamp.now(),
+    const ruleId = rule.id || `alert_rule_${Date.now()}`;
+    const ruleRef = doc(db, "smartLPG_alert_rules", ruleId);
+    await setDoc(ruleRef, {
+      ...rule,
+      id: ruleId,
       updated_at: Timestamp.now(),
-    });
-    console.log(`✅ Saved alert rule ${alertRuleId} to Firebase`);
-    return { success: true, id: alertRuleId };
+      created_at: rule.created_at || Timestamp.now(),
+    }, { merge: true });
+    console.log(`✅ Saved alert rule ${ruleId} to Firebase`);
+    return { success: true, id: ruleId };
   } catch (error) {
     console.error("❌ Error saving alert rule to Firebase:", error);
     throw error;
@@ -112,108 +112,21 @@ export async function saveAlertRuleToFirebase(alertRule) {
 }
 
 /**
- * Save alert to Firebase
- */
-export async function saveAlertToFirebase(alert) {
-  try {
-    const alertId = alert.id || `alert_${Date.now()}`;
-    const alertRef = doc(db, "smartLPG_alerts", alertId);
-    await setDoc(alertRef, {
-      ...alert,
-      id: alertId,
-      created_at: Timestamp.now(),
-      updated_at: Timestamp.now(),
-    });
-    console.log(`✅ Saved alert ${alertId} to Firebase`);
-    return { success: true, id: alertId };
-  } catch (error) {
-    console.error("❌ Error saving alert to Firebase:", error);
-    throw error;
-  }
-}
-
-/**
  * Get alert rules from Firebase
  */
-export async function getAlertRulesFromFirebase(tenantId) {
+export async function getAlertRulesFromFirebase() {
   try {
     const rulesRef = collection(db, "smartLPG_alert_rules");
-    const q = query(
-      rulesRef,
-      where("tenant_id", "==", tenantId),
-      orderBy("created_at", "desc")
-    );
-    
-    const querySnapshot = await getDocs(q);
+    const rulesSnap = await getDocs(rulesRef);
     const rules = [];
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      rules.push({
-        ...data,
-        id: docSnap.id,
-        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
-        updated_at: data.updated_at?.toDate?.()?.toISOString() || data.updated_at,
-      });
+    rulesSnap.forEach((doc) => {
+      rules.push({ ...doc.data(), id: doc.id });
     });
-    
+    console.log(`✅ Loaded ${rules.length} alert rules from Firebase`);
     return rules;
   } catch (error) {
     console.error("❌ Error getting alert rules from Firebase:", error);
     return [];
-  }
-}
-
-/**
- * Get alerts from Firebase
- */
-export async function getAlertsFromFirebase(tenantId, filters = {}) {
-  try {
-    const alertsRef = collection(db, "smartLPG_alerts");
-    let q = query(alertsRef, where("tenant_id", "==", tenantId));
-    
-    if (filters.status && filters.status !== "all") {
-      q = query(q, where("status", "==", filters.status));
-    }
-    if (filters.priority && filters.priority !== "all") {
-      q = query(q, where("priority", "==", filters.priority));
-    }
-    
-    q = query(q, orderBy("created_at", "desc"));
-    
-    const querySnapshot = await getDocs(q);
-    const alerts = [];
-    querySnapshot.forEach((docSnap) => {
-      const data = docSnap.data();
-      alerts.push({
-        ...data,
-        id: docSnap.id,
-        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
-        updated_at: data.updated_at?.toDate?.()?.toISOString() || data.updated_at,
-      });
-    });
-    
-    return alerts;
-  } catch (error) {
-    console.error("❌ Error getting alerts from Firebase:", error);
-    return [];
-  }
-}
-
-/**
- * Update alert in Firebase
- */
-export async function updateAlertInFirebase(alertId, updates) {
-  try {
-    const alertRef = doc(db, "smartLPG_alerts", alertId);
-    await setDoc(alertRef, {
-      ...updates,
-      updated_at: Timestamp.now(),
-    }, { merge: true });
-    console.log(`✅ Updated alert ${alertId} in Firebase`);
-    return { success: true };
-  } catch (error) {
-    console.error("❌ Error updating alert in Firebase:", error);
-    throw error;
   }
 }
 
@@ -229,6 +142,83 @@ export async function deleteAlertRuleFromFirebase(ruleId) {
   } catch (error) {
     console.error("❌ Error deleting alert rule from Firebase:", error);
     throw error;
+  }
+}
+
+/**
+ * Save alert to Firebase
+ */
+export async function saveAlertToFirebase(alert) {
+  try {
+    const alertId = alert.id || `alert_${Date.now()}`;
+    const alertRef = doc(db, "smartLPG_alerts", alertId);
+    await setDoc(alertRef, {
+      ...alert,
+      id: alertId,
+      created_at: alert.created_at || Timestamp.now(),
+      updated_at: Timestamp.now(),
+    }, { merge: true });
+    console.log(`✅ Saved alert ${alertId} to Firebase`);
+    return { success: true, id: alertId };
+  } catch (error) {
+    console.error("❌ Error saving alert to Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update alert status in Firebase
+ */
+export async function updateAlertStatusInFirebase(alertId, status) {
+  try {
+    const alertRef = doc(db, "smartLPG_alerts", alertId);
+    await setDoc(alertRef, {
+      status: status,
+      updated_at: Timestamp.now(),
+    }, { merge: true });
+    console.log(`✅ Updated alert ${alertId} status to ${status}`);
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error updating alert status in Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get alerts from Firebase with optional filtering
+ */
+export async function getAlertsFromFirebase(filterStatus = null, filterPriority = null) {
+  try {
+    const alertsRef = collection(db, "smartLPG_alerts");
+    let q = query(alertsRef, orderBy("created_at", "desc"));
+    
+    // Apply filters if provided
+    if (filterStatus) {
+      q = query(alertsRef, where("status", "==", filterStatus), orderBy("created_at", "desc"));
+    }
+    
+    const alertsSnap = await getDocs(q);
+    let alerts = [];
+    alertsSnap.forEach((doc) => {
+      const data = doc.data();
+      alerts.push({
+        ...data,
+        id: doc.id,
+        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
+        updated_at: data.updated_at?.toDate?.()?.toISOString() || data.updated_at,
+      });
+    });
+    
+    // Apply priority filter if provided (client-side since Firestore doesn't support multiple where clauses without composite index)
+    if (filterPriority) {
+      alerts = alerts.filter(alert => alert.priority === filterPriority);
+    }
+    
+    console.log(`✅ Loaded ${alerts.length} alerts from Firebase`);
+    return alerts;
+  } catch (error) {
+    console.error("❌ Error getting alerts from Firebase:", error);
+    return [];
   }
 }
 
@@ -322,6 +312,90 @@ export async function saveDeviceToFirebase(device) {
     return { success: true, device_id: deviceId };
   } catch (error) {
     console.error("❌ Error saving device to Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Update device in Firebase
+ */
+export async function updateDeviceInFirebase(device) {
+  return saveDeviceToFirebase(device); // Same as save, uses merge
+}
+
+/**
+ * Delete device from Firebase
+ */
+export async function deleteDeviceFromFirebase(deviceId) {
+  try {
+    const deviceRef = doc(db, "smartLPG", deviceId);
+    await deleteDoc(deviceRef);
+    console.log(`✅ Deleted device ${deviceId} from Firebase`);
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error deleting device from Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Save device rule to Firebase
+ */
+export async function saveDeviceRuleToFirebase(rule) {
+  try {
+    // Convert to JSON and back to remove undefined
+    const jsonSafe = JSON.parse(JSON.stringify(rule, (key, value) => {
+      return value === undefined ? null : value;
+    }));
+    
+    const cleanedRule = cleanForFirebase(jsonSafe);
+    
+    const ruleId = rule.id || `rule_${Date.now()}`;
+    const ruleRef = doc(db, "smartLPG_device_rules", ruleId);
+    await setDoc(ruleRef, {
+      ...cleanedRule,
+      id: ruleId,
+      updated_at: Timestamp.now(),
+      created_at: cleanedRule.created_at || Timestamp.now(),
+    }, { merge: true });
+    console.log(`✅ Saved device rule ${ruleId} to Firebase`);
+    return { success: true, id: ruleId };
+  } catch (error) {
+    console.error("❌ Error saving device rule to Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get device rules from Firebase
+ */
+export async function getDeviceRulesFromFirebase() {
+  try {
+    const rulesRef = collection(db, "smartLPG_device_rules");
+    const rulesSnap = await getDocs(rulesRef);
+    const rules = [];
+    rulesSnap.forEach((doc) => {
+      rules.push({ ...doc.data(), id: doc.id });
+    });
+    console.log(`✅ Loaded ${rules.length} device rules from Firebase`);
+    return rules;
+  } catch (error) {
+    console.error("❌ Error getting device rules from Firebase:", error);
+    return [];
+  }
+}
+
+/**
+ * Delete device rule from Firebase
+ */
+export async function deleteDeviceRuleFromFirebase(ruleId) {
+  try {
+    const ruleRef = doc(db, "smartLPG_device_rules", ruleId);
+    await deleteDoc(ruleRef);
+    console.log(`✅ Deleted device rule ${ruleId} from Firebase`);
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error deleting device rule from Firebase:", error);
     throw error;
   }
 }
