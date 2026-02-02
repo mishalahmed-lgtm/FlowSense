@@ -261,7 +261,7 @@ function buildInitialState(device, userTenantId) {
     device_id: device.device_id,
     name: device.name || "",
     device_type_id: device.device_type_id || device.device_type?.id || "",
-    protocol: device.device_type?.protocol || "",
+    protocol: device.protocol || device.device_type?.protocol || "",
     tenant_id: device.tenant_id || userTenantId || "",
     is_active: device.is_active ?? false, // Default to false if not set
     metadata: cloneMetadata(device.metadata),

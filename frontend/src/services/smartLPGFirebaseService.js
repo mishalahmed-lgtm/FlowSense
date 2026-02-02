@@ -7,14 +7,38 @@ import { db } from "../utils/firebase";
 import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy, Timestamp } from "firebase/firestore";
 
 /**
+ * Remove undefined values from an object recursively
+ */
+function removeUndefined(obj) {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => removeUndefined(item)).filter(item => item !== undefined);
+  }
+  
+  const cleaned = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      cleaned[key] = removeUndefined(value);
+    }
+  }
+  return cleaned;
+}
+
+/**
  * Save device dashboard configuration to Firebase
  */
 export async function saveDeviceDashboardToFirebase(deviceId, config) {
   try {
+    // Remove undefined values from config (Firebase doesn't support undefined)
+    const cleanedConfig = removeUndefined(config);
+    
     const dashboardRef = doc(db, "smartLPG_dashboards", deviceId);
     await setDoc(dashboardRef, {
       device_id: deviceId,
-      config: config,
+      config: cleanedConfig,
       updated_at: Timestamp.now(),
       created_at: Timestamp.now(),
     }, { merge: true });
