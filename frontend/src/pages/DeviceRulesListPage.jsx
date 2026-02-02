@@ -31,17 +31,6 @@ export default function DeviceRulesListPage() {
     is_active: true,
   });
 
-  // Only tenant admins can access
-  if (!isTenantAdmin) {
-    return (
-      <div className="page">
-        <div className="card">
-          <p className="text-error">Access denied. This page requires tenant admin access.</p>
-        </div>
-      </div>
-    );
-  }
-
   const generateDummyRules = (deviceList) => {
     // Generate rules for just a few devices (5-8 rules total)
     const ruleTypes = ["automation", "routing", "transformation", "filtering"];
