@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Tabs from "../components/Tabs.jsx";
@@ -25,94 +25,143 @@ export default function UtilityBillingPage() {
   const [fromDate, setFromDate] = useState(formatDateInput(thirtyDaysAgo));
   const [toDate, setToDate] = useState(formatDateInput(today));
   const [selectedDevice, setSelectedDevice] = useState("");
+  const [devices, setDevices] = useState([]);
   const [rows, setRows] = useState([]);
   const [consolidatedRows, setConsolidatedRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasRun, setHasRun] = useState(false);
 
-  const runPerDeviceReport = () => {
-    setLoading(true);
-    setError(null);
-    setHasRun(true);
-    
-    setTimeout(() => {
-      // Generate dummy per-device data
-      const dummyRows = Array.from({ length: 50 }, (_, i) => ({
-        tenant_id: user?.tenant_id || 3,
-        tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
-        device_id: `device_${i + 1}`,
-        device_external_id: `device_${i + 1}`,
-        device_name: `Device ${i + 1}`,
-        utility_kind: "gas",
-        index_key: `gas_meter_${i + 1}`,
-        period_start: fromDate,
-        period_end: toDate,
-        start_index: null,
-        end_index: null,
-        consumption: Math.round((Math.random() * 500 + 100) * 100) / 100,
-        unit: "L",
-        rate_per_unit: 3.0,
-        currency: "AED",
-        amount: Math.round((Math.random() * 1500 + 300) * 100) / 100,
-      }));
-      
-      setRows(dummyRows);
-      setConsolidatedRows([]);
-      setLoading(false);
-    }, 500);
+  useEffect(() => {
+    loadDevices();
+  }, []);
+
+  const loadDevices = async () => {
+    try {
+      // For SmartLPG tenant, load devices from Firebase
+      if (user?.tenant_id === 3) {
+        const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
+        const smartLPGData = await fetchSmartLPGDataForDashboard();
+        if (smartLPGData.success && smartLPGData.devices) {
+          setDevices(smartLPGData.devices);
+          console.log(`✅ Loaded ${smartLPGData.devices.length} SmartLPG devices`);
+        }
+      }
+    } catch (err) {
+      console.error("Error loading devices:", err);
+    }
   };
 
-  const runConsolidatedReport = () => {
+  const runPerDeviceReport = async () => {
     setLoading(true);
     setError(null);
     setHasRun(true);
     
-    setTimeout(() => {
-      // Generate dummy consolidated data
-      const consolidated = [
-        {
-          tenant_id: user?.tenant_id || 3,
-          tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
-          utility_kind: "electricity",
-          period_start: fromDate,
-          period_end: toDate,
-          total_consumption: 125000.50,
-          unit: "kWh",
-          total_cost: 62500.25,
-          currency: "AED",
-          device_count: 2000,
-        },
-        {
-          tenant_id: user?.tenant_id || 3,
-          tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
-          utility_kind: "gas",
-          period_start: fromDate,
-          period_end: toDate,
-          total_consumption: 52000.75,
-          unit: "L",
-          total_cost: 156002.25,
-          currency: "AED",
-          device_count: 2000,
-        },
-        {
-          tenant_id: user?.tenant_id || 3,
-          tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
-          utility_kind: "water",
-          period_start: fromDate,
-          period_end: toDate,
-          total_consumption: 31000.00,
-          unit: "m³",
-          total_cost: 31000.00,
-          currency: "AED",
-          device_count: 2000,
-        },
-      ];
-      
-      setConsolidatedRows(consolidated);
-      setRows([]);
+    try {
+      // For SmartLPG tenant, use actual devices
+      if (user?.tenant_id === 3) {
+        const { calculateGasConsumption } = await import("../services/smartLPGDataMapper.js");
+        
+        // Filter devices if specific device selected
+        let devicesToUse = devices;
+        if (selectedDevice && selectedDevice !== "") {
+          devicesToUse = devices.filter(d => d.device_id === selectedDevice);
+        }
+        
+        // Calculate gas consumption for each device
+        const reportRows = devicesToUse.map(device => {
+          const consumption = calculateGasConsumption(device);
+          const fromDateObj = new Date(fromDate);
+          const toDateObj = new Date(toDate);
+          const daysDiff = Math.ceil((toDateObj - fromDateObj) / (1000 * 60 * 60 * 24));
+          
+          // Scale monthly consumption to report period
+          const periodConsumption = (parseFloat(consumption.monthly_consumption_liters) / 30) * daysDiff;
+          const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysDiff;
+          
+          return {
+            tenant_id: user?.tenant_id,
+            tenant_name: "SmartLPG",
+            device_id: device.device_id,
+            device_external_id: device.device_id,
+            device_name: device.name || device.device_id,
+            utility_kind: "gas",
+            index_key: "lpg_tank_level",
+            period_start: fromDate,
+            period_end: toDate,
+            start_index: null,
+            end_index: null,
+            consumption: Math.round(periodConsumption * 100) / 100,
+            unit: "L",
+            rate_per_unit: 3.0,
+            currency: "AED",
+            amount: Math.round(periodCost * 100) / 100,
+          };
+        });
+        
+        setRows(reportRows);
+        setConsolidatedRows([]);
+      }
+    } catch (err) {
+      console.error("Error generating report:", err);
+      setError("Failed to generate report");
+    } finally {
       setLoading(false);
-    }, 500);
+    }
+  };
+
+  const runConsolidatedReport = async () => {
+    setLoading(true);
+    setError(null);
+    setHasRun(true);
+    
+    try {
+      // For SmartLPG tenant, consolidate gas consumption only
+      if (user?.tenant_id === 3) {
+        const { calculateGasConsumption } = await import("../services/smartLPGDataMapper.js");
+        
+        const fromDateObj = new Date(fromDate);
+        const toDateObj = new Date(toDate);
+        const daysDiff = Math.ceil((toDateObj - fromDateObj) / (1000 * 60 * 60 * 24));
+        
+        // Calculate total gas consumption across all devices
+        let totalConsumption = 0;
+        let totalCost = 0;
+        
+        devices.forEach(device => {
+          const consumption = calculateGasConsumption(device);
+          const periodConsumption = (parseFloat(consumption.monthly_consumption_liters) / 30) * daysDiff;
+          const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysDiff;
+          
+          totalConsumption += periodConsumption;
+          totalCost += periodCost;
+        });
+        
+        // SmartLPG only has gas devices
+        const consolidated = [
+          {
+            tenant_id: user?.tenant_id,
+            tenant_name: "SmartLPG",
+            utility_kind: "gas",
+            period_start: fromDate,
+            period_end: toDate,
+            total_consumption: Math.round(totalConsumption * 100) / 100,
+            unit: "L",
+            total_cost: Math.round(totalCost * 100) / 100,
+            currency: "AED",
+            device_count: devices.length,
+          },
+        ];
+        
+        setConsolidatedRows(consolidated);
+        setRows([]);
+      }
+    } catch (err) {
+      console.error("Error generating consolidated report:", err);
+      setError("Failed to generate consolidated report");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isTenantAdmin) {
@@ -180,10 +229,10 @@ export default function UtilityBillingPage() {
                             value={selectedDevice}
                             onChange={(e) => setSelectedDevice(e.target.value)}
                           >
-                            <option value="">All Devices</option>
-                            {Array.from({ length: 50 }, (_, i) => (
-                              <option key={`device_${i + 1}`} value={`device_${i + 1}`}>
-                                Device {i + 1}
+                            <option value="">All Devices ({devices.length})</option>
+                            {devices.map((device) => (
+                              <option key={device.device_id} value={device.device_id}>
+                                {device.device_id} - {device.name || "Unnamed Device"}
                               </option>
                             ))}
                           </select>
