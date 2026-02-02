@@ -130,6 +130,53 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info(f"✓ Default tenant already exists: {existing_tenant.name}")
             
+            # Check if SmartLPG tenant exists (tenant_id = 3)
+            smartlpg_tenant = db.query(Tenant).filter(
+                (Tenant.id == 3) | (Tenant.code == "SMARTLPG") | (Tenant.code == "0078")
+            ).first()
+            
+            if not smartlpg_tenant:
+                smartlpg_tenant = Tenant(
+                    id=3,
+                    name="SmartLPG",
+                    code="SMARTLPG",
+                    is_active=True,
+                )
+                db.add(smartlpg_tenant)
+                db.commit()
+                db.refresh(smartlpg_tenant)
+                logger.info(f"✅ SmartLPG tenant created: {smartlpg_tenant.name} (ID: {smartlpg_tenant.id})")
+            else:
+                logger.info(f"✓ SmartLPG tenant already exists: {smartlpg_tenant.name} (ID: {smartlpg_tenant.id})")
+            
+            # Check if SmartLPG user exists
+            smartlpg_email = "smartlpg@flowsense.com"
+            existing_smartlpg_user = db.query(User).filter(User.email == smartlpg_email.lower()).first()
+            
+            if not existing_smartlpg_user:
+                smartlpg_password = "SmartLPG2024!"
+                smartlpg_user = User(
+                    email=smartlpg_email.lower(),
+                    hashed_password=hash_password(smartlpg_password),
+                    full_name="SmartLPG Administrator",
+                    role=UserRole.TENANT_ADMIN,
+                    tenant_id=smartlpg_tenant.id,
+                    enabled_modules=["devices", "dashboards", "utility", "rules", "alerts", "fota"],
+                    is_active=True,
+                )
+                db.add(smartlpg_user)
+                db.commit()
+                db.refresh(smartlpg_user)
+                logger.info(f"✅ SmartLPG user created: {smartlpg_email} / {smartlpg_password}")
+                logger.info(f"   User ID: {smartlpg_user.id}, Tenant ID: {smartlpg_user.tenant_id}")
+            else:
+                # Ensure user is linked to SmartLPG tenant
+                if existing_smartlpg_user.tenant_id != smartlpg_tenant.id:
+                    existing_smartlpg_user.tenant_id = smartlpg_tenant.id
+                    db.commit()
+                    logger.info(f"✅ Updated SmartLPG user tenant_id to {smartlpg_tenant.id}")
+                logger.info(f"✓ SmartLPG user already exists: {smartlpg_email} (ID: {existing_smartlpg_user.id})")
+            
             # Auto-create HTTP and MQTT device types if they don't exist
             from models import DeviceType
             device_types_to_create = [
