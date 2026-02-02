@@ -13,11 +13,13 @@ export default function DeviceRulesListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    loadRules();
-  }, []);
-
   const loadRules = async () => {
+    // Don't load if user is not available yet
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       
@@ -43,6 +45,11 @@ export default function DeviceRulesListPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.tenant_id]);
 
   if (!isTenantAdmin) {
     return (
