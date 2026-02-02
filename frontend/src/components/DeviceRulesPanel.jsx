@@ -402,11 +402,14 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal,
           ...initialFormState,
           conditionFieldChoice: fieldOptions[0]?.value || CUSTOM_FIELD_VALUE,
         }));
-        loadRules();
         // Close modal after successful creation
         if (setShowModal) {
           setShowModal(false);
         }
+        // Reload rules after a short delay to ensure Firebase write is complete
+        setTimeout(() => {
+          loadRules();
+        }, 500);
         return;
       }
       
