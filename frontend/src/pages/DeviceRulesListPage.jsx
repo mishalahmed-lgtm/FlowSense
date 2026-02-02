@@ -367,6 +367,17 @@ export default function DeviceRulesListPage() {
     }
   };
 
+  // Only tenant admins can access - check AFTER all hooks
+  if (!isTenantAdmin) {
+    return (
+      <div className="page">
+        <div className="card">
+          <p className="text-error">Access denied. This page requires tenant admin access.</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="page">
       <Breadcrumbs
