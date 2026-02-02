@@ -621,7 +621,7 @@ def _rotate_provisioning_key(device: Device, db: Session) -> dict:
     new_key_value = secrets.token_urlsafe(32)
     device.provisioning_key = new_key_value
     device.provisioning_key_expires_at = None  # Reset expiration if needed
-        db.commit()
+    db.commit()
     db.refresh(device)
     return {
         "key": device.provisioning_key,
