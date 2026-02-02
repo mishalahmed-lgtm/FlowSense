@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
 import Icon from "./Icon.jsx";
 
 const CUSTOM_FIELD_VALUE = "__custom_field__";
