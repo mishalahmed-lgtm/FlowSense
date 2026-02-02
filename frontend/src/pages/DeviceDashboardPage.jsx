@@ -899,7 +899,7 @@ export default function DeviceDashboardPage() {
       if (isSmartLPGTenant(user?.tenant_id)) {
         const { saveDeviceDashboardToFirebase } = await import("../services/smartLPGFirebaseService.js");
         await saveDeviceDashboardToFirebase(deviceId, { widgets, layout: layoutToSave });
-        setSuccessMessage("Dashboard saved successfully to Firebase");
+        // Don't show success message for SmartLPG tenant (auto-save)
       } else {
         await api.post(`/dashboard/devices/${deviceId}/dashboard`, {
           config: { widgets, layout: layoutToSave },
