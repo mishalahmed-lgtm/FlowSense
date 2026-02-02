@@ -169,10 +169,17 @@ export default function DeviceRulesListPage() {
   }, [token, user]);
 
   useEffect(() => {
+    if (!token) return;
+    // For SmartLPG tenant, load rules immediately (don't wait for devices)
+    if (isSmartLPGTenant(user?.tenant_id)) {
+      loadRules();
+      return;
+    }
+    // For other tenants, wait for devices to load
     if (devices.length > 0 || (user?.tenant_id === 2 && devices.length === 0)) {
       loadRules();
     }
-  }, [devices.length, user]);
+  }, [token, devices.length, user?.tenant_id]);
 
   const openModal = (rule = null) => {
     if (rule) {
