@@ -6,7 +6,7 @@ import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
 
 export default function DeviceRulesListPage() {
-  const { isTenantAdmin, user } = useAuth();
+  const { isTenantAdmin, user, token } = useAuth();
   const navigate = useNavigate();
   
   const [rules, setRules] = useState([]);
@@ -15,31 +15,33 @@ export default function DeviceRulesListPage() {
 
   const loadRules = async () => {
     // Don't load if user is not available yet
-    if (!user) {
+    if (!user || !token) {
       setLoading(false);
       return;
     }
 
     try {
       setLoading(true);
+      setError(null);
       
       // For SmartLPG tenant, try to load from Firebase
       if (user?.tenant_id === 3) {
         try {
           const { getDeviceRulesFromFirebase } = await import("../services/smartLPGFirebaseService.js");
           const firebaseRules = await getDeviceRulesFromFirebase();
+          console.log("✅ Loaded rules:", firebaseRules);
           setRules(firebaseRules || []);
         } catch (err) {
-          console.error("Firebase error:", err);
+          console.error("❌ Firebase error:", err);
+          setError("Failed to load rules from Firebase: " + (err.message || "Unknown error"));
           setRules([]);
         }
       } else {
         setRules([]);
       }
-      setError(null);
     } catch (err) {
-      console.error("Error loading rules:", err);
-      setError("Failed to load device rules");
+      console.error("❌ Error loading rules:", err);
+      setError("Failed to load device rules: " + (err.message || "Unknown error"));
       setRules([]);
     } finally {
       setLoading(false);
@@ -47,10 +49,23 @@ export default function DeviceRulesListPage() {
   };
 
   useEffect(() => {
+    console.log("🔄 DeviceRulesListPage useEffect, user:", user, "token:", !!token);
     loadRules();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.tenant_id]);
+  }, [user?.tenant_id, token]);
 
+  const getRuleTypeBadgeClass = (type) => {
+    if (!type) return "badge--neutral";
+    switch (String(type).toLowerCase()) {
+      case "automation": return "badge--info";
+      case "routing": return "badge--success";
+      case "transformation": return "badge--warning";
+      case "filtering": return "badge--neutral";
+      default: return "badge--neutral";
+    }
+  };
+
+  // Only tenant admins can access - check AFTER all hooks
   if (!isTenantAdmin) {
     return (
       <div className="page">
@@ -61,15 +76,18 @@ export default function DeviceRulesListPage() {
     );
   }
 
-  const getRuleTypeBadgeClass = (type) => {
-    switch (type) {
-      case "automation": return "badge--info";
-      case "routing": return "badge--success";
-      case "transformation": return "badge--warning";
-      case "filtering": return "badge--neutral";
-      default: return "badge--neutral";
-    }
-  };
+  // Safety check - if still loading user
+  if (!user) {
+    return (
+      <div className="page">
+        <div className="card">
+          <div style={{ textAlign: "center", padding: "var(--space-12)" }}>
+            <p className="text-muted">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page">
@@ -144,57 +162,60 @@ export default function DeviceRulesListPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rules.map((rule) => (
-                    <tr key={rule.id}>
-                      <td>
-                        <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                          {rule.name || "Unnamed Rule"}
-                        </div>
-                        {rule.description && (
-                          <div className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                            {rule.description}
+                  {rules.map((rule, index) => {
+                    const ruleId = rule.id || `rule_${index}`;
+                    return (
+                      <tr key={ruleId}>
+                        <td>
+                          <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
+                            {rule.name || "Unnamed Rule"}
                           </div>
-                        )}
-                      </td>
-                      <td>
-                        {rule.device_name || rule.device_id || "All Devices"}
-                      </td>
-                      <td>
-                        <span className={`badge ${getRuleTypeBadgeClass(rule.rule_type)}`}>
-                          {rule.rule_type ? String(rule.rule_type).toUpperCase() : "AUTOMATION"}
-                        </span>
-                      </td>
-                      <td>
-                        <code style={{ fontSize: "var(--font-size-xs)" }}>
-                          {rule.condition?.field || ""} {rule.condition?.operator || ""} {rule.condition?.value || ""}
-                        </code>
-                      </td>
-                      <td>
-                        <span className="badge badge--info">{rule.action || "log"}</span>
-                      </td>
-                      <td>
-                        <span className={`badge ${rule.is_active ? "badge--success" : "badge--neutral"}`}>
-                          {rule.is_active ? "Active" : "Inactive"}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                          <button
-                            className="btn btn--xs btn--secondary"
-                            title="Edit Rule"
-                          >
-                            <Icon name="edit" size={14} />
-                          </button>
-                          <button
-                            className="btn btn--xs btn--danger"
-                            title="Delete Rule"
-                          >
-                            <Icon name="trash" size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                          {rule.description && (
+                            <div className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>
+                              {rule.description}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          {rule.device_name || rule.device_id || "All Devices"}
+                        </td>
+                        <td>
+                          <span className={`badge ${getRuleTypeBadgeClass(rule.rule_type)}`}>
+                            {rule.rule_type ? String(rule.rule_type).toUpperCase() : "AUTOMATION"}
+                          </span>
+                        </td>
+                        <td>
+                          <code style={{ fontSize: "var(--font-size-xs)" }}>
+                            {String(rule.condition?.field || "")} {String(rule.condition?.operator || "")} {String(rule.condition?.value || "")}
+                          </code>
+                        </td>
+                        <td>
+                          <span className="badge badge--info">{String(rule.action || "log")}</span>
+                        </td>
+                        <td>
+                          <span className={`badge ${rule.is_active ? "badge--success" : "badge--neutral"}`}>
+                            {rule.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                            <button
+                              className="btn btn--xs btn--secondary"
+                              title="Edit Rule"
+                            >
+                              <Icon name="edit" size={14} />
+                            </button>
+                            <button
+                              className="btn btn--xs btn--danger"
+                              title="Delete Rule"
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
