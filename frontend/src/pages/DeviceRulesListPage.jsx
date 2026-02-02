@@ -468,7 +468,7 @@ export default function DeviceRulesListPage() {
                     </td>
                     <td>
                       <code style={{ fontSize: "var(--font-size-xs)" }}>
-                        {rule.condition?.field} {rule.condition?.operator} {rule.condition?.value}
+                        {String(rule.condition?.field || "")} {String(rule.condition?.operator || "")} {String(rule.condition?.value || "")}
                       </code>
                     </td>
                     <td>

@@ -162,14 +162,22 @@ export default function UtilityBillingPage() {
         if (viewMode === "per-device") {
           // Generate dummy per-device billing data
           const { generateDummyEnergyData } = await import("../utils/dummyData.js");
-          const dummyEnergy = generateDummyEnergyData(dummyDevices, hours);
+          
+          // If specific device selected, filter to just that device
+          let devicesToUse = dummyDevices;
+          if (selectedDevice && selectedDevice !== "") {
+            devicesToUse = dummyDevices.filter(d => d.device_id === selectedDevice);
+            console.log(`📊 Filtering to device: ${selectedDevice}`, devicesToUse);
+          }
+          
+          const dummyEnergy = generateDummyEnergyData(devicesToUse, hours);
           
           // Store full totals for summary (matching energy dashboard)
           const fullTotalConsumption = dummyEnergy.summary.total_consumption_kwh;
           const fullTotalCost = dummyEnergy.summary.total_cost;
           
           // Map to billing row format (show top 50 devices, but totals use full data)
-          const mappedRows = dummyEnergy.topConsumers.slice(0, 50).map((device, idx) => {
+          const mappedRows = dummyEnergy.topConsumers.slice(0, selectedDevice ? 1 : 50).map((device, idx) => {
             const consumption = device.consumption || device.total_kwh || 0;
             const cost = device.cost || consumption * 0.5;
             return {
@@ -201,6 +209,8 @@ export default function UtilityBillingPage() {
           // Generate dummy consolidated billing data
           const { generateDummyEnergyData } = await import("../utils/dummyData.js");
           const dummyEnergy = generateDummyEnergyData(dummyDevices, hours);
+          
+          console.log(`📊 Generating consolidated report, total devices: ${dummyDeviceCount}`);
           
           // Use same totals as energy dashboard for consistency
           const electricityConsumption = dummyEnergy.summary.total_consumption_kwh * 0.6;
@@ -565,11 +575,20 @@ export default function UtilityBillingPage() {
                       onChange={(e) => setSelectedDevice(e.target.value)}
                     >
                       <option value="">All {utilityKind.charAt(0).toUpperCase() + utilityKind.slice(1)} Devices</option>
-                      {getRelevantDevices().map((device) => (
-                        <option key={device.id} value={device.id}>
-                          {device.name || device.device_id}
-                        </option>
-                      ))}
+                      {(user?.tenant_id === 2 || user?.tenant_id === 3) ? (
+                        // For Firebase tenants, show dummy device options
+                        Array.from({ length: 50 }, (_, i) => (
+                          <option key={`device_${i + 1}`} value={`device_${i + 1}`}>
+                            Device {i + 1}
+                          </option>
+                        ))
+                      ) : (
+                        getRelevantDevices().map((device) => (
+                          <option key={device.id} value={device.id}>
+                            {device.name || device.device_id}
+                          </option>
+                        ))
+                      )}
                     </select>
                   </div>
 
