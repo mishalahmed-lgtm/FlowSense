@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from config import settings
 from database import SessionLocal
-from models import ProvisioningKey, Device
+from models import Device
 from rate_limiter import rate_limiter
 from metrics import metrics
 from validators import telemetry_validator
@@ -259,12 +259,13 @@ class TCPIngestionServer:
         device_type_name = None
         tenant_id = None
         try:
-            provisioning_key: Optional[ProvisioningKey] = db.query(ProvisioningKey).filter(
-                ProvisioningKey.key == device_key,
-                ProvisioningKey.is_active == True  # noqa: E712
+            # Query device directly by provisioning_key (denormalized field)
+            device = db.query(Device).filter(
+                Device.provisioning_key == device_key,
+                Device.is_active == True  # noqa: E712
             ).first()
 
-            if not provisioning_key:
+            if not device:
                 metrics.record_message_rejected(device_id, "invalid_device_key")
                 metrics.record_auth_failure(device_id)
                 return {
@@ -274,8 +275,7 @@ class TCPIngestionServer:
                     "error": "invalid_device_key"
                 }
 
-            device = provisioning_key.device
-            if not device or not device.is_active:
+            if not device.is_active:
                 metrics.record_message_rejected(device_id, "inactive_device")
                 metrics.record_auth_failure(device_id)
                 return {

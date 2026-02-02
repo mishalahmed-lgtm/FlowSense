@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from database import SessionLocal
 from models import (
-    FOTAJob, FOTAJobDevice, DeviceFirmwareStatus, FirmwareVersion,
+    FOTAJob, FOTAJobDevice, FirmwareVersion,
     Device, FirmwareUpdateStatus, FOTAJobStatus
 )
 from config import settings
@@ -166,7 +166,7 @@ class FOTAService:
             # Build firmware download URL
             # In production, this would be a public URL (S3, CDN, etc.)
             # For now, we'll use a placeholder that the device agent should handle
-            firmware_url = f"http://{settings.mqtt_broker_host}:5000/api/v1/fota/firmwares/{firmware_version.firmware_id}/versions/{firmware_version.id}/download"
+            firmware_url = f"http://{settings.mqtt_broker_host}:5000/api/v1/fota/firmware-versions/{firmware_version.id}/download"
             
             # Build MQTT command payload
             command_payload = {
@@ -196,13 +196,9 @@ class FOTAService:
                         job_device.status = FirmwareUpdateStatus.DOWNLOADING
                         job_device.last_update_at = datetime.now(timezone.utc)
                         
-                        # Update DeviceFirmwareStatus
-                        dfs = db.query(DeviceFirmwareStatus).filter(
-                            DeviceFirmwareStatus.device_id == device.id
-                        ).first()
-                        if dfs:
-                            dfs.status = FirmwareUpdateStatus.DOWNLOADING
-                            dfs.last_update_at = datetime.now(timezone.utc)
+                        # Update device firmware status (denormalized fields)
+                        device.firmware_status = "downloading"
+                        device.firmware_last_update_at = datetime.now(timezone.utc)
                         
                         db.commit()
                         logger.info(f"Sent FOTA command to device {device.device_id} (job {job.id})")

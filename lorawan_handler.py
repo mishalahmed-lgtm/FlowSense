@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from database import SessionLocal
-from models import Device, TelemetryLatest
+from models import Device, DeviceData
 from kafka_producer import telemetry_producer
 from metrics import metrics
 from rule_engine import rule_engine

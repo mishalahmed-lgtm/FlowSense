@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Tabs from "../components/Tabs.jsx";
 import BackButton from "../components/BackButton.jsx";
@@ -59,35 +60,34 @@ export default function AlertsPage() {
     setError(null);
     
     try {
-      // For tenant_id = 2 or 3, use dummy/SmartLPG alerts
-      if (user?.tenant_id === 2 || user?.tenant_id === 3) {
+      // For SmartLPG tenant, load from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        console.log(`🔥 [ALERTS] Loading alerts from Firebase for tenant_id = ${user?.tenant_id}`);
+        const { getAlertsFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const allAlerts = await getAlertsFromFirebase(user?.tenant_id, { status: filterStatus, priority: filterPriority });
+        
+        console.log("✅ [ALERTS] Loaded", allAlerts.length, "alerts from Firebase");
+        setAlerts(allAlerts);
+        setError(null);
+        
+        // Save to cache
+        saveToCache(cacheKey, { alerts: allAlerts });
+        
+        setLoading(false);
+        return;
+      }
+      
+      // For tenant_id = 2, use dummy alerts
+      if (user?.tenant_id === 2) {
         console.log(`🔥 [ALERTS] Generating alerts for tenant_id = ${user?.tenant_id} (instant)`);
         
-        let allAlerts = [];
-        
-        if (user?.tenant_id === 3) {
-          // For SmartLPG tenant, fetch devices and generate SmartLPG-specific alerts
-          const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
-          const { generateSmartLPGAlerts } = await import("../utils/dummyData.js");
-          
-          const firebaseData = await fetchSmartLPGDataForDashboard();
-          if (firebaseData.success) {
-            const tekelekDevices = firebaseData.devices.filter(d => 
-              d.device_type && d.device_type.includes("Tekelek")
-            );
-            allAlerts = generateSmartLPGAlerts(firebaseData.devices, tekelekDevices);
-            console.log(`✅ [ALERTS] Generated ${allAlerts.length} SmartLPG alerts`);
-          }
-        } else {
-          // For tenant_id = 2, use dummy alerts
-          const { generateDummyAlerts } = await import("../utils/dummyData");
-          const dummyDeviceCount = 2000;
-          const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
-            device_id: `device_${i + 1}`,
-            name: `Device ${i + 1}`,
-          }));
-          allAlerts = generateDummyAlerts(dummyDevices, 25);
-        }
+        const { generateDummyAlerts } = await import("../utils/dummyData");
+        const dummyDeviceCount = 2000;
+        const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
+          device_id: `device_${i + 1}`,
+          name: `Device ${i + 1}`,
+        }));
+        const allAlerts = generateDummyAlerts(dummyDevices, 25);
         
         // Apply filters
         let filteredAlerts = allAlerts;
@@ -141,37 +141,70 @@ export default function AlertsPage() {
 
   const handleAcknowledge = async (alertId) => {
     try {
+      // For SmartLPG tenant, update in Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { updateAlertInFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await updateAlertInFirebase(alertId, { status: "acknowledged" });
+        await loadAlerts();
+        if (selectedAlert?.id === alertId) {
+          setSelectedAlert({ ...selectedAlert, status: "acknowledged" });
+        }
+        return;
+      }
+      
       await api.post(`/alerts/${alertId}/acknowledge`);
       await loadAlerts();
       if (selectedAlert?.id === alertId) {
         setSelectedAlert({ ...selectedAlert, status: "acknowledged" });
       }
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to acknowledge alert");
+      setError(err.response?.data?.detail || err.message || "Failed to acknowledge alert");
     }
   };
 
   const handleResolve = async (alertId) => {
     try {
+      // For SmartLPG tenant, update in Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { updateAlertInFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await updateAlertInFirebase(alertId, { status: "resolved" });
+        await loadAlerts();
+        if (selectedAlert?.id === alertId) {
+          setSelectedAlert({ ...selectedAlert, status: "resolved" });
+        }
+        return;
+      }
+      
       await api.post(`/alerts/${alertId}/resolve`);
       await loadAlerts();
       if (selectedAlert?.id === alertId) {
         setSelectedAlert({ ...selectedAlert, status: "resolved" });
       }
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to resolve alert");
+      setError(err.response?.data?.detail || err.message || "Failed to resolve alert");
     }
   };
 
   const handleClose = async (alertId) => {
     try {
+      // For SmartLPG tenant, update in Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { updateAlertInFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await updateAlertInFirebase(alertId, { status: "closed" });
+        await loadAlerts();
+        if (selectedAlert?.id === alertId) {
+          setSelectedAlert({ ...selectedAlert, status: "closed" });
+        }
+        return;
+      }
+      
       await api.post(`/alerts/${alertId}/close`);
       await loadAlerts();
       if (selectedAlert?.id === alertId) {
         setSelectedAlert({ ...selectedAlert, status: "closed" });
       }
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to close alert");
+      setError(err.response?.data?.detail || err.message || "Failed to close alert");
     }
   };
 

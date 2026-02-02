@@ -365,22 +365,32 @@ export default function DeviceDashboardPage() {
           setDevice(found);
         }
         
-        // Load dashboard config from backend (works for all tenants)
-        // For tenant_id = 2, if dashboard config fails, use empty config (not critical)
+        // Load dashboard config from Firebase for SmartLPG tenant, or backend for others
         let existingConfig = { widgets: [], layout: [] };
         try {
-          const dashResp = await api.get(`/dashboard/devices/${deviceId}/dashboard`);
-          console.log("Dashboard API response:", dashResp.data);
-          existingConfig = dashResp.data.config || { widgets: [], layout: [] };
-          
-          // Load latest telemetry (if not already loaded from Firebase)
-          if (!telemetryFromFirebase) {
-            setTelemetryData(dashResp.data.latest?.data || {});
+          if (isSmartLPGTenant(user?.tenant_id)) {
+            // Try Firebase first for SmartLPG tenant
+            const { getDeviceDashboardFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+            const dashConfig = await getDeviceDashboardFromFirebase(deviceId);
+            if (dashConfig && dashConfig.config) {
+              existingConfig = dashConfig.config;
+              console.log("Dashboard config loaded from Firebase:", existingConfig);
+            }
+          } else {
+            // For other tenants, use backend API
+            const dashResp = await api.get(`/dashboard/devices/${deviceId}/dashboard`);
+            console.log("Dashboard API response:", dashResp.data);
+            existingConfig = dashResp.data.config || { widgets: [], layout: [] };
+            
+            // Load latest telemetry (if not already loaded from Firebase)
+            if (!telemetryFromFirebase) {
+              setTelemetryData(dashResp.data.latest?.data || {});
+            }
           }
         } catch (dashErr) {
           // Dashboard config load failed - that's okay, we'll use empty config
-          console.log("⚠️ Dashboard config not found (using empty config):", dashErr.response?.status);
-          if (user?.tenant_id !== 2 && user?.tenant_id !== 3) {
+          console.log("⚠️ Dashboard config not found (using empty config):", dashErr.response?.status || dashErr.message);
+          if (!isFirebaseTenant(user?.tenant_id)) {
             // Only show error for non-Firebase tenants
             console.warn("Dashboard config load failed for non-Firebase tenant");
           }
@@ -875,13 +885,20 @@ export default function DeviceDashboardPage() {
         return a.x - b.x;
       });
       
-      await api.post(`/dashboard/devices/${deviceId}/dashboard`, {
-        config: { widgets, layout: layoutToSave },
-      });
+      // For SmartLPG tenant, save to Firebase instead of PostgreSQL
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { saveDeviceDashboardToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await saveDeviceDashboardToFirebase(deviceId, { widgets, layout: layoutToSave });
+        setSuccessMessage("Dashboard saved successfully to Firebase");
+      } else {
+        await api.post(`/dashboard/devices/${deviceId}/dashboard`, {
+          config: { widgets, layout: layoutToSave },
+        });
+        setSuccessMessage("Dashboard saved successfully");
+      }
       
       // Update local layout state to match saved layout
       setLayout(layoutToSave);
-      setSuccessMessage("Dashboard saved successfully");
       setEditMode(false);
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to save dashboard");

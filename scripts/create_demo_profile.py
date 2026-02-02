@@ -27,12 +27,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from database import SessionLocal
 from admin_auth import hash_password
 from models import (
-    Tenant, User, UserRole, Device, DeviceType, ProvisioningKey,
-    AlertRule, AlertPriority, DeviceRule, DeviceHealthMetrics, DeviceHealthHistory,
-    Firmware, FirmwareVersion, FOTAJob, FOTAJobStatus, FOTAJobDevice,
-    FirmwareUpdateStatus, DeviceFirmwareStatus, DeviceDashboard,
-    TelemetryLatest, TelemetryTimeseries,
-    UtilityTariff, UtilityDeviceContract, UtilityConsumption, UtilityInvoice
+    Tenant, User, UserRole, Device,
+    AlertRule, AlertPriority, DeviceRule,
+    FirmwareVersion, FOTAJob, FOTAJobStatus, FOTAJobDevice,
+    FirmwareUpdateStatus,
+    UtilityTariff, UtilityRecord
 )
 
 def create_demo_tenant(db: Session):
@@ -750,19 +749,10 @@ def create_firmware_and_fota(db: Session, tenant: Tenant, devices: list, user: U
                 )
                 db.add(job_device)
                 
-                # Set device firmware status
-                dfs = db.query(DeviceFirmwareStatus).filter(
-                    DeviceFirmwareStatus.device_id == device.id
-                ).first()
-                
-                if not dfs:
-                    dfs = DeviceFirmwareStatus(
-                        device_id=device.id,
-                        current_version="1.0.0",
-                        target_version=recommended_version.version,
-                        status=FirmwareUpdateStatus.PENDING
-                    )
-                    db.add(dfs)
+                # Set device firmware status (denormalized fields)
+                device.firmware_current_version = "1.0.0"
+                device.firmware_target_version = recommended_version.version
+                device.firmware_status = "pending"
             
             created_jobs.append(job)
             print(f"  ✓ Created FOTA job: {job.name} (targeting {len(target_devices)} devices)")
@@ -891,17 +881,19 @@ def create_utility_billing(db: Session, tenant: Tenant, devices: list):
     
     if gas_tariff and lpg_devices:
         for device in lpg_devices:
-            contract = db.query(UtilityDeviceContract).filter(
-                UtilityDeviceContract.device_id == device.id
+            contract = db.query(UtilityRecord).filter(
+                UtilityRecord.device_id == device.id,
+                UtilityRecord.record_type == "contract"
             ).first()
             
             if not contract:
-                contract = UtilityDeviceContract(
+                contract = UtilityRecord(
                     tenant_id=tenant.id,
                     device_id=device.id,
                     utility_kind="gas",
                     tariff_id=gas_tariff.id,
-                    contract_start=datetime.now() - timedelta(days=90)
+                    contract_start=datetime.now() - timedelta(days=90),
+                    record_type="contract"
                 )
                 db.add(contract)
                 created_contracts.append(contract)
@@ -917,9 +909,10 @@ def create_utility_billing(db: Session, tenant: Tenant, devices: list):
                 period_start = datetime.now() - timedelta(days=30 * (month_offset + 1))
                 period_end = period_start + timedelta(days=30)
                 
-                consumption = db.query(UtilityConsumption).filter(
-                    UtilityConsumption.device_id == device.id,
-                    UtilityConsumption.period_start == period_start
+                consumption = db.query(UtilityRecord).filter(
+                    UtilityRecord.device_id == device.id,
+                    UtilityRecord.period_start == period_start,
+                    UtilityRecord.record_type == "consumption"
                 ).first()
                 
                 if not consumption:
@@ -927,7 +920,7 @@ def create_utility_billing(db: Session, tenant: Tenant, devices: list):
                     end_index = start_index + random.uniform(20, 40)
                     consumption_value = end_index - start_index
                     
-                    consumption = UtilityConsumption(
+                    consumption = UtilityRecord(
                         tenant_id=tenant.id,
                         device_id=device.id,
                         utility_kind="gas",
@@ -936,13 +929,14 @@ def create_utility_billing(db: Session, tenant: Tenant, devices: list):
                         start_index=start_index,
                         end_index=end_index,
                         consumption=consumption_value,
-                        unit="m3"
+                        unit="m3",
+                        record_type="consumption"
                     )
                     db.add(consumption)
                     created_consumption += 1
                     
                     # Create invoice
-                    invoice = UtilityInvoice(
+                    invoice = UtilityRecord(
                         tenant_id=tenant.id,
                         device_id=device.id,
                         utility_kind="gas",
@@ -953,7 +947,8 @@ def create_utility_billing(db: Session, tenant: Tenant, devices: list):
                         amount=round(consumption_value * gas_tariff.rate_per_unit, 2),
                         currency="USD",
                         status=random.choice(["draft", "issued", "paid"]),
-                        tariff_snapshot={"rate_per_unit": gas_tariff.rate_per_unit, "name": gas_tariff.name}
+                        tariff_snapshot={"rate_per_unit": gas_tariff.rate_per_unit, "name": gas_tariff.name},
+                        record_type="invoice"
                     )
                     db.add(invoice)
     

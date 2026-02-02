@@ -9,10 +9,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from database import SessionLocal
 from models import (
-    Device, DeviceType, Tenant, ProvisioningKey, 
-    DeviceRule, TelemetryLatest, TelemetryTimeseries,
-    DeviceDashboard, UtilityTariff, UtilityDeviceContract,
-    UtilityConsumption, UtilityInvoice
+    Device, Tenant,
+    DeviceRule, DeviceData, DeviceHealth,
+    UtilityTariff, UtilityRecord,
+    Team, TeamMember, Installation, Location
 )
 from sqlalchemy import func
 from datetime import datetime, timedelta, timezone
@@ -30,18 +30,17 @@ def show_overview(db):
     print_header('📊 DATABASE OVERVIEW')
     
     counts = {
-        'Device Types': db.query(DeviceType).count(),
         'Tenants': db.query(Tenant).count(),
+        'Teams': db.query(Team).count(),
+        'Team Members': db.query(TeamMember).count(),
         'Devices': db.query(Device).count(),
-        'Provisioning Keys': db.query(ProvisioningKey).count(),
+        'Installations': db.query(Installation).count(),
+        'Locations': db.query(Location).count(),
         'Device Rules': db.query(DeviceRule).count(),
-        'Device Dashboards': db.query(DeviceDashboard).count(),
-        'Telemetry (Latest)': db.query(TelemetryLatest).count(),
-        'Telemetry (Timeseries)': db.query(TelemetryTimeseries).count(),
+        'Device Data': db.query(DeviceData).count(),
+        'Device Health': db.query(DeviceHealth).count(),
         'Utility Tariffs': db.query(UtilityTariff).count(),
-        'Utility Contracts': db.query(UtilityDeviceContract).count(),
-        'Utility Consumption': db.query(UtilityConsumption).count(),
-        'Utility Invoices': db.query(UtilityInvoice).count(),
+        'Utility Records': db.query(UtilityRecord).count(),
     }
     
     for name, count in counts.items():

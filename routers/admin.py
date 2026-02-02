@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from admin_auth import create_access_token, require_admin, get_current_user, hash_password, verify_password
 from config import settings
 from database import get_db
-from models import Device, DeviceType, ProvisioningKey, Tenant, DeviceRule, TelemetryLatest, DeviceDashboard, User, UserRole, DeviceSnapshot
+from models import Device, Tenant, DeviceRule, DeviceData, User, UserRole, DeviceSnapshot
 from metrics import metrics
 from rule_engine import rule_engine
 from influx_client import influx_service
@@ -174,8 +174,8 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None, has_das
     provisioning = None
     if device.provisioning_key:
         provisioning = ProvisioningKeyResponse(
-            key=device.provisioning_key.key,
-            is_active=device.provisioning_key.is_active,
+            key=device.provisioning_key,
+            is_active=True,  # Key exists and device is active
         )
 
     # If is_live is provided, prefer it over the raw DB flag so that the UI
@@ -567,33 +567,21 @@ def rotate_provisioning_key(
             detail="You can only rotate keys for devices from your own tenant"
         )
 
-    key = _rotate_provisioning_key(device, db)
-    db.refresh(device)
-    return ProvisioningKeyResponse(key=key.key, is_active=key.is_active)
+    key_data = _rotate_provisioning_key(device, db)
+    return ProvisioningKeyResponse(key=key_data["key"], is_active=key_data["is_active"])
 
 
-def _rotate_provisioning_key(device: Device, db: Session) -> ProvisioningKey:
-    """Internal helper to upsert provisioning key."""
-    existing = (
-        db.query(ProvisioningKey).filter(ProvisioningKey.device_id == device.id).first()
-    )
+def _rotate_provisioning_key(device: Device, db: Session) -> dict:
+    """Internal helper to rotate provisioning key (now stored on Device model)."""
     new_key_value = secrets.token_urlsafe(32)
-    if existing:
-        existing.key = new_key_value
-        existing.is_active = True
+    device.provisioning_key = new_key_value
+    device.provisioning_key_expires_at = None  # Reset expiration if needed
         db.commit()
-        db.refresh(existing)
-        return existing
-
-    provisioning = ProvisioningKey(
-        device_id=device.id,
-        key=new_key_value,
-        is_active=True,
-    )
-    db.add(provisioning)
-    db.commit()
-    db.refresh(provisioning)
-    return provisioning
+    db.refresh(device)
+    return {
+        "key": device.provisioning_key,
+        "is_active": True
+    }
 
 
 @router.get("/device-types", response_model=List[DeviceTypeResponse])

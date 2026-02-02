@@ -43,11 +43,21 @@ export default function FOTAJobsPage() {
 
   const loadJobs = async () => {
     try {
+      // For SmartLPG tenant, load from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { getFOTAJobsFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const jobs = await getFOTAJobsFromFirebase(user?.tenant_id);
+        setJobs(jobs);
+        setError(null);
+        return;
+      }
+      
+      // For other tenants, use backend API
       const response = await api.get("/fota/jobs");
       setJobs(response.data);
       setError(null);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to load FOTA jobs");
+      setError(err.response?.data?.detail || err.message || "Failed to load FOTA jobs");
     }
   };
 
@@ -105,16 +115,16 @@ export default function FOTAJobsPage() {
       const response = await api.get("/fota/firmwares");
       const allVersions = [];
       if (response.data && Array.isArray(response.data)) {
-        for (const firmware of response.data) {
+      for (const firmware of response.data) {
           try {
-            const versionsResp = await api.get(`/fota/firmwares/${firmware.id}/versions`);
+        const versionsResp = await api.get(`/fota/firmwares/${firmware.id}/versions`);
             if (versionsResp.data && Array.isArray(versionsResp.data)) {
-              for (const version of versionsResp.data) {
-                allVersions.push({
-                  ...version,
-                  firmware_name: firmware.name,
-                  device_type_id: firmware.device_type_id,
-                });
+        for (const version of versionsResp.data) {
+          allVersions.push({
+            ...version,
+            firmware_name: firmware.name,
+            device_type_id: firmware.device_type_id,
+          });
               }
             }
           } catch (versionErr) {
@@ -156,15 +166,46 @@ export default function FOTAJobsPage() {
           const parsed = parseInt(id);
           return isNaN(parsed) ? id : parsed;
         }),
+        tenant_id: user?.tenant_id,
       };
       if (formData.scheduled_at) {
         payload.scheduled_at = formData.scheduled_at;
       }
       
-      await api.post("/fota/jobs", payload);
-      setShowCreateModal(false);
-      setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
-      await loadJobs();
+      // For SmartLPG tenant, save to Firebase instead of PostgreSQL
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { saveFOTAJobToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const firmwareVersion = firmwareVersions.find(fv => fv.id === payload.firmware_version_id);
+        if (!firmwareVersion) {
+          setError("Firmware version not found");
+          return;
+        }
+        
+        const fotaJob = {
+          name: payload.name,
+          tenant_id: payload.tenant_id,
+          firmware_version_id: payload.firmware_version_id,
+          firmware_version: firmwareVersion.version,
+          device_ids: payload.device_ids,
+          device_count: payload.device_ids.length,
+          status: payload.scheduled_at ? "scheduled" : "running",
+          scheduled_at: payload.scheduled_at || null,
+          started_at: payload.scheduled_at ? null : new Date().toISOString(),
+          completed_at: null,
+          created_by_user_id: user?.id || null,
+        };
+        
+        await saveFOTAJobToFirebase(fotaJob);
+        setShowCreateModal(false);
+        setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
+        await loadJobs();
+        setError(null);
+      } else {
+        await api.post("/fota/jobs", payload);
+        setShowCreateModal(false);
+        setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
+        await loadJobs();
+      }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || "Failed to create FOTA job";
       setError(errorMsg);
@@ -385,47 +426,47 @@ export default function FOTAJobsPage() {
             <div className="form-group">
               <label className="form-label form-label--required">Select Devices</label>
               {devices && devices.length > 0 ? (
-                <div style={{ 
-                  maxHeight: "200px", 
-                  overflowY: "auto", 
-                  border: "1px solid var(--color-border-medium)", 
-                  borderRadius: "var(--radius-lg)", 
-                  padding: "var(--space-4)", 
-                  backgroundColor: "var(--color-bg-secondary)" 
-                }}>
+              <div style={{ 
+                maxHeight: "200px", 
+                overflowY: "auto", 
+                border: "1px solid var(--color-border-medium)", 
+                borderRadius: "var(--radius-lg)", 
+                padding: "var(--space-4)", 
+                backgroundColor: "var(--color-bg-secondary)" 
+              }}>
                   {devices.map((device) => {
                     const deviceId = device.id || device.device_id || `device_${device.device_id}`;
                     return (
                       <label key={deviceId} style={{ 
-                        display: "flex", 
-                        alignItems: "center", 
-                        gap: "var(--space-2)", 
-                        marginBottom: "var(--space-3)", 
-                        cursor: "pointer" 
-                      }}>
-                        <input
-                          type="checkbox"
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: "var(--space-2)", 
+                    marginBottom: "var(--space-3)", 
+                    cursor: "pointer" 
+                  }}>
+                    <input
+                      type="checkbox"
                           checked={formData.device_ids.includes(deviceId.toString())}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setFormData({
-                                ...formData,
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({
+                            ...formData,
                                 device_ids: [...formData.device_ids, deviceId.toString()],
-                              });
-                            } else {
-                              setFormData({
-                                ...formData,
+                          });
+                        } else {
+                          setFormData({
+                            ...formData,
                                 device_ids: formData.device_ids.filter(id => id !== deviceId.toString()),
-                              });
-                            }
-                          }}
-                          style={{ cursor: "pointer" }}
-                        />
+                          });
+                        }
+                      }}
+                      style={{ cursor: "pointer" }}
+                    />
                         <span>{device.name || device.device_name || device.device_id}</span>
-                        <span className="badge badge--neutral" style={{ marginLeft: "auto" }}>
+                    <span className="badge badge--neutral" style={{ marginLeft: "auto" }}>
                           {device.protocol || "HTTP"}
-                        </span>
-                      </label>
+                    </span>
+                  </label>
                     );
                   })}
                 </div>
@@ -440,7 +481,7 @@ export default function FOTAJobsPage() {
                 }}>
                   <Icon name="inbox" size={24} style={{ opacity: 0.5, marginBottom: "var(--space-2)" }} />
                   <p>No devices available. Please ensure devices are loaded.</p>
-                </div>
+              </div>
               )}
             </div>
 

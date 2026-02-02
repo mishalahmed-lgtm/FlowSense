@@ -14,15 +14,14 @@ import logging
 from sqlalchemy import text, inspect
 from database import engine, SessionLocal, Base
 from models import (
-    User, Tenant, DeviceType, Device, DeviceSnapshot,
-    TelemetryLatest, TelemetryTimeseries, DeviceHealthMetrics,
+    User, Tenant, Device, DeviceSnapshot,
     Alert, AlertRule, Notification, AlertAuditLog,
-    DeviceDashboard, DeviceRule, CEPRule,
-    ProvisioningKey, ExternalIntegration,
-    UtilityTariff, UtilityDeviceContract, UtilityConsumption, UtilityInvoice,
-    Firmware, FirmwareVersion, DeviceFirmwareStatus, FOTAJob, FOTAJobDevice,
-    AnalyticsJob, MLModel, Prediction, PatternAnalysis, CorrelationResult,
-    DeviceHealthHistory, UserRole
+    DeviceRule,
+    ExternalIntegration,
+    UtilityTariff, UtilityRecord,
+    FirmwareVersion, FOTAJob, FOTAJobDevice,
+    UserRole, DeviceData, DeviceHealth,
+    Team, TeamMember, Installation, Location
 )
 from admin_auth import hash_password
 

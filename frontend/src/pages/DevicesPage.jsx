@@ -475,6 +475,26 @@ export default function DevicesPage() {
 
   const handleCreateDevice = async (formValues) => {
     try {
+      // For SmartLPG tenant, save to Firebase instead of PostgreSQL
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { saveDeviceToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const payload = {
+          ...formValues,
+          tenant_id: user.tenant_id,
+          device_id: formValues.device_id,
+        };
+        await saveDeviceToFirebase(payload);
+        setSuccessMessage("Device created successfully in Firebase");
+        setError(null);
+        // Clear cache and force refresh
+        const cacheKey = `devices_cache_${currentPage}_${searchQuery}_${filterStatus}_${filterProtocol}`;
+        localStorage.removeItem(cacheKey);
+        loadDevices(currentPage, true);
+        setTimeout(() => closeModal(), 1500);
+        return;
+      }
+      
+      // For other tenants, use PostgreSQL API
       const payload = {
         ...formValues,
         tenant_id: user.tenant_id,
@@ -489,7 +509,7 @@ export default function DevicesPage() {
       loadDevices(currentPage, true);
       setTimeout(() => closeModal(), 1500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to create device");
+      setError(err.response?.data?.detail || err.message || "Failed to create device");
     }
   };
 

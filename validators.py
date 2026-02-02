@@ -4,7 +4,7 @@ import logging
 from typing import Dict, Any, Optional, Tuple
 from jsonschema import validate, ValidationError, SchemaError
 from database import SessionLocal
-from models import DeviceType
+from models import Device
 
 logger = logging.getLogger(__name__)
 
@@ -32,33 +32,9 @@ class TelemetryValidator:
         if device_type_name in self._schema_cache:
             return self._schema_cache[device_type_name]
         
-        # Query database
-        db = SessionLocal()
-        try:
-            device_type = db.query(DeviceType).filter(
-                DeviceType.name == device_type_name
-            ).first()
-            
-            if device_type and device_type.schema_definition:
-                try:
-                    schema = json.loads(device_type.schema_definition)
-                    self._schema_cache[device_type_name] = schema
-                    return schema
-                except json.JSONDecodeError as e:
-                    logger.error(
-                        f"Invalid JSON schema for device type {device_type_name}: {e}"
-                    )
-                    return None
-            else:
-                # No schema defined - use default permissive schema
-                logger.debug(f"No schema defined for device type {device_type_name}, using permissive validation")
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error loading schema for device type {device_type_name}: {e}")
+        # DeviceType model no longer exists - schema validation is optional
+        # Return None to skip schema validation (can be enhanced later to read from device_metadata)
             return None
-        finally:
-            db.close()
     
     def validate_payload(
         self,

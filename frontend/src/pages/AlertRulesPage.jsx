@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
 import BackButton from "../components/BackButton.jsx";
@@ -53,11 +54,20 @@ export default function AlertRulesPage() {
   const loadRules = async () => {
     try {
       setLoading(true);
-      const response = await api.get("/alerts/rules");
-      setRules(response.data);
-      setError(null);
+      
+      // For SmartLPG tenant, load from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { getAlertRulesFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const rules = await getAlertRulesFromFirebase(user?.tenant_id);
+        setRules(rules);
+        setError(null);
+      } else {
+        const response = await api.get("/alerts/rules");
+        setRules(response.data);
+        setError(null);
+      }
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to load alert rules");
+      setError(err.response?.data?.detail || err.message || "Failed to load alert rules");
     } finally {
       setLoading(false);
     }
@@ -141,6 +151,7 @@ export default function AlertRulesPage() {
     try {
       const payload = {
         ...formState,
+        tenant_id: user?.tenant_id,
         condition: {
           field: formState.condition.field,
           operator: formState.condition.operator,
@@ -148,12 +159,24 @@ export default function AlertRulesPage() {
         },
       };
 
-      if (selectedRule) {
-        await api.put(`/alerts/rules/${selectedRule.id}`, payload);
-        setSuccessMessage("Alert rule updated successfully");
+      // For SmartLPG tenant, save to Firebase instead of PostgreSQL
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { saveAlertRuleToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        if (selectedRule) {
+          await saveAlertRuleToFirebase({ ...payload, id: selectedRule.id });
+          setSuccessMessage("Alert rule updated successfully in Firebase");
+        } else {
+          await saveAlertRuleToFirebase(payload);
+          setSuccessMessage("Alert rule created successfully in Firebase");
+        }
       } else {
-        await api.post("/alerts/rules", payload);
-        setSuccessMessage("Alert rule created successfully");
+        if (selectedRule) {
+          await api.put(`/alerts/rules/${selectedRule.id}`, payload);
+          setSuccessMessage("Alert rule updated successfully");
+        } else {
+          await api.post("/alerts/rules", payload);
+          setSuccessMessage("Alert rule created successfully");
+        }
       }
       
       await loadRules();
@@ -161,7 +184,7 @@ export default function AlertRulesPage() {
         closeModal();
       }, 1500);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to save alert rule");
+      setError(err.response?.data?.detail || err.message || "Failed to save alert rule");
     }
   };
 
@@ -170,11 +193,18 @@ export default function AlertRulesPage() {
       return;
     }
     try {
-      await api.delete(`/alerts/rules/${ruleId}`);
-      setSuccessMessage("Alert rule deleted successfully");
+      // For SmartLPG tenant, delete from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { deleteAlertRuleFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await deleteAlertRuleFromFirebase(ruleId);
+        setSuccessMessage("Alert rule deleted successfully from Firebase");
+      } else {
+        await api.delete(`/alerts/rules/${ruleId}`);
+        setSuccessMessage("Alert rule deleted successfully");
+      }
       await loadRules();
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to delete alert rule");
+      setError(err.response?.data?.detail || err.message || "Failed to delete alert rule");
     }
   };
 

@@ -10,13 +10,10 @@ from models import (
     User,
     UserRole,
     Device,
-    DeviceType,
     Tenant,
-    Firmware,
     FirmwareVersion,
     FOTAJob,
     FOTAJobDevice,
-    DeviceFirmwareStatus,
     FirmwareUpdateStatus,
     FOTAJobStatus,
 )
@@ -41,23 +38,12 @@ class FirmwareVersionBase(BaseModel):
 
 class FirmwareVersionResponse(FirmwareVersionBase):
     id: int
-    firmware_id: int
+    device_type: str
+    name: str
     file_path: str
     checksum: Optional[str] = None
     file_size_bytes: Optional[int] = None
     created_at: datetime
-
-
-class FirmwareBase(BaseModel):
-    name: str
-    device_type_id: int
-    description: Optional[str] = None
-
-
-class FirmwareResponse(FirmwareBase):
-    id: int
-    created_at: datetime
-    updated_at: Optional[datetime] = None
 
 
 class FOTAJobCreateRequest(BaseModel):
@@ -130,71 +116,14 @@ def _ensure_tenant_admin_or_admin(user: User) -> None:
 # ---------- Firmware catalog (admin) ----------
 
 
-@router.post("/firmwares", response_model=FirmwareResponse, status_code=status.HTTP_201_CREATED)
-def create_firmware(
-    payload: FirmwareBase,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Create a firmware definition (admin only)."""
-    _ensure_admin(current_user)
-
-    device_type = db.query(DeviceType).filter(DeviceType.id == payload.device_type_id).first()
-    if not device_type:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device type not found")
-
-    firmware = Firmware(
-        name=payload.name,
-        device_type_id=payload.device_type_id,
-        description=payload.description,
-    )
-    db.add(firmware)
-    db.commit()
-    db.refresh(firmware)
-    return FirmwareResponse(
-        id=firmware.id,
-        name=firmware.name,
-        device_type_id=firmware.device_type_id,
-        description=firmware.description,
-        created_at=firmware.created_at,
-        updated_at=firmware.updated_at,
-    )
-
-
-@router.get("/firmwares", response_model=List[FirmwareResponse])
-def list_firmwares(
-    device_type_id: Optional[int] = Query(None),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """List firmware definitions. Tenant admins see all, but can only use those matching their devices."""
-    _ensure_tenant_admin_or_admin(current_user)
-
-    query = db.query(Firmware)
-    if device_type_id is not None:
-        query = query.filter(Firmware.device_type_id == device_type_id)
-
-    firmwares = query.all()
-    return [
-        FirmwareResponse(
-            id=f.id,
-            name=f.name,
-            device_type_id=f.device_type_id,
-            description=f.description,
-            created_at=f.created_at,
-            updated_at=f.updated_at,
-        )
-        for f in firmwares
-    ]
-
-
 @router.post(
-    "/firmwares/{firmware_id}/versions",
+    "/firmware-versions",
     response_model=FirmwareVersionResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def create_firmware_version(
-    firmware_id: int,
+    device_type: str = Form(...),
+    name: str = Form(...),
     version: str = Form(...),
     release_notes: Optional[str] = Form(None),
     min_hw_version: Optional[str] = Form(None),
@@ -204,15 +133,11 @@ async def create_firmware_version(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload a new firmware binary for a firmware definition (admin only).
+    """Upload a new firmware binary (admin only).
 
     NOTE: For now we store the file on local disk under /data/firmware.
     """
     _ensure_admin(current_user)
-
-    firmware = db.query(Firmware).filter(Firmware.id == firmware_id).first()
-    if not firmware:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Firmware not found")
 
     # Simple local storage path; in production you'd use object storage (S3, etc.)
     import os
@@ -221,7 +146,8 @@ async def create_firmware_version(
 
     file_ext = os.path.splitext(file.filename or "")[1]
     safe_version = version.replace("/", "_")
-    filename = f"firmware_{firmware_id}_{safe_version}{file_ext}"
+    safe_device_type = device_type.replace("/", "_")
+    filename = f"firmware_{safe_device_type}_{safe_version}{file_ext}"
     full_path = os.path.join(base_dir, filename)
 
     content = await file.read()
@@ -234,7 +160,8 @@ async def create_firmware_version(
     size_bytes = len(content)
 
     fv = FirmwareVersion(
-        firmware_id=firmware.id,
+        device_type=device_type,
+        name=name,
         version=version,
         file_path=full_path,
         checksum=checksum,
@@ -250,7 +177,8 @@ async def create_firmware_version(
 
     return FirmwareVersionResponse(
         id=fv.id,
-        firmware_id=fv.firmware_id,
+        device_type=fv.device_type,
+        name=fv.name,
         version=fv.version,
         file_path=fv.file_path,
         checksum=fv.checksum,
@@ -263,29 +191,25 @@ async def create_firmware_version(
     )
 
 
-@router.get("/firmwares/{firmware_id}/versions", response_model=List[FirmwareVersionResponse])
+@router.get("/firmware-versions", response_model=List[FirmwareVersionResponse])
 def list_firmware_versions(
-    firmware_id: int,
+    device_type: Optional[str] = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List versions for a firmware definition."""
+    """List firmware versions. Optionally filter by device type."""
     _ensure_tenant_admin_or_admin(current_user)
 
-    firmware = db.query(Firmware).filter(Firmware.id == firmware_id).first()
-    if not firmware:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Firmware not found")
+    query = db.query(FirmwareVersion)
+    if device_type is not None:
+        query = query.filter(FirmwareVersion.device_type == device_type)
 
-    versions = (
-        db.query(FirmwareVersion)
-        .filter(FirmwareVersion.firmware_id == firmware_id)
-        .order_by(FirmwareVersion.created_at.desc())
-        .all()
-    )
+    versions = query.order_by(FirmwareVersion.created_at.desc()).all()
     return [
         FirmwareVersionResponse(
             id=v.id,
-            firmware_id=v.firmware_id,
+            device_type=v.device_type,
+            name=v.name,
             version=v.version,
             file_path=v.file_path,
             checksum=v.checksum,
@@ -300,9 +224,8 @@ def list_firmware_versions(
     ]
 
 
-@router.get("/firmwares/{firmware_id}/versions/{version_id}/download")
+@router.get("/firmware-versions/{version_id}/download")
 def download_firmware(
-    firmware_id: int,
     version_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -315,7 +238,7 @@ def download_firmware(
     
     firmware_version = (
         db.query(FirmwareVersion)
-        .filter(FirmwareVersion.id == version_id, FirmwareVersion.firmware_id == firmware_id)
+        .filter(FirmwareVersion.id == version_id)
         .first()
     )
     if not firmware_version:
@@ -327,7 +250,7 @@ def download_firmware(
     return FileResponse(
         firmware_version.file_path,
         media_type="application/octet-stream",
-        filename=f"firmware_{firmware_id}_v{firmware_version.version}.bin"
+        filename=f"firmware_{firmware_version.device_type}_v{firmware_version.version}.bin"
     )
 
 
@@ -410,27 +333,11 @@ def create_fota_job(
         )
         db.add(job_device)
 
-        # Ensure DeviceFirmwareStatus row exists
-        dfs = (
-            db.query(DeviceFirmwareStatus)
-            .filter(DeviceFirmwareStatus.device_id == device.id)
-            .first()
-        )
-        if not dfs:
-            dfs = DeviceFirmwareStatus(
-                device_id=device.id,
-                current_version=None,
-                target_version=firmware_version.version,
-                status=FirmwareUpdateStatus.PENDING,
-                last_error=None,
-                last_update_at=None,
-            )
-            db.add(dfs)
-        else:
-            dfs.target_version = firmware_version.version
-            dfs.status = FirmwareUpdateStatus.PENDING
-            dfs.last_error = None
-            dfs.last_update_at = None
+        # Update device firmware status (denormalized fields)
+        device.firmware_target_version = firmware_version.version
+        device.firmware_status = "pending"
+        device.firmware_last_error = None
+        device.firmware_last_update_at = None
 
     db.commit()
     db.refresh(job)
@@ -439,17 +346,12 @@ def create_fota_job(
     device_statuses = []
     for jd in job.devices:
         device = db.query(Device).filter(Device.id == jd.device_id).first()
-        dfs = (
-            db.query(DeviceFirmwareStatus)
-            .filter(DeviceFirmwareStatus.device_id == jd.device_id)
-            .first()
-        )
         device_statuses.append(
             FOTAJobDeviceStatusResponse(
                 device_id=jd.device_id,
                 device_name=device.name if device else None,
-                current_version=dfs.current_version if dfs else None,
-                target_version=dfs.target_version if dfs else (job.firmware_version.version if job.firmware_version else None),
+                current_version=device.firmware_current_version if device else None,
+                target_version=device.firmware_target_version if device else None,
                 status=jd.status,
                 last_error=jd.last_error,
                 last_update_at=jd.last_update_at,
@@ -544,17 +446,12 @@ def get_fota_job(
     device_statuses = []
     for jd in job.devices:
         device = db.query(Device).filter(Device.id == jd.device_id).first()
-        dfs = (
-            db.query(DeviceFirmwareStatus)
-            .filter(DeviceFirmwareStatus.device_id == jd.device_id)
-            .first()
-        )
         device_statuses.append(
             FOTAJobDeviceStatusResponse(
                 device_id=jd.device_id,
                 device_name=device.name if device else None,
-                current_version=dfs.current_version if dfs else None,
-                target_version=dfs.target_version if dfs else (job.firmware_version.version if job.firmware_version else None),
+                current_version=device.firmware_current_version if device else None,
+                target_version=device.firmware_target_version if device else None,
                 status=jd.status,
                 last_error=jd.last_error,
                 last_update_at=jd.last_update_at,
@@ -599,29 +496,13 @@ def get_device_firmware_status(
     if current_user.role == UserRole.TENANT_ADMIN and device.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to access this device")
 
-    dfs = (
-        db.query(DeviceFirmwareStatus)
-        .filter(DeviceFirmwareStatus.device_id == device_id)
-        .first()
-    )
-    if not dfs:
-        # Return a default "idle" status
-        return DeviceFirmwareStatusResponse(
-            device_id=device_id,
-            current_version=None,
-            target_version=None,
-            status=FirmwareUpdateStatus.IDLE,
-            last_error=None,
-            last_update_at=None,
-        )
-
     return DeviceFirmwareStatusResponse(
-        device_id=dfs.device_id,
-        current_version=dfs.current_version,
-        target_version=dfs.target_version,
-        status=dfs.status,
-        last_error=dfs.last_error,
-        last_update_at=dfs.last_update_at,
+        device_id=device_id,
+        current_version=device.firmware_current_version,
+        target_version=device.firmware_target_version,
+        status=FirmwareUpdateStatus(device.firmware_status) if device.firmware_status else FirmwareUpdateStatus.IDLE,
+        last_error=device.firmware_last_error,
+        last_update_at=device.firmware_last_update_at,
     )
 
 
@@ -640,29 +521,14 @@ def report_device_firmware_status(
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
 
-    dfs = (
-        db.query(DeviceFirmwareStatus)
-        .filter(DeviceFirmwareStatus.device_id == device_id)
-        .first()
-    )
-    if not dfs:
-        dfs = DeviceFirmwareStatus(
-            device_id=device_id,
-            current_version=payload.current_version,
-            target_version=None,
-            status=payload.status,
-            last_error=payload.error,
-            last_update_at=datetime.now(timezone.utc),
-        )
-        db.add(dfs)
-    else:
-        dfs.current_version = payload.current_version
-        # If device reached success, clear target_version
-        if payload.status == FirmwareUpdateStatus.SUCCESS:
-            dfs.target_version = None
-        dfs.status = payload.status
-        dfs.last_error = payload.error
-        dfs.last_update_at = datetime.now(timezone.utc)
+    # Update device firmware fields
+    device.firmware_current_version = payload.current_version
+    # If device reached success, clear target_version
+    if payload.status == FirmwareUpdateStatus.SUCCESS:
+        device.firmware_target_version = None
+    device.firmware_status = payload.status.value
+    device.firmware_last_error = payload.error
+    device.firmware_last_update_at = datetime.now(timezone.utc)
 
     # Update any active job-device entries for this device
     active_job_devices = (
