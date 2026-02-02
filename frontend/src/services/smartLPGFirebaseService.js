@@ -7,21 +7,33 @@ import { db } from "../utils/firebase";
 import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy, Timestamp } from "firebase/firestore";
 
 /**
- * Remove undefined values from an object recursively
+ * Remove undefined values from an object recursively and convert to JSON-safe format
  */
-function removeUndefined(obj) {
-  if (obj === null || typeof obj !== 'object') {
-    return obj;
-  }
+function cleanForFirebase(obj) {
+  // Handle primitives
+  if (obj === null) return null;
+  if (obj === undefined) return null; // Convert undefined to null
+  if (typeof obj !== 'object') return obj;
   
+  // Handle arrays
   if (Array.isArray(obj)) {
-    return obj.map(item => removeUndefined(item)).filter(item => item !== undefined);
+    return obj
+      .filter(item => item !== undefined) // Remove undefined items
+      .map(item => cleanForFirebase(item));
   }
   
+  // Handle objects
   const cleaned = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (value !== undefined) {
-      cleaned[key] = removeUndefined(value);
+    // Skip undefined values entirely
+    if (value === undefined) continue;
+    
+    // Recursively clean the value
+    const cleanedValue = cleanForFirebase(value);
+    
+    // Only add if the cleaned value isn't undefined
+    if (cleanedValue !== undefined) {
+      cleaned[key] = cleanedValue;
     }
   }
   return cleaned;
@@ -32,8 +44,18 @@ function removeUndefined(obj) {
  */
 export async function saveDeviceDashboardToFirebase(deviceId, config) {
   try {
-    // Remove undefined values from config (Firebase doesn't support undefined)
-    const cleanedConfig = removeUndefined(config);
+    console.log("🔧 Original config:", config);
+    
+    // Convert to JSON and back to remove any undefined values and functions
+    const jsonSafe = JSON.parse(JSON.stringify(config, (key, value) => {
+      // Replace undefined with null in JSON
+      return value === undefined ? null : value;
+    }));
+    
+    // Then clean any remaining issues
+    const cleanedConfig = cleanForFirebase(jsonSafe);
+    
+    console.log("✨ Cleaned config:", cleanedConfig);
     
     const dashboardRef = doc(db, "smartLPG_dashboards", deviceId);
     await setDoc(dashboardRef, {
@@ -46,6 +68,7 @@ export async function saveDeviceDashboardToFirebase(deviceId, config) {
     return { success: true };
   } catch (error) {
     console.error("❌ Error saving dashboard to Firebase:", error);
+    console.error("❌ Config that failed:", config);
     throw error;
   }
 }
