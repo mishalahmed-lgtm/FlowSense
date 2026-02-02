@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import Modal from "../components/Modal.jsx";
 import BackButton from "../components/BackButton.jsx";
