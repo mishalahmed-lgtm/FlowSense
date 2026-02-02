@@ -213,39 +213,84 @@ def _serialize_device(device: Device, *, is_live: Optional[bool] = None, has_das
 @router.post("/login", response_model=TokenResponse, tags=["public"])
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate user and return JWT."""
-    # Find user by email
-    user = db.query(User).filter(User.email == payload.email.lower()).first()
+    import logging
+    logger = logging.getLogger(__name__)
     
-    if not user or not verify_password(payload.password, user.hashed_password):
+    try:
+        # Find user by email
+        email_lower = payload.email.lower()
+        logger.info(f"Login attempt for email: {email_lower}")
+        
+        user = db.query(User).filter(User.email == email_lower).first()
+        
+        if not user:
+            logger.warning(f"User not found: {email_lower}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+        
+        logger.info(f"User found: {user.email}, tenant_id: {user.tenant_id}, is_active: {user.is_active}, role: {user.role.value}")
+        
+        # Verify password
+        try:
+            password_valid = verify_password(payload.password, user.hashed_password)
+        except Exception as pwd_err:
+            logger.error(f"Password verification error for user {email_lower}: {pwd_err}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+        
+        if not password_valid:
+            logger.warning(f"Invalid password for user: {email_lower}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+        
+        if not user.is_active:
+            logger.warning(f"Inactive user attempted login: {email_lower}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is inactive",
+            )
+        
+        # Update last login
+        try:
+            user.last_login_at = datetime.utcnow()
+            db.commit()
+        except Exception as commit_err:
+            logger.error(f"Error updating last_login_at for user {email_lower}: {commit_err}", exc_info=True)
+            # Don't fail login if last_login_at update fails
+        
+        # Create token
+        token = create_access_token(user)
+        
+        logger.info(f"Login successful for user: {email_lower}, tenant_id: {user.tenant_id}")
+        
+        # Return token with user info
+        user_info = {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.value,
+            "tenant_id": user.tenant_id,
+            "enabled_modules": user.enabled_modules or [],
+        }
+        
+        return TokenResponse(access_token=token, user=user_info)
+    
+    except HTTPException:
+        # Re-raise HTTP exceptions (they're intentional)
+        raise
+    except Exception as e:
+        # Log unexpected errors
+        logger.error(f"Unexpected error during login for {payload.email}: {e}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred during login. Please try again.",
         )
-    
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account is inactive",
-        )
-    
-    # Update last login
-    user.last_login_at = datetime.utcnow()
-    db.commit()
-    
-    # Create token
-    token = create_access_token(user)
-    
-    # Return token with user info
-    user_info = {
-        "id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "role": user.role.value,
-        "tenant_id": user.tenant_id,
-        "enabled_modules": user.enabled_modules or [],
-    }
-    
-    return TokenResponse(access_token=token, user=user_info)
 
 
 @router.get("/devices", response_model=PaginatedDeviceResponse)
