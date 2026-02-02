@@ -459,7 +459,6 @@ export default function DeviceRulesListPage() {
               className="form-input"
               value={formState.name || ""}
               onChange={(e) => {
-                e.preventDefault();
                 e.stopPropagation();
                 setFormState({ ...formState, name: e.target.value });
               }}
@@ -473,7 +472,6 @@ export default function DeviceRulesListPage() {
               className="form-textarea"
               value={formState.description || ""}
               onChange={(e) => {
-                e.preventDefault();
                 e.stopPropagation();
                 setFormState({ ...formState, description: e.target.value });
               }}
@@ -523,7 +521,6 @@ export default function DeviceRulesListPage() {
                   placeholder="e.g., payload.temperature"
                   value={formState.condition?.field || ""}
                   onChange={(e) => {
-                    e.preventDefault();
                     e.stopPropagation();
                     setFormState({
                       ...formState,
@@ -559,7 +556,6 @@ export default function DeviceRulesListPage() {
                   className="form-input"
                   value={formState.condition?.value || ""}
                   onChange={(e) => {
-                    e.preventDefault();
                     e.stopPropagation();
                     setFormState({
                       ...formState,
