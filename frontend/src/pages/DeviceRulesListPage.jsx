@@ -88,10 +88,17 @@ export default function DeviceRulesListPage() {
       // For tenant_id = 3 (SmartLPG), load from Firebase
       if (user?.tenant_id === 3) {
         console.log("🔥 Loading device rules from Firebase for SmartLPG tenant");
-        const { getDeviceRulesFromFirebase } = await import("../services/smartLPGFirebaseService.js");
-        const firebaseRules = await getDeviceRulesFromFirebase();
-        setRules(firebaseRules);
-        setError(null);
+        try {
+          const { getDeviceRulesFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+          const firebaseRules = await getDeviceRulesFromFirebase();
+          console.log("✅ Loaded rules from Firebase:", firebaseRules);
+          setRules(firebaseRules || []);
+          setError(null);
+        } catch (fbErr) {
+          console.error("❌ Firebase error:", fbErr);
+          setError("Failed to load rules from Firebase: " + (fbErr.message || "Unknown error"));
+          setRules([]);
+        }
         setLoading(false);
         return;
       }
@@ -99,16 +106,21 @@ export default function DeviceRulesListPage() {
       // For tenant_id = 2, use dummy data
       if (user?.tenant_id === 2) {
         console.log("🔥 Generating dummy device rules for tenant_id = 2");
-        // If devices not loaded yet, create dummy devices for rules
-        const devicesForRules = devices.length > 0 
-          ? devices 
-          : Array.from({ length: 5 }, (_, i) => ({
-              device_id: `device_${i + 1}`,
-              name: `Device ${i + 1}`,
-            }));
-        const dummyRules = generateDummyRules(devicesForRules);
-        setRules(dummyRules);
-        setError(null);
+        try {
+          // If devices not loaded yet, create dummy devices for rules
+          const devicesForRules = devices.length > 0 
+            ? devices 
+            : Array.from({ length: 5 }, (_, i) => ({
+                device_id: `device_${i + 1}`,
+                name: `Device ${i + 1}`,
+              }));
+          const dummyRules = generateDummyRules(devicesForRules);
+          setRules(dummyRules);
+          setError(null);
+        } catch (dummyErr) {
+          console.error("❌ Dummy rules error:", dummyErr);
+          setRules([]);
+        }
         setLoading(false);
         return;
       }
@@ -117,14 +129,16 @@ export default function DeviceRulesListPage() {
       try {
         const response = await api.get("/devices/rules");
         setRules(response.data || []);
+        setError(null);
       } catch (apiErr) {
         // If endpoint doesn't exist, use empty array
         console.warn("Device rules API not available, using empty list");
         setRules([]);
+        setError(null);
       }
-      setError(null);
     } catch (err) {
-      setError(err.response?.data?.detail || "Failed to load device rules");
+      console.error("❌ loadRules error:", err);
+      setError(err.response?.data?.detail || err.message || "Failed to load device rules");
       setRules([]);
     } finally {
       setLoading(false);
@@ -133,32 +147,54 @@ export default function DeviceRulesListPage() {
 
   const loadDevices = async () => {
     try {
+      console.log("📱 Loading devices for tenant:", user?.tenant_id);
+      
       // For tenant_id = 3 (SmartLPG), use Firebase devices
       if (user?.tenant_id === 3) {
-        const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
-        const firebaseData = await fetchSmartLPGDataForDashboard();
-        if (firebaseData.success && firebaseData.devices) {
-          setDevices(firebaseData.devices);
-          return;
+        try {
+          const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
+          const firebaseData = await fetchSmartLPGDataForDashboard();
+          console.log("✅ Firebase data loaded:", firebaseData);
+          if (firebaseData.success && firebaseData.devices) {
+            setDevices(firebaseData.devices);
+            return;
+          }
+          setDevices([]);
+        } catch (fbErr) {
+          console.error("❌ Firebase devices error:", fbErr);
+          setDevices([]);
         }
+        return;
       }
       
       // For tenant_id = 2, use Firebase devices
       if (user?.tenant_id === 2) {
-        const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
-        const firebaseData = await fetchFirebaseDataForDashboard();
-        if (firebaseData.success && firebaseData.devices) {
-          setDevices(firebaseData.devices.slice(0, 10)); // Use first 10 devices
-          return;
+        try {
+          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
+          const firebaseData = await fetchFirebaseDataForDashboard();
+          if (firebaseData.success && firebaseData.devices) {
+            setDevices(firebaseData.devices.slice(0, 10)); // Use first 10 devices
+            return;
+          }
+          setDevices([]);
+        } catch (fbErr) {
+          console.error("❌ Firebase devices error:", fbErr);
+          setDevices([]);
         }
+        return;
       }
       
       // For other tenants, use API
-      const response = await api.get("/admin/devices");
-      const devicesData = response.data?.devices || (Array.isArray(response.data) ? response.data : []);
-      setDevices(devicesData);
+      try {
+        const response = await api.get("/admin/devices");
+        const devicesData = response.data?.devices || (Array.isArray(response.data) ? response.data : []);
+        setDevices(devicesData);
+      } catch (apiErr) {
+        console.error("❌ API devices error:", apiErr);
+        setDevices([]);
+      }
     } catch (err) {
-      console.error("Failed to load devices:", err);
+      console.error("❌ loadDevices error:", err);
       setDevices([]);
     }
   };
@@ -166,19 +202,26 @@ export default function DeviceRulesListPage() {
   useEffect(() => {
     if (!token) return;
     loadDevices();
-  }, [token, user]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, user?.tenant_id]);
 
   useEffect(() => {
     if (!token) return;
+    
+    console.log("🔄 Rules useEffect triggered, tenant:", user?.tenant_id, "devices:", devices.length);
+    
     // For SmartLPG tenant, load rules immediately (don't wait for devices)
     if (isSmartLPGTenant(user?.tenant_id)) {
+      console.log("🔥 Loading rules for SmartLPG tenant");
       loadRules();
       return;
     }
     // For other tenants, wait for devices to load
     if (devices.length > 0 || (user?.tenant_id === 2 && devices.length === 0)) {
+      console.log("📋 Loading rules for other tenant");
       loadRules();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, devices.length, user?.tenant_id]);
 
   const openModal = (rule = null) => {
