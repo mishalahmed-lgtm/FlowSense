@@ -384,12 +384,30 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal,
         is_active: Boolean(formState.is_active),
         condition,
         action,
+        device_id: deviceId,
       };
       
       // Add scheduled rule fields if applicable
       if (formState.ruleType === "scheduled") {
         ruleData.rule_type = "scheduled";
         ruleData.cron_schedule = formState.cronSchedule.trim();
+      }
+      
+      // For SmartLPG tenant, save to Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { saveDeviceRuleToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await saveDeviceRuleToFirebase(ruleData);
+        setSuccess("Rule created");
+        setFormState((prev) => ({
+          ...initialFormState,
+          conditionFieldChoice: fieldOptions[0]?.value || CUSTOM_FIELD_VALUE,
+        }));
+        loadRules();
+        // Close modal after successful creation
+        if (setShowModal) {
+          setShowModal(false);
+        }
+        return;
       }
       
       await api.post(`/admin/devices/${deviceId}/rules`, ruleData);
@@ -416,6 +434,18 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal,
     setError(null);
     setSuccess(null);
     try {
+      // For SmartLPG tenant, update in Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { saveDeviceRuleToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await saveDeviceRuleToFirebase({
+          ...rule,
+          is_active: !rule.is_active,
+        });
+        setSuccess(`Rule ${rule.is_active ? "disabled" : "enabled"}`);
+        loadRules();
+        return;
+      }
+      
       await api.put(`/admin/devices/${deviceId}/rules/${rule.id}`, {
         is_active: !rule.is_active,
       });
@@ -433,6 +463,15 @@ export default function DeviceRulesPanel({ api, deviceId, deviceType, showModal,
     setError(null);
     setSuccess(null);
     try {
+      // For SmartLPG tenant, delete from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { deleteDeviceRuleFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await deleteDeviceRuleFromFirebase(rule.id);
+        setSuccess("Rule deleted");
+        loadRules();
+        return;
+      }
+      
       await api.delete(`/admin/devices/${deviceId}/rules/${rule.id}`);
       setSuccess("Rule deleted");
       loadRules();
