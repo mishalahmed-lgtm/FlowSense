@@ -84,6 +84,17 @@ export default function DeviceRulesListPage() {
     try {
       setLoading(true);
       
+      // For tenant_id = 3 (SmartLPG), load from Firebase
+      if (user?.tenant_id === 3) {
+        console.log("🔥 Loading device rules from Firebase for SmartLPG tenant");
+        const { getDeviceRulesFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const firebaseRules = await getDeviceRulesFromFirebase();
+        setRules(firebaseRules);
+        setError(null);
+        setLoading(false);
+        return;
+      }
+      
       // For tenant_id = 2, use dummy data
       if (user?.tenant_id === 2) {
         console.log("🔥 Generating dummy device rules for tenant_id = 2");
@@ -121,6 +132,16 @@ export default function DeviceRulesListPage() {
 
   const loadDevices = async () => {
     try {
+      // For tenant_id = 3 (SmartLPG), use Firebase devices
+      if (user?.tenant_id === 3) {
+        const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
+        const firebaseData = await fetchSmartLPGDataForDashboard();
+        if (firebaseData.success && firebaseData.devices) {
+          setDevices(firebaseData.devices);
+          return;
+        }
+      }
+      
       // For tenant_id = 2, use Firebase devices
       if (user?.tenant_id === 2) {
         const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
