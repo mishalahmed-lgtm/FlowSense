@@ -234,7 +234,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
             full_name = "SmartLPG Administrator"
             role = UserRole.TENANT_ADMIN
             tenant_id = SMARTLPG_TENANT_ID
-            enabled_modules = ["devices", "dashboards", "utility", "rules", "alerts", "fota"]
+            enabled_modules = ["devices", "dashboards", "utility", "rules", "alerts", "fota", "health", "analytics"]
             is_active = True
         
         mock_user = MockUser()
