@@ -220,7 +220,7 @@ export default function UtilityBillingPage() {
           const gasCost = dummyEnergy.summary.total_cost * 0.20;
           const waterCost = dummyEnergy.summary.total_cost * 0.15;
           
-          const consolidatedRows = [
+          const consolidatedData = [
             {
               tenant_id: user?.tenant_id || 2,
               tenant_name: user?.tenant_id === 3 ? "SmartLPG" : "Demo Tenant",
@@ -259,7 +259,8 @@ export default function UtilityBillingPage() {
             },
           ];
           
-          setConsolidatedRows(consolidatedRows);
+          console.log("✅ Setting consolidated rows:", consolidatedData);
+          setConsolidatedRows(consolidatedData);
           setRows([]);
         }
         
