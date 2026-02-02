@@ -591,6 +591,14 @@ export default function UtilityBillingPage() {
           },
         ]}
       />
+
+      {/* Company Details Modal */}
+      {user?.tenant_id === 3 && (
+        <CompanyDetailsModal 
+          isOpen={showCompanyModal} 
+          onClose={() => setShowCompanyModal(false)} 
+        />
+      )}
     </div>
   );
 }
