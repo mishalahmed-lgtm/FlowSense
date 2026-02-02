@@ -256,10 +256,13 @@ export default function DeviceRulesListPage() {
     try {
       const payload = {
         ...formState,
+        rule_type: formState.rule_type || "automation", // Ensure rule_type is always set
+        action: formState.action || "log", // Ensure action is always set
+        is_active: formState.is_active ?? true, // Ensure is_active is always set
         condition: {
-          field: formState.condition.field,
-          operator: formState.condition.operator,
-          value: formState.condition.value,
+          field: formState.condition.field || "",
+          operator: formState.condition.operator || ">",
+          value: formState.condition.value || "",
         },
       };
 
