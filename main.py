@@ -161,7 +161,7 @@ async def lifespan(app: FastAPI):
                     full_name="SmartLPG Administrator",
                     role=UserRole.TENANT_ADMIN,
                     tenant_id=smartlpg_tenant.id,
-                    enabled_modules=["devices", "dashboards", "utility", "rules", "alerts", "fota"],
+                    enabled_modules=["devices", "dashboards", "utility", "rules", "alerts", "fota", "health", "analytics"],
                     is_active=True,
                 )
                 db.add(smartlpg_user)
@@ -171,10 +171,25 @@ async def lifespan(app: FastAPI):
                 logger.info(f"   User ID: {smartlpg_user.id}, Tenant ID: {smartlpg_user.tenant_id}")
             else:
                 # Ensure user is linked to SmartLPG tenant
+                updated = False
                 if existing_smartlpg_user.tenant_id != smartlpg_tenant.id:
                     existing_smartlpg_user.tenant_id = smartlpg_tenant.id
+                    updated = True
+                
+                # Ensure analytics and health modules are enabled for SmartLPG
+                enabled_modules = existing_smartlpg_user.enabled_modules or []
+                if "analytics" not in enabled_modules:
+                    enabled_modules.append("analytics")
+                    existing_smartlpg_user.enabled_modules = enabled_modules
+                    updated = True
+                if "health" not in enabled_modules:
+                    enabled_modules.append("health")
+                    existing_smartlpg_user.enabled_modules = enabled_modules
+                    updated = True
+                
+                if updated:
                     db.commit()
-                    logger.info(f"✅ Updated SmartLPG user tenant_id to {smartlpg_tenant.id}")
+                    logger.info(f"✅ Updated SmartLPG user: tenant_id={smartlpg_tenant.id}, enabled_modules={enabled_modules}")
                 logger.info(f"✓ SmartLPG user already exists: {smartlpg_email} (ID: {existing_smartlpg_user.id})")
             
             # Auto-create HTTP and MQTT device types if they don't exist
