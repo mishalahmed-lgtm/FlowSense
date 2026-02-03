@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useDashboardWebSocket } from "../hooks/useWebSocket.js";
@@ -16,7 +15,6 @@ import { collection, onSnapshot } from "firebase/firestore";
 
 export default function DashboardPage() {
   const { token, user } = useAuth();
-  const navigate = useNavigate();
   const api = createApiClient(token);
   const [metrics, setMetrics] = useState(null);
     const [activity, setActivity] = useState(null);
@@ -279,20 +277,26 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
-    // Firebase tenants are always "connected" via Firestore real-time listeners
-    if (skipWebSocket && user && token) {
-      setWsConnected(true);
-      console.log(`🔥 Firebase tenant connected via Firestore real-time listeners for tenant_id = ${user.tenant_id}`);
-    } else if (!skipWebSocket) {
-      setWsConnected(wsConnectedState || false);
+    // Check if this tenant uses Firebase (recompute inside effect to ensure user is available)
+    const usesFirebaseForTenant = user?.tenant_id ? usesFirebase(user.tenant_id) : false;
+    
+    // For Firebase tenants: show "Online" immediately when user is logged in (Firebase listeners are active)
+    // For non-Firebase tenants: show WebSocket connection status
+    if (usesFirebaseForTenant) {
+      // Firebase tenants: show online if user and token are available
+      const isConnected = !!(user && token);
+      setWsConnected(isConnected);
+      if (isConnected && user) {
+        console.log(`🔥 Firebase real-time listeners active for tenant_id = ${user.tenant_id}`);
+      }
+    } else {
+      // Non-Firebase tenants: use WebSocket connection status
+      setWsConnected(wsConnectedState);
       if (wsConnectedState) {
         console.log("✓ Dashboard WebSocket connected - receiving live updates");
       }
-    } else {
-      // Default to false if conditions not met
-      setWsConnected(false);
     }
-  }, [wsConnectedState, skipWebSocket, user, token]);
+  }, [wsConnectedState, user, token]);
 
   // Format chart data for recharts
   const chartData = activity?.buckets?.map(bucket => ({
@@ -936,7 +940,6 @@ export default function DashboardPage() {
                       position: "relative",
                       overflow: "hidden"
                     }}
-                    onClick={() => navigate("/alerts")}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = "var(--color-primary-400)";
                       e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)";
