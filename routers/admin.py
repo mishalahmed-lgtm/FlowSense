@@ -278,51 +278,42 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         
         if not password_valid:
             logger.warning(f"Invalid password for user: {email_lower}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-    
-    if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+            )
+        
+        if not user.is_active:
             logger.warning(f"Inactive user attempted login: {email_lower}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account is inactive",
-        )
-    
-    # Update last login
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account is inactive",
+            )
+        
+        # Update last login
         try:
-    user.last_login_at = datetime.utcnow()
-    db.commit()
+            user.last_login_at = datetime.utcnow()
+            db.commit()
         except Exception as commit_err:
             logger.error(f"Error updating last_login_at for user {email_lower}: {commit_err}", exc_info=True)
             # Don't fail login if last_login_at update fails
-    
-    # Create token
-    token = create_access_token(user)
+        
+        # Create token
+        token = create_access_token(user)
         
         logger.info(f"Login successful for user: {email_lower}, tenant_id: {user.tenant_id}")
-    
-    # Ensure SmartLPG tenant (tenant_id = 3) always has analytics and health modules
-    enabled_modules = user.enabled_modules or []
-    if user.tenant_id == 3:  # SmartLPG tenant
-        # Ensure analytics and health are always included for SmartLPG
-        if "analytics" not in enabled_modules:
-            enabled_modules.append("analytics")
-        if "health" not in enabled_modules:
-            enabled_modules.append("health")
-    
-    # Return token with user info
-    user_info = {
-        "id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "role": user.role.value,
-        "tenant_id": user.tenant_id,
-        "enabled_modules": enabled_modules,
-    }
-    
-    return TokenResponse(access_token=token, user=user_info)
+        
+        # Return token with user info
+        user_info = {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role.value,
+            "tenant_id": user.tenant_id,
+            "enabled_modules": user.enabled_modules or [],
+        }
+        
+        return TokenResponse(access_token=token, user=user_info)
     
     except HTTPException:
         # Re-raise HTTP exceptions (they're intentional)
@@ -664,7 +655,7 @@ def _rotate_provisioning_key(device: Device, db: Session) -> dict:
     new_key_value = secrets.token_urlsafe(32)
     device.provisioning_key = new_key_value
     device.provisioning_key_expires_at = None  # Reset expiration if needed
-        db.commit()
+    db.commit()
     db.refresh(device)
     return {
         "key": device.provisioning_key,
@@ -706,17 +697,17 @@ def list_device_types(
         ]
     
     try:
-    device_types = db.query(DeviceType).all()
-    return [
-        DeviceTypeResponse(
-            id=dt.id,
-            name=dt.name,
-            protocol=dt.protocol,
-            description=dt.description,
-            schema_definition=_safe_load_json(dt.schema_definition),
-        )
-        for dt in device_types
-    ]
+        device_types = db.query(DeviceType).all()
+        return [
+            DeviceTypeResponse(
+                id=dt.id,
+                name=dt.name,
+                protocol=dt.protocol,
+                description=dt.description,
+                schema_definition=_safe_load_json(dt.schema_definition),
+            )
+            for dt in device_types
+        ]
     except Exception as e:
         logger.error(f"Error querying device types from database: {e}", exc_info=True)
         # If DB is unavailable, return default device types
