@@ -764,7 +764,12 @@ export default function EnergyManagementDashboard() {
                                 {utilityKind}
                             </span>
                           </td>
-                            <td>{typeof consumption === 'number' ? consumption.toFixed(2) : '0.00'}</td>
+                            <td>
+                              {typeof consumption === 'number' ? consumption.toFixed(2) : '0.00'}
+                              <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginLeft: "var(--space-1)" }}>
+                                {utilityKind === "gas" && isSmartLPG ? "L" : utilityKind === "electricity" ? "kWh" : utilityKind === "water" ? "m³" : ""}
+                              </span>
+                            </td>
                           <td style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--color-success-text)" }}>
                               {currency} {typeof cost === 'number' ? cost.toFixed(2) : '0.00'}
                           </td>

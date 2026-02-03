@@ -283,7 +283,7 @@ export default function DashboardPage() {
     if (skipWebSocket && user && token) {
       setWsConnected(true);
       console.log(`🔥 Firebase tenant connected via Firestore real-time listeners for tenant_id = ${user.tenant_id}`);
-    } else {
+    } else if (!skipWebSocket) {
       setWsConnected(wsConnectedState);
       if (wsConnectedState) {
         console.log("✓ Dashboard WebSocket connected - receiving live updates");
