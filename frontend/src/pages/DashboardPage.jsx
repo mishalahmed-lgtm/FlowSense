@@ -28,7 +28,7 @@ export default function DashboardPage() {
   // Skip WebSocket for Firebase tenants (use Firebase real-time listeners instead)
   const skipWebSocket = usesFirebase(user?.tenant_id);
   // For Firebase tenants, consider them always "connected" via Firestore real-time listeners
-  const isFirebaseConnected = skipWebSocket && user && token;
+  const isFirebaseConnected = skipWebSocket && !!user && !!token;
 
   // Load Firebase data for Firebase tenants (with real-time listeners - no WebSocket needed)
   useEffect(() => {
@@ -282,16 +282,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     // Firebase tenants are always "connected" via Firestore real-time listeners
-    if (isFirebaseConnected) {
+    if (skipWebSocket && user && token) {
       setWsConnected(true);
-      console.log(`🔥 Firebase tenant connected via Firestore real-time listeners for tenant_id = ${user?.tenant_id}`);
+      console.log(`🔥 Firebase tenant connected via Firestore real-time listeners for tenant_id = ${user.tenant_id}`);
     } else {
       setWsConnected(wsConnectedState);
       if (wsConnectedState) {
         console.log("✓ Dashboard WebSocket connected - receiving live updates");
       }
     }
-  }, [wsConnectedState, isFirebaseConnected, user?.tenant_id]);
+  }, [wsConnectedState, skipWebSocket, user, token]);
 
   // Format chart data for recharts
   const chartData = activity?.buckets?.map(bucket => ({
