@@ -23,8 +23,11 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
 
+  // Extract tenant_id safely for use in dependency arrays
+  const tenantId = user?.tenant_id ?? null;
+
   // Skip WebSocket for Firebase tenants (use Firebase real-time listeners instead)
-  const skipWebSocket = usesFirebase(user?.tenant_id);
+  const skipWebSocket = usesFirebase(tenantId);
 
   // Load Firebase data for Firebase tenants (with real-time listeners - no WebSocket needed)
   useEffect(() => {
@@ -277,17 +280,19 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
-    // Check if this tenant uses Firebase (recompute inside effect to ensure user is available)
-    const usesFirebaseForTenant = user?.tenant_id ? usesFirebase(user.tenant_id) : false;
+    // Check if this tenant uses Firebase
+    const usesFirebaseForTenant = tenantId ? usesFirebase(tenantId) : false;
+    const hasToken = !!token;
     
-    // For Firebase tenants: show "Online" immediately when user is logged in (Firebase listeners are active)
+    // For Firebase tenants: show "Online" immediately when tenant_id and token are available
+    // (tenantId being present means user is logged in)
     // For non-Firebase tenants: show WebSocket connection status
     if (usesFirebaseForTenant) {
-      // Firebase tenants: show online if user and token are available
-      const isConnected = !!(user && token);
+      // Firebase tenants: show online if tenant_id and token are available
+      const isConnected = !!tenantId && hasToken;
       setWsConnected(isConnected);
-      if (isConnected && user) {
-        console.log(`🔥 Firebase real-time listeners active for tenant_id = ${user.tenant_id}`);
+      if (isConnected && tenantId) {
+        console.log(`🔥 Firebase real-time listeners active for tenant_id = ${tenantId}`);
       }
     } else {
       // Non-Firebase tenants: use WebSocket connection status
@@ -296,7 +301,7 @@ export default function DashboardPage() {
         console.log("✓ Dashboard WebSocket connected - receiving live updates");
       }
     }
-  }, [wsConnectedState, user, token]);
+  }, [wsConnectedState, token, tenantId]);
 
   // Format chart data for recharts
   const chartData = activity?.buckets?.map(bucket => ({
