@@ -1,13 +1,14 @@
 import { useEffect, useState, useMemo } from "react";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
 import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 
 export default function AnalyticsPage() {
-  const { token, isTenantAdmin, hasModule } = useAuth();
+  const { token, isTenantAdmin, hasModule, user } = useAuth();
   const api = createApiClient(token);
   
   const [activeTab, setActiveTab] = useState("overview");
@@ -140,17 +141,38 @@ export default function AnalyticsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [devicesRes, predictionsRes, modelsRes] = await Promise.all([
-        api.get("/admin/devices"),
-        api.get("/analytics/predictions", { params: { limit: 20 } }),
-        api.get("/analytics/models")
-      ]);
-      
-      // Always ensure we set arrays using safe setters
-      safeSetDevices(devicesRes.data);
-      safeSetPredictions(predictionsRes.data);
-      setModels(Array.isArray(modelsRes.data) ? modelsRes.data : []);
       setError(null);
+      
+      // For SmartLPG tenant, load devices from Firebase instead of PostgreSQL
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        console.log("🔥 [Analytics] Loading SmartLPG data from Firebase...");
+        const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
+        const smartLPGData = await fetchSmartLPGDataForDashboard();
+        
+        if (smartLPGData.success && smartLPGData.devices) {
+          safeSetDevices(smartLPGData.devices);
+          console.log(`✅ [Analytics] Loaded ${smartLPGData.devices.length} SmartLPG devices from Firebase`);
+        } else {
+          safeSetDevices([]);
+          console.warn("⚠️ [Analytics] No SmartLPG devices found in Firebase");
+        }
+        
+        // SmartLPG doesn't have predictions or models in Firebase, set empty arrays
+        safeSetPredictions([]);
+        setModels([]);
+      } else {
+        // For other tenants, use PostgreSQL API
+        const [devicesRes, predictionsRes, modelsRes] = await Promise.all([
+          api.get("/admin/devices"),
+          api.get("/analytics/predictions", { params: { limit: 20 } }),
+          api.get("/analytics/models")
+        ]);
+        
+        // Always ensure we set arrays using safe setters
+        safeSetDevices(devicesRes.data);
+        safeSetPredictions(predictionsRes.data);
+        setModels(Array.isArray(modelsRes.data) ? modelsRes.data : []);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load analytics data");
       // On error, ensure arrays are still set
