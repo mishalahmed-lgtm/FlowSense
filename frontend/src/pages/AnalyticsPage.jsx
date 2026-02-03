@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
 import Modal from "../components/Modal.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
-import { isSmartLPGTenant, isFirebaseTenant, usesFirebase } from "../utils/tenantHelpers.js";
 
 export default function AnalyticsPage() {
   const { token, isTenantAdmin, hasModule, user } = useAuth();
@@ -141,39 +141,27 @@ export default function AnalyticsPage() {
   const loadData = async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // For Firebase tenants, load devices from Firebase instead of PostgreSQL
-      if (usesFirebase(user?.tenant_id)) {
-        console.log(`🔥 [Analytics] Loading Firebase data for tenant_id = ${user?.tenant_id}`);
+      // For SmartLPG tenant, load devices from Firebase instead of PostgreSQL
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        console.log("🔥 [Analytics] Loading SmartLPG data from Firebase...");
+        const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
+        const smartLPGData = await fetchSmartLPGDataForDashboard();
         
-        // Load devices from Firebase
-        const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
-        if (isSmartLPG) {
-          const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
-          const smartLPGData = await fetchSmartLPGDataForDashboard();
-          if (smartLPGData.success && smartLPGData.devices) {
-            safeSetDevices(smartLPGData.devices);
-            console.log(`✅ [Analytics] Loaded ${smartLPGData.devices.length} SmartLPG devices from Firebase`);
-          } else {
-            safeSetDevices([]);
-          }
+        if (smartLPGData.success && smartLPGData.devices) {
+          safeSetDevices(smartLPGData.devices);
+          console.log(`✅ [Analytics] Loaded ${smartLPGData.devices.length} SmartLPG devices from Firebase`);
         } else {
-          const { fetchFirebaseDataForDashboard } = await import("../services/firebaseDataMapper.js");
-          const firebaseData = await fetchFirebaseDataForDashboard();
-          if (firebaseData.success && firebaseData.devices) {
-            safeSetDevices(firebaseData.devices);
-            console.log(`✅ [Analytics] Loaded ${firebaseData.devices.length} Firebase devices`);
-          } else {
-            safeSetDevices([]);
-          }
+          safeSetDevices([]);
+          console.warn("⚠️ [Analytics] No SmartLPG devices found in Firebase");
         }
         
-        // Firebase tenants don't have ML predictions/models yet
+        // SmartLPG doesn't have predictions or models in Firebase, set empty arrays
         safeSetPredictions([]);
         setModels([]);
-        setError(null);
       } else {
-        // PostgreSQL-based tenants - use existing API endpoints
+        // For other tenants, use PostgreSQL API
         const [devicesRes, predictionsRes, modelsRes] = await Promise.all([
           api.get("/admin/devices"),
           api.get("/analytics/predictions", { params: { limit: 20 } }),
@@ -184,7 +172,6 @@ export default function AnalyticsPage() {
         safeSetDevices(devicesRes.data);
         safeSetPredictions(predictionsRes.data);
         setModels(Array.isArray(modelsRes.data) ? modelsRes.data : []);
-        setError(null);
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load analytics data");
@@ -198,9 +185,9 @@ export default function AnalyticsPage() {
   };
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !user) return;
     loadData();
-  }, [token]);
+  }, [token, user?.tenant_id]);
 
   const handleAnalyzePatterns = async () => {
     if (finalDevicesArray.length === 0) {
