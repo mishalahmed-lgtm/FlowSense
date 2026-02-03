@@ -731,7 +731,8 @@ export default function EnergyManagementDashboard() {
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Device</th>
+                        <th>Device ID</th>
+                        <th>Device Name</th>
                         <th>Utility Type</th>
                         <th>Consumption</th>
                         <th>Cost</th>
@@ -746,8 +747,13 @@ export default function EnergyManagementDashboard() {
                         
                         return (
                           <tr key={`${device.device_id}-${utilityKind}-${idx}`}>
+                          <td>
+                            <code className="badge badge--neutral" style={{ fontSize: "var(--font-size-xs)" }}>
+                              {device.device_id || `device_${idx + 1}`}
+                            </code>
+                          </td>
                           <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                              {device.device_name || device.device_id || `Device ${idx + 1}`}
+                              {device.device_name || "Unnamed Device"}
                           </td>
                           <td>
                             <span className="badge" style={{ 

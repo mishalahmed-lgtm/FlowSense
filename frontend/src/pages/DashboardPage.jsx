@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useDashboardWebSocket } from "../hooks/useWebSocket.js";
@@ -15,6 +16,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 
 export default function DashboardPage() {
   const { token, user } = useAuth();
+  const navigate = useNavigate();
   const api = createApiClient(token);
   const [metrics, setMetrics] = useState(null);
     const [activity, setActivity] = useState(null);
@@ -25,6 +27,8 @@ export default function DashboardPage() {
 
   // Skip WebSocket for Firebase tenants (use Firebase real-time listeners instead)
   const skipWebSocket = usesFirebase(user?.tenant_id);
+  // For Firebase tenants, consider them always "connected" via Firestore real-time listeners
+  const isFirebaseConnected = skipWebSocket && user && token;
 
   // Load Firebase data for Firebase tenants (with real-time listeners - no WebSocket needed)
   useEffect(() => {
@@ -277,13 +281,17 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
-    setWsConnected(skipWebSocket ? false : wsConnectedState);
-    if (wsConnectedState && !skipWebSocket) {
-      console.log("✓ Dashboard WebSocket connected - receiving live updates");
-    } else if (skipWebSocket) {
-      console.log(`🔥 Skipping WebSocket for tenant_id = ${user?.tenant_id} (using Firebase real-time listeners)`);
+    // Firebase tenants are always "connected" via Firestore real-time listeners
+    if (isFirebaseConnected) {
+      setWsConnected(true);
+      console.log(`🔥 Firebase tenant connected via Firestore real-time listeners for tenant_id = ${user?.tenant_id}`);
+    } else {
+      setWsConnected(wsConnectedState);
+      if (wsConnectedState) {
+        console.log("✓ Dashboard WebSocket connected - receiving live updates");
+      }
     }
-  }, [wsConnectedState]);
+  }, [wsConnectedState, isFirebaseConnected, user?.tenant_id]);
 
   // Format chart data for recharts
   const chartData = activity?.buckets?.map(bucket => ({
@@ -927,6 +935,7 @@ export default function DashboardPage() {
                       position: "relative",
                       overflow: "hidden"
                     }}
+                    onClick={() => navigate("/alerts")}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = "var(--color-primary-400)";
                       e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)";

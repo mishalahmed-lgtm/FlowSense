@@ -75,36 +75,36 @@ export default function UtilityBillingPage() {
         // Calculate gas consumption for each device
         const reportRows = devicesToUse.map(device => {
           const consumption = calculateGasConsumption(device);
-          const fromDateObj = new Date(fromDate);
-          const toDateObj = new Date(toDate);
-          const daysDiff = Math.ceil((toDateObj - fromDateObj) / (1000 * 60 * 60 * 24));
-          
+            const fromDateObj = new Date(fromDate);
+            const toDateObj = new Date(toDate);
+            const daysDiff = Math.ceil((toDateObj - fromDateObj) / (1000 * 60 * 60 * 24));
+            
           // Scale monthly consumption to report period
           const periodConsumption = (parseFloat(consumption.monthly_consumption_liters) / 30) * daysDiff;
-          const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysDiff;
-          
-          return {
+              const periodCost = (parseFloat(consumption.monthly_cost_aed) / 30) * daysDiff;
+              
+              return {
             tenant_id: user?.tenant_id,
-            tenant_name: "SmartLPG",
-            device_id: device.device_id,
-            device_external_id: device.device_id,
+                  tenant_name: "SmartLPG",
+                  device_id: device.device_id,
+                  device_external_id: device.device_id,
             device_name: device.name || device.device_id,
-            utility_kind: "gas",
+                  utility_kind: "gas",
             index_key: "lpg_tank_level",
-            period_start: fromDate,
-            period_end: toDate,
-            start_index: null,
-            end_index: null,
+                  period_start: fromDate,
+                  period_end: toDate,
+                  start_index: null,
+                  end_index: null,
             consumption: Math.round(periodConsumption * 100) / 100,
             unit: "L",
             rate_per_unit: 3.0,
-            currency: "AED",
+                  currency: "AED",
             amount: Math.round(periodCost * 100) / 100,
-          };
-        });
-        
+                };
+              });
+              
         setRows(reportRows);
-        setConsolidatedRows([]);
+              setConsolidatedRows([]);
       }
     } catch (err) {
       console.error("Error generating report:", err);
@@ -143,12 +143,12 @@ export default function UtilityBillingPage() {
         
         // SmartLPG only has gas devices
         const consolidated = [
-          {
+            {
             tenant_id: user?.tenant_id,
             tenant_name: "SmartLPG",
-            utility_kind: "gas",
-            period_start: fromDate,
-            period_end: toDate,
+              utility_kind: "gas",
+              period_start: fromDate,
+              period_end: toDate,
             total_consumption: Math.round(totalConsumption * 100) / 100,
             unit: "L",
             total_cost: Math.round(totalCost * 100) / 100,
@@ -172,12 +172,12 @@ export default function UtilityBillingPage() {
     if (downloading) return;
     
     try {
-      setDownloading(true);
-      
+    setDownloading(true);
+    
       // For SmartLPG tenant, use client-side PDF generation
       if (user?.tenant_id === 3) {
         let reportData;
-        
+      
         if (rows.length > 0) {
           // Per-device report
           reportData = preparePerDeviceReportData(rows, fromDate, toDate);
@@ -253,113 +253,113 @@ export default function UtilityBillingPage() {
 
       <Tabs
         tabs={[
-          {
-            id: "per-device",
-            label: "Per-Device Report",
-            content: (
-              <>
-                <div className="card">
-                  <div className="card__header">
-                    <h3 className="card__title">
-                      <Icon name="filter" size={20} /> Report Filters
-                    </h3>
-                  </div>
-                  <div className="card__body">
-                    <div className="form">
-                      <div className="form-grid">
-                        <div className="form-group">
-                          <label className="form-label">
-                            <Icon name="devices" size={16} />
-                            Device (Optional)
-                          </label>
-                          <select
-                            className="form-select"
-                            value={selectedDevice}
-                            onChange={(e) => setSelectedDevice(e.target.value)}
-                          >
+    {
+      id: "per-device",
+      label: "Per-Device Report",
+      content: (
+        <>
+          <div className="card">
+            <div className="card__header">
+              <h3 className="card__title">
+                <Icon name="filter" size={20} /> Report Filters
+              </h3>
+            </div>
+            <div className="card__body">
+              <div className="form">
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">
+                      <Icon name="devices" size={16} />
+                      Device (Optional)
+                    </label>
+                    <select
+                      className="form-select"
+                      value={selectedDevice}
+                      onChange={(e) => setSelectedDevice(e.target.value)}
+                    >
                             <option value="">All Devices ({devices.length})</option>
                             {devices.map((device) => (
                               <option key={device.device_id} value={device.device_id}>
                                 {device.device_id} - {device.name || "Unnamed Device"}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                        <div className="form-group">
-                          <label className="form-label">
-                            <Icon name="calendar" size={16} />
-                            From Date
-                          </label>
-                          <input
-                            className="form-input"
-                            type="date"
-                            value={fromDate}
-                            onChange={(e) => setFromDate(e.target.value)}
-                          />
-                        </div>
+                  <div className="form-group">
+                    <label className="form-label">
+                      <Icon name="calendar" size={16} />
+                      From Date
+                    </label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                    />
+                  </div>
 
-                        <div className="form-group">
-                          <label className="form-label">
-                            <Icon name="calendar" size={16} />
-                            To Date
-                          </label>
-                          <input
-                            className="form-input"
-                            type="date"
-                            value={toDate}
-                            onChange={(e) => setToDate(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="form-actions">
-                        <button 
-                          className="btn btn--secondary" 
-                          onClick={runPerDeviceReport} 
-                          disabled={loading}
-                        >
-                          <Icon name="activity" size={18} />
-                          {loading ? "Running..." : "Run Report"}
-                        </button>
-                        <button 
-                          className="btn btn--primary" 
-                          onClick={handleDownloadPdf}
-                          disabled={loading || downloading || rows.length === 0}
-                        >
-                          <Icon name="download" size={18} />
-                          {downloading ? "Generating..." : "Download PDF"}
-                        </button>
-                      </div>
-                    </div>
+                  <div className="form-group">
+                    <label className="form-label">
+                      <Icon name="calendar" size={16} />
+                      To Date
+                    </label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                    />
                   </div>
                 </div>
 
-                {error && (
-                  <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
-                    {error}
-                  </div>
-                )}
+                <div className="form-actions">
+                  <button 
+                    className="btn btn--secondary" 
+                          onClick={runPerDeviceReport} 
+                          disabled={loading}
+                  >
+                    <Icon name="activity" size={18} />
+                    {loading ? "Running..." : "Run Report"}
+                  </button>
+                  <button 
+                    className="btn btn--primary" 
+                    onClick={handleDownloadPdf} 
+                    disabled={loading || downloading || rows.length === 0}
+                  >
+                    <Icon name="download" size={18} />
+                          {downloading ? "Generating..." : "Download PDF"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
 
-                {loading && (
-                  <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
-                    <Icon name="activity" size={48} style={{ opacity: 0.3 }} />
-                    <p style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)" }}>
-                      Analyzing consumption data...
-                    </p>
-                  </div>
-                )}
-
-                {hasRun && !loading && rows.length === 0 && (
-                  <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
-                    <Icon name="inbox" size={48} style={{ opacity: 0.3 }} />
-                    <h3 style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)", fontSize: "var(--font-size-lg)" }}>
-                      No Consumption Data Found
-                    </h3>
-                  </div>
-                )}
-
-                {!loading && rows.length > 0 && (
+          {error && (
+            <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+              {error}
+                </div>
+              )}
+              
+              {loading && (
+                <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
+                  <Icon name="activity" size={48} style={{ opacity: 0.3 }} />
+                  <p style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)" }}>
+                    Analyzing consumption data...
+                  </p>
+                </div>
+              )}
+              
+              {hasRun && !loading && rows.length === 0 && (
+                <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
+                  <Icon name="inbox" size={48} style={{ opacity: 0.3 }} />
+                  <h3 style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)", fontSize: "var(--font-size-lg)" }}>
+                    No Consumption Data Found
+                  </h3>
+                </div>
+              )}
+              
+              {!loading && rows.length > 0 && (
                   <div className="card">
                     <div className="card__header">
                       <h3 className="card__title">
@@ -367,181 +367,187 @@ export default function UtilityBillingPage() {
                       </h3>
                     </div>
                     <div className="card__body">
-                      <div className="table-wrapper">
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Tenant</th>
-                              <th>Device</th>
-                              <th>Index Key</th>
-                              <th>Consumption</th>
-                              <th>Unit</th>
-                              <th>Rate</th>
-                              <th>Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody>
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Tenant</th>
+                        <th>Device ID</th>
+                        <th>Device Name</th>
+                        <th>Index Key</th>
+                        <th>Consumption</th>
+                        <th>Unit</th>
+                        <th>Rate</th>
+                        <th>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
                             {rows.slice(0, 50).map((row) => (
                               <tr key={`${row.device_id}`}>
-                                <td>{row.tenant_name}</td>
-                                <td>
-                                  <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                                    {row.device_name || row.device_external_id}
-                                  </div>
-                                </td>
-                                <td>
-                                  <code className="badge badge--neutral" style={{ fontSize: "var(--font-size-xs)" }}>
-                                    {row.index_key}
-                                  </code>
-                                </td>
-                                <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
+                          <td>{row.tenant_name}</td>
+                          <td>
+                            <code className="badge badge--neutral" style={{ fontSize: "var(--font-size-xs)" }}>
+                              {row.device_id || row.device_external_id}
+                            </code>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
+                              {row.device_name || "Unnamed Device"}
+                            </div>
+                          </td>
+                          <td>
+                            <code className="badge badge--neutral" style={{ fontSize: "var(--font-size-xs)" }}>
+                              {row.index_key}
+                            </code>
+                          </td>
+                          <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
                                   {row.consumption.toFixed(2)}
-                                </td>
-                                <td><span className="badge badge--info">{row.unit}</span></td>
-                                <td className="text-muted" style={{ fontSize: "var(--font-size-xs)" }}>
+                          </td>
+                          <td><span className="badge badge--info">{row.unit}</span></td>
+                          <td className="text-muted" style={{ fontSize: "var(--font-size-xs)" }}>
                                   {row.currency} {row.rate_per_unit.toFixed(4)}
-                                </td>
-                                <td style={{ fontWeight: "var(--font-weight-bold)", fontSize: "var(--font-size-lg)", color: "var(--color-success-500)" }}>
+                          </td>
+                          <td style={{ fontWeight: "var(--font-weight-bold)", fontSize: "var(--font-size-lg)", color: "var(--color-success-500)" }}>
                                   {row.currency} {row.amount.toFixed(2)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+            </div>
+          </div>
                 )}
-              </>
-            ),
-          },
-          {
-            id: "consolidated",
-            label: "Consolidated Report",
-            content: (
-              <>
-                <div className="card">
-                  <div className="card__header">
-                    <h3 className="card__title">
-                      <Icon name="filter" size={20} /> Report Filters
-                    </h3>
-                  </div>
-                  <div className="card__body">
-                    <div className="form">
-                      <div className="form-grid">
-                        <div className="form-group">
+        </>
+      ),
+    },
+    {
+      id: "consolidated",
+      label: "Consolidated Report",
+      content: (
+        <>
+          <div className="card">
+            <div className="card__header">
+              <h3 className="card__title">
+                <Icon name="filter" size={20} /> Report Filters
+              </h3>
+            </div>
+            <div className="card__body">
+              <div className="form">
+                <div className="form-grid">
+                  <div className="form-group">
                           <label className="form-label">
-                            <Icon name="calendar" size={16} />
+                      <Icon name="calendar" size={16} />
                             From Date
-                          </label>
-                          <input
-                            className="form-input"
-                            type="date"
-                            value={fromDate}
-                            onChange={(e) => setFromDate(e.target.value)}
-                          />
-                        </div>
+                    </label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                    />
+                  </div>
 
-                        <div className="form-group">
+                  <div className="form-group">
                           <label className="form-label">
-                            <Icon name="calendar" size={16} />
+                      <Icon name="calendar" size={16} />
                             To Date
-                          </label>
-                          <input
-                            className="form-input"
-                            type="date"
-                            value={toDate}
-                            onChange={(e) => setToDate(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="form-actions">
-                        <button 
-                          className="btn btn--secondary" 
-                          onClick={runConsolidatedReport} 
-                          disabled={loading}
-                        >
-                          <Icon name="activity" size={18} />
-                          {loading ? "Running..." : "Run Report"}
-                        </button>
-                        <button 
-                          className="btn btn--primary" 
-                          onClick={handleDownloadPdf}
-                          disabled={loading || downloading || consolidatedRows.length === 0}
-                        >
-                          <Icon name="download" size={18} />
-                          {downloading ? "Generating..." : "Download PDF"}
-                        </button>
-                      </div>
-                    </div>
+                    </label>
+                    <input
+                      className="form-input"
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                    />
                   </div>
                 </div>
 
-                {error && (
-                  <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
-                    {error}
-                  </div>
-                )}
+                <div className="form-actions">
+                  <button 
+                    className="btn btn--secondary" 
+                          onClick={runConsolidatedReport} 
+                          disabled={loading}
+                  >
+                    <Icon name="activity" size={18} />
+                    {loading ? "Running..." : "Run Report"}
+                  </button>
+                  <button 
+                    className="btn btn--primary" 
+                    onClick={handleDownloadPdf} 
+                    disabled={loading || downloading || consolidatedRows.length === 0}
+                  >
+                    <Icon name="download" size={18} />
+                          {downloading ? "Generating..." : "Download PDF"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
 
-                {!loading && consolidatedRows.length > 0 && (
-                  <div className="metrics-grid">
-                    <div className="metric-card">
-                      <div className="metric-card__header">
-                        <span className="metric-card__label">Total Devices</span>
-                        <Icon name="devices" size="lg" />
-                      </div>
-                      <div className="metric-card__value">{deviceCount}</div>
-                    </div>
-                    <div className="metric-card">
-                      <div className="metric-card__header">
-                        <span className="metric-card__label">Total Consumption</span>
-                        <Icon name="trending" size="lg" />
-                      </div>
-                      <div className="metric-card__value">
-                        {totalConsumption.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="metric-card">
-                      <div className="metric-card__header">
-                        <span className="metric-card__label">Total Amount</span>
-                        <Icon name="utility" size="lg" />
-                      </div>
-                      <div className="metric-card__value text-success">
-                        {currency} {totalAmount.toFixed(2)}
-                      </div>
-                    </div>
-                    <div className="metric-card">
-                      <div className="metric-card__header">
-                        <span className="metric-card__label">Utility Types</span>
-                        <Icon name="database" size="lg" />
-                      </div>
-                      <div className="metric-card__value">
+          {error && (
+            <div className="badge badge--error" style={{ display: "block", padding: "var(--space-4)", marginBottom: "var(--space-6)" }}>
+              {error}
+            </div>
+          )}
+
+          {!loading && consolidatedRows.length > 0 && (
+            <div className="metrics-grid">
+              <div className="metric-card">
+                <div className="metric-card__header">
+                  <span className="metric-card__label">Total Devices</span>
+                  <Icon name="devices" size="lg" />
+                </div>
+                <div className="metric-card__value">{deviceCount}</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-card__header">
+                  <span className="metric-card__label">Total Consumption</span>
+                  <Icon name="trending" size="lg" />
+                </div>
+                <div className="metric-card__value">
+                  {totalConsumption.toFixed(2)}
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-card__header">
+                  <span className="metric-card__label">Total Amount</span>
+                  <Icon name="utility" size="lg" />
+                </div>
+                <div className="metric-card__value text-success">
+                  {currency} {totalAmount.toFixed(2)}
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-card__header">
+                  <span className="metric-card__label">Utility Types</span>
+                  <Icon name="database" size="lg" />
+                </div>
+                <div className="metric-card__value">
                         {consolidatedRows.length}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {loading && (
-                  <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
-                    <Icon name="activity" size={48} style={{ opacity: 0.3 }} />
-                    <p style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)" }}>
-                      Consolidating consumption data across all utilities...
-                    </p>
-                  </div>
-                )}
-
-                {hasRun && !loading && consolidatedRows.length === 0 && (
-                  <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
-                    <Icon name="inbox" size={48} style={{ opacity: 0.3 }} />
-                    <h3 style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)", fontSize: "var(--font-size-lg)" }}>
-                      No Consumption Data Found
-                    </h3>
-                  </div>
-                )}
-
-                {!loading && consolidatedRows.length > 0 && (
+                </div>
+              </div>
+                </div>
+              )}
+              
+              {loading && (
+                <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
+                  <Icon name="activity" size={48} style={{ opacity: 0.3 }} />
+                  <p style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)" }}>
+                    Consolidating consumption data across all utilities...
+                  </p>
+                </div>
+              )}
+              
+              {hasRun && !loading && consolidatedRows.length === 0 && (
+                <div className="page--centered" style={{ padding: "var(--space-8) 0" }}>
+                  <Icon name="inbox" size={48} style={{ opacity: 0.3 }} />
+                  <h3 style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)", fontSize: "var(--font-size-lg)" }}>
+                    No Consumption Data Found
+                  </h3>
+                </div>
+              )}
+              
+              {!loading && consolidatedRows.length > 0 && (
                   <div className="card">
                     <div className="card__header">
                       <h3 className="card__title">
@@ -549,46 +555,46 @@ export default function UtilityBillingPage() {
                       </h3>
                     </div>
                     <div className="card__body">
-                      <div className="table-wrapper">
-                        <table className="table">
-                          <thead>
-                            <tr>
-                              <th>Tenant</th>
-                              <th>Utility</th>
-                              <th>Devices</th>
-                              <th>Consumption</th>
-                              <th>Unit</th>
-                              <th>Total Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody>
+                <div className="table-wrapper">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Tenant</th>
+                        <th>Utility</th>
+                        <th>Devices</th>
+                        <th>Consumption</th>
+                        <th>Unit</th>
+                        <th>Total Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
                             {consolidatedRows.map((row) => (
                               <tr key={row.utility_kind}>
                                 <td>{row.tenant_name}</td>
-                                <td>
+                            <td>
                                   <span className="badge badge--info">
                                     {row.utility_kind.charAt(0).toUpperCase() + row.utility_kind.slice(1)}
-                                  </span>
-                                </td>
+                              </span>
+                            </td>
                                 <td>{row.device_count}</td>
-                                <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                                  {row.total_consumption.toFixed(2)}
-                                </td>
+                            <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
+                              {row.total_consumption.toFixed(2)}
+                            </td>
                                 <td><span className="badge badge--neutral">{row.unit}</span></td>
                                 <td style={{ fontWeight: "var(--font-weight-bold)", fontSize: "var(--font-size-lg)", color: "var(--color-success-500)" }}>
                                   {row.currency} {row.total_cost.toFixed(2)}
-                                </td>
-                              </tr>
+                            </td>
+                          </tr>
                             ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </div>
+                    </tbody>
+                  </table>
+                </div>
+            </div>
+          </div>
                 )}
-              </>
-            ),
-          },
+        </>
+      ),
+    },
         ]}
       />
 

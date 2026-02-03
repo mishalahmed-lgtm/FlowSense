@@ -425,7 +425,7 @@ export default function DevicesPage() {
         setDeviceTypes(defaultDeviceTypes);
         console.log("DB unavailable, using default device types for SmartLPG tenant");
       } else {
-        setError(err.response?.data?.detail || "Failed to load reference data");
+      setError(err.response?.data?.detail || "Failed to load reference data");
       }
     }
   };
@@ -767,10 +767,9 @@ export default function DevicesPage() {
               <Icon name="list" size={18} />
             </button>
             <button
-              className={`btn-icon ${viewMode === "map" ? "active" : ""}`}
-              onClick={() => setViewMode("map")}
+              className="btn-icon"
+              onClick={() => navigate("/devices/map")}
               title="Map View"
-              style={viewMode === "map" ? { backgroundColor: "var(--color-bg-tertiary)" } : {}}
             >
               <Icon name="map" size={18} />
             </button>
