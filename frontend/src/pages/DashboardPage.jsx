@@ -27,8 +27,6 @@ export default function DashboardPage() {
 
   // Skip WebSocket for Firebase tenants (use Firebase real-time listeners instead)
   const skipWebSocket = usesFirebase(user?.tenant_id);
-  // For Firebase tenants, consider them always "connected" via Firestore real-time listeners
-  const isFirebaseConnected = skipWebSocket && !!user && !!token;
 
   // Load Firebase data for Firebase tenants (with real-time listeners - no WebSocket needed)
   useEffect(() => {
