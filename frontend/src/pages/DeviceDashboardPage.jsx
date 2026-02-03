@@ -378,13 +378,13 @@ export default function DeviceDashboardPage() {
             }
           } else {
             // For other tenants, use backend API
-            const dashResp = await api.get(`/dashboard/devices/${deviceId}/dashboard`);
-            console.log("Dashboard API response:", dashResp.data);
-            existingConfig = dashResp.data.config || { widgets: [], layout: [] };
-            
-            // Load latest telemetry (if not already loaded from Firebase)
-            if (!telemetryFromFirebase) {
-              setTelemetryData(dashResp.data.latest?.data || {});
+          const dashResp = await api.get(`/dashboard/devices/${deviceId}/dashboard`);
+          console.log("Dashboard API response:", dashResp.data);
+          existingConfig = dashResp.data.config || { widgets: [], layout: [] };
+          
+          // Load latest telemetry (if not already loaded from Firebase)
+          if (!telemetryFromFirebase) {
+            setTelemetryData(dashResp.data.latest?.data || {});
             }
           }
         } catch (dashErr) {
@@ -901,9 +901,9 @@ export default function DeviceDashboardPage() {
         await saveDeviceDashboardToFirebase(deviceId, { widgets, layout: layoutToSave });
         // Don't show success message for SmartLPG tenant (auto-save)
       } else {
-        await api.post(`/dashboard/devices/${deviceId}/dashboard`, {
-          config: { widgets, layout: layoutToSave },
-        });
+      await api.post(`/dashboard/devices/${deviceId}/dashboard`, {
+        config: { widgets, layout: layoutToSave },
+      });
         setSuccessMessage("Dashboard saved successfully");
       }
       

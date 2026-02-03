@@ -102,11 +102,7 @@ export default function Sidebar() {
       {/* Brand Header */}
       <div className="sidebar__brand">
         <div className="sidebar__logo">
-          <Icon name="admin" size={24} />
-        </div>
-        <div>
-          <p className="sidebar__title">FlowSense</p>
-          <p className="sidebar__subtitle">IoT Platform</p>
+          <img src="/flowsense-logo.png" alt="FlowSense" style={{ width: "100%", height: "100%", objectFit: "contain", objectPosition: "center center" }} />
         </div>
       </div>
 

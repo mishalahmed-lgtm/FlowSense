@@ -21,6 +21,8 @@ export default function FOTAJobsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [showJobDetails, setShowJobDetails] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState("");
   
   // Form state
   const [formData, setFormData] = useState({
@@ -198,13 +200,15 @@ export default function FOTAJobsPage() {
         await saveFOTAJobToFirebase(fotaJob);
         setShowCreateModal(false);
         setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
+        setDeviceSearchQuery("");
         await loadJobs();
         setError(null);
       } else {
-        await api.post("/fota/jobs", payload);
-        setShowCreateModal(false);
-        setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
-        await loadJobs();
+      await api.post("/fota/jobs", payload);
+      setShowCreateModal(false);
+      setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
+      setDeviceSearchQuery("");
+      await loadJobs();
       }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || "Failed to create FOTA job";
@@ -215,12 +219,38 @@ export default function FOTAJobsPage() {
 
   const handleViewJobDetails = async (jobId) => {
     try {
-      const response = await api.get(`/fota/jobs/${jobId}`);
-      setSelectedJob(response.data);
-      setShowJobDetails(true);
+      // For SmartLPG tenant, get job from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        // Find the job from the already loaded jobs
+        const job = jobs.find(j => j.id === jobId);
+        if (job) {
+          setSelectedJob(job);
+          setShowJobDetails(true);
+        } else {
+          setError("Job not found");
+        }
+      } else {
+        // For other tenants, use backend API
+        const response = await api.get(`/fota/jobs/${jobId}`);
+        setSelectedJob(response.data);
+        setShowJobDetails(true);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load job details");
     }
+  };
+
+  // Filter devices based on search query
+  const getFilteredDevices = () => {
+    if (!deviceSearchQuery.trim()) {
+      return devices;
+    }
+    const query = deviceSearchQuery.toLowerCase();
+    return devices.filter(device => {
+      const name = (device.name || device.device_name || "").toLowerCase();
+      const deviceId = (device.device_id || device.id || "").toLowerCase();
+      return name.includes(query) || deviceId.includes(query);
+    });
   };
 
   const getStatusBadge = (status) => {
@@ -263,6 +293,33 @@ export default function FOTAJobsPage() {
           </p>
         </div>
         <div className="page-header__actions">
+          {isSmartLPGTenant(user?.tenant_id) && jobs.length === 0 && (
+            <button
+              className="btn btn--secondary"
+              onClick={async () => {
+                setSeeding(true);
+                setError(null);
+                try {
+                  console.log("🌱 Starting FOTA jobs seeding...");
+                  const seedModule = await import("../scripts/seedSmartLPGData.js");
+                  const result = await seedModule.seedFOTAJobs();
+                  console.log("✅ Seeding result:", result);
+                  // Reload jobs after seeding
+                  await loadJobs();
+                  alert(`✅ Successfully seeded ${result.count} FOTA jobs!`);
+                } catch (error) {
+                  console.error("❌ Seeding error:", error);
+                  setError("Failed to seed data: " + error.message);
+                  alert("❌ Error seeding data: " + error.message);
+                } finally {
+                  setSeeding(false);
+                }
+              }}
+              disabled={seeding}
+            >
+              {seeding ? "Seeding Data..." : "Seed Sample Data"}
+            </button>
+          )}
           <button className="btn-icon" onClick={loadJobs} title="Refresh">
             <Icon name="refresh" size={18} />
           </button>
@@ -424,52 +481,472 @@ export default function FOTAJobsPage() {
             </div>
 
             <div className="form-group">
-              <label className="form-label form-label--required">Select Devices</label>
-              {devices && devices.length > 0 ? (
               <div style={{ 
-                maxHeight: "200px", 
-                overflowY: "auto", 
-                border: "1px solid var(--color-border-medium)", 
-                borderRadius: "var(--radius-lg)", 
-                padding: "var(--space-4)", 
-                backgroundColor: "var(--color-bg-secondary)" 
+                display: "flex", 
+                justifyContent: "space-between", 
+                alignItems: "center",
+                marginBottom: "var(--space-3)"
               }}>
-                  {devices.map((device) => {
-                    const deviceId = device.id || device.device_id || `device_${device.device_id}`;
-                    return (
-                      <label key={deviceId} style={{ 
-                    display: "flex", 
-                    alignItems: "center", 
-                    gap: "var(--space-2)", 
-                    marginBottom: "var(--space-3)", 
-                    cursor: "pointer" 
+                <label className="form-label form-label--required" style={{ marginBottom: 0 }}>
+                  Select Devices
+                </label>
+                {devices && devices.length > 0 && (
+                  <span style={{ 
+                    fontSize: "var(--font-size-xs)", 
+                    color: "var(--color-text-tertiary)",
+                    fontWeight: "500"
+                  }}>
+                    {devices.length} total devices
+                  </span>
+                )}
+              </div>
+              {devices && devices.length > 0 ? (
+                <>
+                  {/* Enhanced Search input */}
+                  <div style={{ 
+                    marginBottom: "var(--space-4)", 
+                    position: "relative" 
                   }}>
                     <input
-                      type="checkbox"
-                          checked={formData.device_ids.includes(deviceId.toString())}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setFormData({
-                            ...formData,
-                                device_ids: [...formData.device_ids, deviceId.toString()],
-                          });
-                        } else {
-                          setFormData({
-                            ...formData,
-                                device_ids: formData.device_ids.filter(id => id !== deviceId.toString()),
-                          });
+                      type="text"
+                      className="form-input"
+                      placeholder="Type to search by device name or ID... (Press / to focus)"
+                      value={deviceSearchQuery}
+                      onChange={(e) => setDeviceSearchQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setDeviceSearchQuery("");
+                          e.target.blur();
                         }
                       }}
-                      style={{ cursor: "pointer" }}
+                      style={{ 
+                        paddingLeft: "var(--space-12)",
+                        paddingRight: deviceSearchQuery ? "var(--space-10)" : "var(--space-4)",
+                        fontSize: "var(--font-size-base)",
+                        minHeight: "44px",
+                        transition: "all 0.2s ease",
+                        border: "2px solid var(--color-border-medium)"
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = "var(--color-primary)";
+                        e.target.style.boxShadow = "0 0 0 3px var(--color-primary-light)";
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = "var(--color-border-medium)";
+                        e.target.style.boxShadow = "none";
+                      }}
                     />
-                        <span>{device.name || device.device_name || device.device_id}</span>
-                    <span className="badge badge--neutral" style={{ marginLeft: "auto" }}>
-                          {device.protocol || "HTTP"}
-                    </span>
-                  </label>
-                    );
-                  })}
-                </div>
+                    <div style={{ 
+                      position: "absolute", 
+                      left: "var(--space-4)", 
+                      top: "50%", 
+                      transform: "translateY(-50%)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "var(--space-2)",
+                      pointerEvents: "none"
+                    }}>
+                      <Icon 
+                        name="search" 
+                        size={18} 
+                        style={{ 
+                          color: "var(--color-text-tertiary)"
+                        }} 
+                      />
+                    </div>
+                    {deviceSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setDeviceSearchQuery("")}
+                        aria-label="Clear search"
+                        style={{
+                          position: "absolute",
+                          right: "var(--space-3)",
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "var(--color-bg-tertiary)",
+                          border: "none",
+                          borderRadius: "var(--radius-full)",
+                          cursor: "pointer",
+                          padding: "var(--space-1)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "var(--color-text-secondary)",
+                          transition: "all 0.2s ease",
+                          width: "28px",
+                          height: "28px"
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = "var(--color-error)";
+                          e.currentTarget.style.color = "white";
+                          e.currentTarget.style.transform = "translateY(-50%) scale(1.1)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "var(--color-bg-tertiary)";
+                          e.currentTarget.style.color = "var(--color-text-secondary)";
+                          e.currentTarget.style.transform = "translateY(-50%) scale(1)";
+                        }}
+                      >
+                        <Icon name="x" size={14} />
+                      </button>
+                    )}
+                    {deviceSearchQuery && getFilteredDevices().length === 0 && (
+                      <div style={{
+                        position: "absolute",
+                        right: deviceSearchQuery ? "var(--space-12)" : "var(--space-4)",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        fontSize: "var(--font-size-xs)",
+                        color: "var(--color-text-tertiary)",
+                        pointerEvents: "none"
+                      }}>
+                        No results
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Enhanced Selection controls */}
+                  <div style={{ 
+                    display: "flex", 
+                    gap: "var(--space-3)", 
+                    marginBottom: "var(--space-4)",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    padding: "var(--space-4)",
+                    backgroundColor: "var(--color-bg-secondary)",
+                    borderRadius: "var(--radius-lg)",
+                    border: "1px solid var(--color-border-medium)",
+                    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)"
+                  }}>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--primary"
+                      onClick={() => {
+                        const filtered = getFilteredDevices();
+                        const allIds = filtered.map(d => (d.id || d.device_id || `device_${d.device_id}`).toString());
+                        setFormData({
+                          ...formData,
+                          device_ids: [...new Set([...formData.device_ids, ...allIds])],
+                        });
+                      }}
+                      style={{
+                        fontWeight: "600",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "var(--space-2)",
+                        padding: "var(--space-2) var(--space-4)",
+                        transition: "all 0.2s ease"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "translateY(-1px)";
+                        e.currentTarget.style.boxShadow = "0 4px 8px rgba(0, 0, 0, 0.15)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}
+                    >
+                      <Icon name="check-circle" size={16} />
+                      Select All ({getFilteredDevices().length})
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--secondary"
+                      onClick={() => {
+                        const filtered = getFilteredDevices();
+                        const filteredIds = filtered.map(d => (d.id || d.device_id || `device_${d.device_id}`).toString());
+                        setFormData({
+                          ...formData,
+                          device_ids: formData.device_ids.filter(id => !filteredIds.includes(id)),
+                        });
+                      }}
+                      disabled={formData.device_ids.length === 0}
+                      style={{
+                        fontWeight: "600",
+                        padding: "var(--space-2) var(--space-4)",
+                        transition: "all 0.2s ease",
+                        opacity: formData.device_ids.length === 0 ? 0.5 : 1,
+                        cursor: formData.device_ids.length === 0 ? "not-allowed" : "pointer"
+                      }}
+                      onMouseEnter={(e) => {
+                        if (formData.device_ids.length > 0) {
+                          e.currentTarget.style.transform = "translateY(-1px)";
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                      }}
+                    >
+                      Deselect All
+                    </button>
+                    {formData.device_ids.length > 0 && (
+                      <div style={{ 
+                        marginLeft: "auto",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "var(--space-2)",
+                        padding: "var(--space-3) var(--space-4)",
+                        backgroundColor: "var(--color-primary)",
+                        borderRadius: "var(--radius-md)",
+                        color: "white",
+                        fontSize: "var(--font-size-sm)",
+                        fontWeight: "700",
+                        boxShadow: "0 2px 4px rgba(0, 0, 0, 0.1)",
+                        transition: "all 0.2s ease"
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = "scale(1.05)";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = "scale(1)";
+                      }}
+                      >
+                        <Icon name="check-circle" size={18} style={{ color: "white" }} />
+                        <span>{formData.device_ids.length}</span>
+                        <span style={{ opacity: 0.9, fontWeight: "500" }}>
+                          {formData.device_ids.length === 1 ? "device" : "devices"} selected
+                        </span>
+                      </div>
+                    )}
+                    {deviceSearchQuery && (
+                      <div style={{ 
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "var(--space-2)",
+                        padding: "var(--space-2) var(--space-3)",
+                        backgroundColor: "var(--color-bg-tertiary)",
+                        borderRadius: "var(--radius-sm)",
+                        fontSize: "var(--font-size-xs)",
+                        color: "var(--color-text-secondary)",
+                        fontWeight: "500"
+                      }}>
+                        <Icon name="filter" size={14} />
+                        <span>
+                          {getFilteredDevices().length} of {devices.length} devices
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Enhanced Device list */}
+                  <div style={{ 
+                    maxHeight: "400px", 
+                    overflowY: "auto", 
+                    overflowX: "hidden",
+                    border: "2px solid var(--color-border-medium)", 
+                    borderRadius: "var(--radius-lg)", 
+                    padding: "var(--space-2)", 
+                    backgroundColor: "var(--color-bg-secondary)",
+                    boxShadow: "inset 0 2px 8px rgba(0, 0, 0, 0.08)"
+                  }}
+                  onScroll={(e) => {
+                    // Add subtle shadow on scroll
+                    if (e.target.scrollTop > 0) {
+                      e.target.style.boxShadow = "inset 0 2px 8px rgba(0, 0, 0, 0.08), 0 -2px 8px rgba(0, 0, 0, 0.05)";
+                    } else {
+                      e.target.style.boxShadow = "inset 0 2px 8px rgba(0, 0, 0, 0.08)";
+                    }
+                  }}
+                  >
+                    {getFilteredDevices().length > 0 ? (
+                      <>
+                        {getFilteredDevices().map((device, index) => {
+                          const deviceId = device.id || device.device_id || `device_${device.device_id}`;
+                          const isSelected = formData.device_ids.includes(deviceId.toString());
+                          return (
+                            <label 
+                              key={deviceId} 
+                              style={{ 
+                                display: "flex", 
+                                alignItems: "center", 
+                                gap: "var(--space-3)", 
+                                padding: "var(--space-4)",
+                                marginBottom: "var(--space-2)", 
+                                cursor: "pointer",
+                                borderRadius: "var(--radius-md)",
+                                backgroundColor: isSelected 
+                                  ? "var(--color-primary-light)" 
+                                  : "var(--color-bg-primary)",
+                                border: `2px solid ${isSelected ? "var(--color-primary)" : "transparent"}`,
+                                transition: "all 0.15s ease",
+                                position: "relative",
+                                overflow: "hidden"
+                              }}
+                              onMouseEnter={(e) => {
+                                if (!isSelected) {
+                                  e.currentTarget.style.backgroundColor = "var(--color-bg-tertiary)";
+                                  e.currentTarget.style.borderColor = "var(--color-border-medium)";
+                                  e.currentTarget.style.transform = "translateX(4px)";
+                                } else {
+                                  e.currentTarget.style.transform = "translateX(2px)";
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (!isSelected) {
+                                  e.currentTarget.style.backgroundColor = "var(--color-bg-primary)";
+                                  e.currentTarget.style.borderColor = "transparent";
+                                }
+                                e.currentTarget.style.transform = "translateX(0)";
+                              }}
+                            >
+                              {/* Selection indicator */}
+                              {isSelected && (
+                                <div style={{
+                                  position: "absolute",
+                                  left: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: "4px",
+                                  backgroundColor: "var(--color-primary)"
+                                }} />
+                              )}
+                              
+                              <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                width: "24px",
+                                height: "24px",
+                                flexShrink: 0
+                              }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setFormData({
+                                        ...formData,
+                                        device_ids: [...formData.device_ids, deviceId.toString()],
+                                      });
+                                    } else {
+                                      setFormData({
+                                        ...formData,
+                                        device_ids: formData.device_ids.filter(id => id !== deviceId.toString()),
+                                      });
+                                    }
+                                  }}
+                                  style={{ 
+                                    cursor: "pointer",
+                                    width: "20px",
+                                    height: "20px",
+                                    accentColor: "var(--color-primary)",
+                                    margin: 0
+                                  }}
+                                />
+                              </div>
+                              
+                              <div style={{ 
+                                flex: 1, 
+                                display: "flex", 
+                                flexDirection: "column", 
+                                gap: "var(--space-1)",
+                                minWidth: 0
+                              }}>
+                                <div style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "var(--space-2)"
+                                }}>
+                                  <span style={{ 
+                                    fontWeight: isSelected ? "700" : "600",
+                                    color: isSelected ? "var(--color-primary)" : "var(--color-text-primary)",
+                                    fontSize: "var(--font-size-base)",
+                                    transition: "all 0.15s ease"
+                                  }}>
+                                    {device.name || device.device_name || device.device_id}
+                                  </span>
+                                  {isSelected && (
+                                    <Icon 
+                                      name="check-circle" 
+                                      size={16} 
+                                      style={{ 
+                                        color: "var(--color-primary)",
+                                        flexShrink: 0
+                                      }} 
+                                    />
+                                  )}
+                                </div>
+                                {device.device_id && (
+                                  <span style={{ 
+                                    fontSize: "var(--font-size-xs)", 
+                                    color: "var(--color-text-tertiary)",
+                                    fontFamily: "var(--font-family-mono)",
+                                    opacity: 0.9,
+                                    letterSpacing: "0.5px"
+                                  }}>
+                                    ID: {device.device_id}
+                                  </span>
+                                )}
+                              </div>
+                              
+                              <span 
+                                className="badge badge--neutral" 
+                                style={{ 
+                                  marginLeft: "auto",
+                                  flexShrink: 0,
+                                  fontSize: "var(--font-size-xs)",
+                                  padding: "var(--space-2) var(--space-3)",
+                                  fontWeight: "600",
+                                  borderRadius: "var(--radius-sm)"
+                                }}
+                              >
+                                {device.protocol || "HTTP"}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </>
+                    ) : (
+                      <div style={{ 
+                        textAlign: "center", 
+                        padding: "var(--space-8) var(--space-4)",
+                        color: "var(--color-text-secondary)"
+                      }}>
+                        <div style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: "64px",
+                          height: "64px",
+                          borderRadius: "var(--radius-full)",
+                          backgroundColor: "var(--color-bg-tertiary)",
+                          marginBottom: "var(--space-4)",
+                          opacity: 0.6
+                        }}>
+                          <Icon name="search" size={32} style={{ 
+                            color: "var(--color-text-tertiary)"
+                          }} />
+                        </div>
+                        <p style={{ 
+                          fontSize: "var(--font-size-base)",
+                          marginBottom: "var(--space-2)",
+                          fontWeight: "600",
+                          color: "var(--color-text-primary)"
+                        }}>
+                          No devices found
+                        </p>
+                        <p style={{ 
+                          fontSize: "var(--font-size-sm)",
+                          color: "var(--color-text-tertiary)",
+                          marginBottom: "var(--space-3)"
+                        }}>
+                          No devices match your search: <strong>"{deviceSearchQuery}"</strong>
+                        </p>
+                        <button
+                          type="button"
+                          className="btn btn--sm btn--ghost"
+                          onClick={() => setDeviceSearchQuery("")}
+                          style={{
+                            fontSize: "var(--font-size-xs)"
+                          }}
+                        >
+                          Clear search
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
               ) : (
                 <div style={{ 
                   padding: "var(--space-4)", 
@@ -481,7 +958,7 @@ export default function FOTAJobsPage() {
                 }}>
                   <Icon name="inbox" size={24} style={{ opacity: 0.5, marginBottom: "var(--space-2)" }} />
                   <p>No devices available. Please ensure devices are loaded.</p>
-              </div>
+                </div>
               )}
             </div>
 
@@ -559,12 +1036,12 @@ export default function FOTAJobsPage() {
                   Devices
                 </div>
                 <div style={{ fontSize: "var(--font-size-sm)" }}>
-                  {selectedJob.devices?.length || 0} devices
+                  {selectedJob.device_count || selectedJob.device_ids?.length || selectedJob.devices?.length || 0} devices
                 </div>
               </div>
             </div>
             
-            {selectedJob.devices && selectedJob.devices.length > 0 && (
+            {((selectedJob.device_ids && selectedJob.device_ids.length > 0) || (selectedJob.devices && selectedJob.devices.length > 0)) && (
               <div>
                 <h3 style={{ fontSize: "var(--font-size-base)", marginBottom: "var(--space-4)" }}>
                   Device Status
@@ -580,22 +1057,22 @@ export default function FOTAJobsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {selectedJob.devices.map((device) => (
-                        <tr key={device.device_id}>
-                          <td>{device.device_name || `Device ${device.device_id}`}</td>
+                      {(selectedJob.devices || selectedJob.device_ids?.map(id => ({ device_id: id })) || []).map((device, idx) => (
+                        <tr key={device.device_id || device.id || idx}>
+                          <td>{device.device_name || device.name || `Device ${device.device_id || device.id || idx + 1}`}</td>
                           <td>
                             <code style={{ fontSize: "var(--font-size-xs)" }}>
-                              {device.current_version || selectedJob.firmware_version?.version || "Unknown"}
+                              {device.current_version || selectedJob.firmware_version || selectedJob.firmware_version?.version || "Unknown"}
                             </code>
                           </td>
                           <td>
                             <code style={{ fontSize: "var(--font-size-xs)" }}>
-                              {device.target_version || selectedJob.firmware_version?.version || "N/A"}
+                              {device.target_version || selectedJob.firmware_version || selectedJob.firmware_version?.version || "N/A"}
                             </code>
                           </td>
                           <td>
-                            <span className={`badge ${getStatusBadge(device.status)}`}>
-                              {device.status}
+                            <span className={`badge ${getStatusBadge(device.status || selectedJob.status)}`}>
+                              {device.status || selectedJob.status || "pending"}
                             </span>
                           </td>
                         </tr>

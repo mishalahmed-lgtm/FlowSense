@@ -11,6 +11,7 @@ import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 import { isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
 import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";
 import { fetchFirebaseDataForDashboard } from "../services/firebaseDataMapper.js";
+import DeviceMapView from "../components/DeviceMapView.jsx";
 
 // Helper function to load initial state from cache
 function getInitialStateFromCache(page, search, status, protocol) {
@@ -767,9 +768,10 @@ export default function DevicesPage() {
               <Icon name="list" size={18} />
             </button>
             <button
-              className="btn-icon"
-              onClick={() => navigate("/devices/map")}
+              className={`btn-icon ${viewMode === "map" ? "active" : ""}`}
+              onClick={() => setViewMode("map")}
               title="Map View"
+              style={viewMode === "map" ? { backgroundColor: "var(--color-bg-tertiary)" } : {}}
             >
               <Icon name="map" size={18} />
             </button>
@@ -820,7 +822,23 @@ export default function DevicesPage() {
       )}
 
       {/* Devices Display */}
-      {viewMode === "grid" ? (
+      {viewMode === "map" ? (
+        <div className="card" style={{ marginBottom: "var(--space-6)" }}>
+          <div className="card__header">
+            <h3 className="card__title">Device Locations</h3>
+            <p className="text-muted" style={{ margin: "var(--space-2) 0 0 0", fontSize: "var(--font-size-sm)" }}>
+              Showing {devices.length} device{devices.length !== 1 ? "s" : ""} on map
+            </p>
+          </div>
+          <div className="card__body" style={{ padding: 0 }}>
+            <DeviceMapView 
+              deviceIds={devices.map(d => d.device_id)}
+              height="600px"
+              showPopup={true}
+            />
+          </div>
+        </div>
+      ) : viewMode === "grid" ? (
         <div className="grid grid--auto-fit">
           {displayDevices.map((device) => (
             <div

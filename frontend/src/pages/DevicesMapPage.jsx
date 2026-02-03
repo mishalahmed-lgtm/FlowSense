@@ -183,6 +183,8 @@ export default function DevicesMapPage() {
   const [filterProtocol, setFilterProtocol] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   
+  console.log("🗺️ DevicesMapPage rendering, user:", user, "isTenantAdmin:", isTenantAdmin);
+  
   // Check cache first to determine initial loading state
   const initialCache = useMemo(() => {
     const cacheKey = getCacheKey('map_page', { tenant_id: user?.tenant_id });

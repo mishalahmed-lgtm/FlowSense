@@ -87,24 +87,24 @@ export default function DeviceRulesPage() {
         }
         
         // For other tenants or fallback, use API
-        try {
-          const [devicesResp, typesResp] = await Promise.all([
-            api.get("/admin/devices"),
+      try {
+        const [devicesResp, typesResp] = await Promise.all([
+          api.get("/admin/devices"),
             api.get("/admin/device-types").catch(() => ({ data: [] })), // Don't fail if types endpoint doesn't exist
-          ]);
+        ]);
           
           if (!isMounted) return;
           
-          // Handle paginated response format
-          const devices = Array.isArray(devicesResp.data) 
-            ? devicesResp.data 
-            : (devicesResp.data?.devices || []);
-          
-          const found = devices.find((d) => d.device_id === deviceId);
+        // Handle paginated response format
+        const devices = Array.isArray(devicesResp.data) 
+          ? devicesResp.data 
+          : (devicesResp.data?.devices || []);
+        
+        const found = devices.find((d) => d.device_id === deviceId);
           if (found) {
-            setDevice(found);
+        setDevice(found);
             const dt = typesResp.data?.find((t) => t.id === found.device_type_id);
-            setDeviceType(dt || null);
+        setDeviceType(dt || null);
           } else {
             // Device not found, but still show rules panel with deviceId
             setDevice({
@@ -137,7 +137,7 @@ export default function DeviceRulesPage() {
         setDeviceType(null);
       } finally {
         if (isMounted) {
-          setLoading(false);
+        setLoading(false);
         }
       }
     };

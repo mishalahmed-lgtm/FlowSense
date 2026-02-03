@@ -187,14 +187,18 @@ export async function updateAlertStatusInFirebase(alertId, status) {
 /**
  * Get alerts from Firebase with optional filtering
  */
-export async function getAlertsFromFirebase(filterStatus = null, filterPriority = null) {
+export async function getAlertsFromFirebase(tenantId = null, options = {}) {
   try {
+    const { status: filterStatus = null, priority: filterPriority = null } = options;
     const alertsRef = collection(db, "smartLPG_alerts");
-    let q = query(alertsRef, orderBy("created_at", "desc"));
+    let q;
     
-    // Apply filters if provided
+    // Build query - filter by status if provided, otherwise just order by created_at
+    // Note: We filter tenant_id and priority client-side to avoid composite index requirements
     if (filterStatus) {
       q = query(alertsRef, where("status", "==", filterStatus), orderBy("created_at", "desc"));
+    } else {
+      q = query(alertsRef, orderBy("created_at", "desc"));
     }
     
     const alertsSnap = await getDocs(q);
@@ -209,7 +213,12 @@ export async function getAlertsFromFirebase(filterStatus = null, filterPriority 
       });
     });
     
-    // Apply priority filter if provided (client-side since Firestore doesn't support multiple where clauses without composite index)
+    // Apply tenant_id filter client-side (to avoid composite index requirement)
+    if (tenantId) {
+      alerts = alerts.filter(alert => alert.tenant_id === tenantId);
+    }
+    
+    // Apply priority filter client-side
     if (filterPriority) {
       alerts = alerts.filter(alert => alert.priority === filterPriority);
     }
@@ -249,14 +258,15 @@ export async function saveFOTAJobToFirebase(fotaJob) {
 export async function getFOTAJobsFromFirebase(tenantId) {
   try {
     const jobsRef = collection(db, "smartLPG_fota_jobs");
+    // Query without tenant_id filter to avoid composite index requirement
+    // We'll filter tenant_id client-side
     const q = query(
       jobsRef,
-      where("tenant_id", "==", tenantId),
       orderBy("created_at", "desc")
     );
     
     const querySnapshot = await getDocs(q);
-    const jobs = [];
+    let jobs = [];
     querySnapshot.forEach((docSnap) => {
       const data = docSnap.data();
       jobs.push({
@@ -269,6 +279,11 @@ export async function getFOTAJobsFromFirebase(tenantId) {
         completed_at: data.completed_at?.toDate?.()?.toISOString() || data.completed_at,
       });
     });
+    
+    // Filter by tenant_id client-side (to avoid composite index requirement)
+    if (tenantId) {
+      jobs = jobs.filter(job => job.tenant_id === tenantId);
+    }
     
     return jobs;
   } catch (error) {
@@ -321,6 +336,142 @@ export async function saveDeviceToFirebase(device) {
  */
 export async function updateDeviceInFirebase(device) {
   return saveDeviceToFirebase(device); // Same as save, uses merge
+}
+
+/**
+ * Get analytics predictions from Firebase (for SmartLPG tenant)
+ */
+export async function getAnalyticsPredictionsFromFirebase(tenantId, limit = 20) {
+  try {
+    const predictionsRef = collection(db, "smartLPG_analytics_predictions");
+    const q = query(
+      predictionsRef,
+      where("tenant_id", "==", tenantId),
+      orderBy("predicted_at", "desc")
+    );
+    const querySnapshot = await getDocs(q);
+    
+    const predictions = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      predictions.push({
+        id: docSnap.id,
+        device_id: data.device_id,
+        device_name: data.device_name,
+        prediction_type: data.prediction_type,
+        predicted_value: data.predicted_value,
+        confidence: data.confidence,
+        predicted_at: data.predicted_at?.toDate?.()?.toISOString() || data.predicted_at,
+        ...data
+      });
+    });
+    
+    // Sort by predicted_at descending and limit
+    predictions.sort((a, b) => {
+      const dateA = new Date(a.predicted_at || 0);
+      const dateB = new Date(b.predicted_at || 0);
+      return dateB - dateA;
+    });
+    
+    return predictions.slice(0, limit);
+  } catch (error) {
+    console.error("❌ Error getting analytics predictions from Firebase:", error);
+    return [];
+  }
+}
+
+/**
+ * Save analytics prediction to Firebase (for SmartLPG tenant)
+ */
+export async function saveAnalyticsPredictionToFirebase(prediction) {
+  try {
+    const predictionData = cleanForFirebase({
+      device_id: prediction.device_id,
+      device_name: prediction.device_name,
+      prediction_type: prediction.prediction_type,
+      predicted_value: prediction.predicted_value,
+      confidence: prediction.confidence || 0.8,
+      tenant_id: prediction.tenant_id || 3,
+      predicted_at: Timestamp.now(),
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+      ...prediction
+    });
+    
+    const predictionRef = doc(collection(db, "smartLPG_analytics_predictions"));
+    await setDoc(predictionRef, predictionData);
+    console.log(`✅ Saved analytics prediction to Firebase`);
+    return { success: true, id: predictionRef.id };
+  } catch (error) {
+    console.error("❌ Error saving analytics prediction to Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get analytics models from Firebase (for SmartLPG tenant)
+ */
+export async function getAnalyticsModelsFromFirebase(tenantId) {
+  try {
+    const modelsRef = collection(db, "smartLPG_analytics_models");
+    const q = query(
+      modelsRef,
+      where("tenant_id", "==", tenantId),
+      orderBy("created_at", "desc")
+    );
+    const querySnapshot = await getDocs(q);
+    
+    const models = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      models.push({
+        id: docSnap.id,
+        name: data.name,
+        model_type: data.model_type,
+        algorithm: data.algorithm,
+        is_trained: data.is_trained || false,
+        training_accuracy: data.training_accuracy,
+        trained_at: data.trained_at?.toDate?.()?.toISOString() || data.trained_at,
+        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
+        ...data
+      });
+    });
+    
+    return models;
+  } catch (error) {
+    console.error("❌ Error getting analytics models from Firebase:", error);
+    return [];
+  }
+}
+
+/**
+ * Save analytics model to Firebase (for SmartLPG tenant)
+ */
+export async function saveAnalyticsModelToFirebase(model) {
+  try {
+    const modelData = cleanForFirebase({
+      name: model.name,
+      model_type: model.model_type,
+      algorithm: model.algorithm,
+      is_trained: model.is_trained || false,
+      training_accuracy: model.training_accuracy,
+      device_ids: model.device_ids || [],
+      days: model.days || 30,
+      tenant_id: model.tenant_id || 3,
+      trained_at: model.trained_at ? Timestamp.fromDate(new Date(model.trained_at)) : null,
+      created_at: Timestamp.now(),
+      updated_at: Timestamp.now(),
+      ...model
+    });
+    
+    const modelRef = doc(collection(db, "smartLPG_analytics_models"));
+    await setDoc(modelRef, modelData);
+    console.log(`✅ Saved analytics model to Firebase`);
+    return { success: true, id: modelRef.id };
+  } catch (error) {
+    console.error("❌ Error saving analytics model to Firebase:", error);
+    throw error;
+  }
 }
 
 /**

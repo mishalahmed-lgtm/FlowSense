@@ -97,10 +97,6 @@ def analyze_patterns(
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant admin has no tenant")
     
-    # SmartLPG tenant (tenant_id = 3) uses Firebase, not PostgreSQL - return empty results
-    if tenant_id == 3:
-        return []
-    
     results = []
     for device_id_str in request.device_ids:
         device = db.query(Device).filter(Device.device_id == device_id_str).first()
@@ -141,10 +137,6 @@ def analyze_correlations(
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant admin has no tenant")
     
-    # SmartLPG tenant (tenant_id = 3) uses Firebase, not PostgreSQL - return empty results
-    if tenant_id == 3:
-        return []
-    
     if len(request.device_ids) < 2 or len(request.field_keys) < 2:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Need at least 2 devices and 2 fields")
     
@@ -168,13 +160,6 @@ def train_ml_model(
     tenant_id = current_user.tenant_id if current_user.role == UserRole.TENANT_ADMIN else None
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant admin has no tenant")
-    
-    # SmartLPG tenant (tenant_id = 3) uses Firebase, not PostgreSQL
-    if tenant_id == 3:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="ML model training is not available for SmartLPG tenant. Analytics features use Firebase data."
-        )
     
     # Train model directly (this runs in backend)
     try:
@@ -203,10 +188,6 @@ def list_ml_models(
     db: Session = Depends(get_db),
 ):
     """List ML models (tenant-scoped)."""
-    # SmartLPG tenant (tenant_id = 3) uses Firebase, not PostgreSQL
-    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id == 3:
-        return []
-    
     query = db.query(MLModel)
     
     if current_user.role == UserRole.TENANT_ADMIN:
@@ -239,10 +220,6 @@ def get_predictions(
     limit: int = Query(20, ge=1, le=100),
 ):
     """Get predictions from ML models (automatically generated in backend)."""
-    # SmartLPG tenant (tenant_id = 3) uses Firebase, not PostgreSQL
-    if current_user.role == UserRole.TENANT_ADMIN and current_user.tenant_id == 3:
-        return []
-    
     query = db.query(Prediction).join(Device)
     
     if current_user.role == UserRole.TENANT_ADMIN:
@@ -281,10 +258,6 @@ def predict_maintenance(
     tenant_id = current_user.tenant_id if current_user.role == UserRole.TENANT_ADMIN else None
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Tenant admin has no tenant")
-    
-    # SmartLPG tenant (tenant_id = 3) uses Firebase, not PostgreSQL - return empty results
-    if tenant_id == 3:
-        return []
     
     # Run predictive maintenance directly
     try:

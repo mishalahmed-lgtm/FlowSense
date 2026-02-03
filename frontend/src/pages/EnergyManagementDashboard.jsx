@@ -731,8 +731,7 @@ export default function EnergyManagementDashboard() {
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Device ID</th>
-                        <th>Device Name</th>
+                        <th>Device</th>
                         <th>Utility Type</th>
                         <th>Consumption</th>
                         <th>Cost</th>
@@ -747,13 +746,19 @@ export default function EnergyManagementDashboard() {
                         
                         return (
                           <tr key={`${device.device_id}-${utilityKind}-${idx}`}>
-                          <td>
-                            <code className="badge badge--neutral" style={{ fontSize: "var(--font-size-xs)" }}>
-                              {device.device_id || `device_${idx + 1}`}
-                            </code>
-                          </td>
                           <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                              {device.device_name || "Unnamed Device"}
+                              <div>{device.device_name || `Device ${idx + 1}`}</div>
+                              {device.device_id && (
+                                <div style={{ 
+                                  fontSize: "var(--font-size-xs)", 
+                                  color: "var(--color-text-tertiary)",
+                                  fontWeight: "normal",
+                                  marginTop: "var(--space-1)",
+                                  fontFamily: "var(--font-family-mono)"
+                                }}>
+                                  {device.device_id}
+                                </div>
+                              )}
                           </td>
                           <td>
                             <span className="badge" style={{ 
@@ -766,8 +771,23 @@ export default function EnergyManagementDashboard() {
                           </td>
                             <td>
                               {typeof consumption === 'number' ? consumption.toFixed(2) : '0.00'}
-                              <span style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginLeft: "var(--space-1)" }}>
-                                {utilityKind === "gas" && isSmartLPG ? "L" : utilityKind === "electricity" ? "kWh" : utilityKind === "water" ? "m³" : ""}
+                              <span 
+                                style={{ 
+                                  fontSize: "var(--font-size-sm)", 
+                                  color: "var(--color-text-tertiary)", 
+                                  marginLeft: "var(--space-1)",
+                                  fontWeight: "normal",
+                                  cursor: "help"
+                                }}
+                                title={
+                                  utilityKind === 'gas' 
+                                    ? (isSmartLPG ? 'Litre' : 'units') 
+                                    : utilityKind === 'water' 
+                                    ? 'Cubic meter' 
+                                    : 'Kilowatt-hour'
+                                }
+                              >
+                                {utilityKind === 'gas' ? (isSmartLPG ? 'L' : 'units') : utilityKind === 'water' ? 'm³' : 'kWh'}
                               </span>
                             </td>
                           <td style={{ fontWeight: "var(--font-weight-semibold)", color: "var(--color-success-text)" }}>

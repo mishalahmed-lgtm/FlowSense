@@ -20,7 +20,6 @@ import AnalyticsPage from "./pages/AnalyticsPage.jsx";
 import EnergyManagementDashboard from "./pages/EnergyManagementDashboard.jsx";
 import EnvironmentalMonitoringDashboard from "./pages/EnvironmentalMonitoringDashboard.jsx";
 import DevicesMapPage from "./pages/DevicesMapPage.jsx";
-import CreateDummyDataPage from "./pages/CreateDummyDataPage.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
@@ -119,11 +118,6 @@ function App() {
               <>
                 <Route path="/fota/jobs" element={<FOTAJobsPage />} />
               </>
-            )}
-            
-            {/* Dummy Data Creation (SmartLPG only) */}
-            {user?.tenant_id === 3 && (
-              <Route path="/admin/create-dummy-data" element={<CreateDummyDataPage />} />
             )}
             
             {/* Health Monitoring Routes */}

@@ -62,9 +62,9 @@ export default function AlertRulesPage() {
         setRules(rules);
         setError(null);
       } else {
-        const response = await api.get("/alerts/rules");
-        setRules(response.data);
-        setError(null);
+      const response = await api.get("/alerts/rules");
+      setRules(response.data);
+      setError(null);
       }
     } catch (err) {
       setError(err.response?.data?.detail || err.message || "Failed to load alert rules");
@@ -170,12 +170,12 @@ export default function AlertRulesPage() {
           setSuccessMessage("Alert rule created successfully in Firebase");
         }
       } else {
-        if (selectedRule) {
-          await api.put(`/alerts/rules/${selectedRule.id}`, payload);
-          setSuccessMessage("Alert rule updated successfully");
-        } else {
-          await api.post("/alerts/rules", payload);
-          setSuccessMessage("Alert rule created successfully");
+      if (selectedRule) {
+        await api.put(`/alerts/rules/${selectedRule.id}`, payload);
+        setSuccessMessage("Alert rule updated successfully");
+      } else {
+        await api.post("/alerts/rules", payload);
+        setSuccessMessage("Alert rule created successfully");
         }
       }
       
@@ -199,8 +199,8 @@ export default function AlertRulesPage() {
         await deleteAlertRuleFromFirebase(ruleId);
         setSuccessMessage("Alert rule deleted successfully from Firebase");
       } else {
-        await api.delete(`/alerts/rules/${ruleId}`);
-        setSuccessMessage("Alert rule deleted successfully");
+      await api.delete(`/alerts/rules/${ruleId}`);
+      setSuccessMessage("Alert rule deleted successfully");
       }
       await loadRules();
     } catch (err) {

@@ -35,6 +35,14 @@ export default function UtilityBillingPage() {
   const [hasRun, setHasRun] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showCompanyModal, setShowCompanyModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(50);
+  
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery]);
 
   useEffect(() => {
     loadDevices();
@@ -361,10 +369,84 @@ export default function UtilityBillingPage() {
               
               {!loading && rows.length > 0 && (
                   <div className="card">
-                    <div className="card__header">
-                      <h3 className="card__title">
-                        <Icon name="file" size={20} /> Per-Device Billing Report
-                      </h3>
+                    <div className="card__header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "var(--space-4)" }}>
+                      <div>
+                        <h3 className="card__title">
+                          <Icon name="file" size={20} /> Per-Device Billing Report
+                        </h3>
+                        <p style={{ margin: "var(--space-1) 0 0 0", fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
+                          {(() => {
+                            const filtered = rows.filter((row) => {
+                              if (!searchQuery.trim()) return true;
+                              const query = searchQuery.toLowerCase();
+                              return (
+                                (row.device_name?.toLowerCase().includes(query)) ||
+                                (row.device_id?.toLowerCase().includes(query)) ||
+                                (row.device_external_id?.toLowerCase().includes(query)) ||
+                                (row.index_key?.toLowerCase().includes(query))
+                              );
+                            });
+                            const start = filtered.length > 0 ? (currentPage - 1) * itemsPerPage + 1 : 0;
+                            const end = Math.min(currentPage * itemsPerPage, filtered.length);
+                            return filtered.length > 0 ? `Showing ${start}-${end} of ${filtered.length} devices` : "0 devices";
+                          })()}
+                        </p>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
+                          <label className="form-label" style={{ margin: 0, fontSize: "var(--font-size-sm)", whiteSpace: "nowrap" }}>
+                            Show:
+                          </label>
+                          <select
+                            className="form-select"
+                            value={itemsPerPage}
+                            onChange={(e) => {
+                              setItemsPerPage(Number(e.target.value));
+                              setCurrentPage(1);
+                            }}
+                            style={{ width: "80px", padding: "var(--space-2) var(--space-3)" }}
+                          >
+                            <option value={25}>25</option>
+                            <option value={50}>50</option>
+                            <option value={100}>100</option>
+                            <option value={200}>200</option>
+                            <option value={500}>500</option>
+                          </select>
+                        </div>
+                        <div className="search-bar" style={{ position: "relative", minWidth: "250px", maxWidth: "400px", flex: "1" }}>
+                        <span className="search-bar__icon">
+                          <Icon name="search" size={18} />
+                        </span>
+                        <input
+                          type="text"
+                          className="search-bar__input"
+                          placeholder="Search by device name, ID, or index key..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          style={{ paddingLeft: "var(--space-10)" }}
+                        />
+                        {searchQuery && (
+                          <button
+                            onClick={() => setSearchQuery("")}
+                            style={{
+                              position: "absolute",
+                              right: "var(--space-2)",
+                              top: "50%",
+                              transform: "translateY(-50%)",
+                              background: "none",
+                              border: "none",
+                              cursor: "pointer",
+                              padding: "var(--space-1)",
+                              display: "flex",
+                              alignItems: "center",
+                              color: "var(--color-text-secondary)",
+                            }}
+                          >
+                            <Icon name="x" size={16} />
+                          </button>
+                        )}
+                      </div>
+                      </div>
                     </div>
                     <div className="card__body">
                 <div className="table-wrapper">
@@ -372,8 +454,7 @@ export default function UtilityBillingPage() {
                     <thead>
                       <tr>
                         <th>Tenant</th>
-                        <th>Device ID</th>
-                        <th>Device Name</th>
+                        <th>Device</th>
                         <th>Index Key</th>
                         <th>Consumption</th>
                         <th>Unit</th>
@@ -382,18 +463,40 @@ export default function UtilityBillingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                            {rows.slice(0, 50).map((row) => (
+                            {(() => {
+                              const filtered = rows.filter((row) => {
+                                if (!searchQuery.trim()) return true;
+                                const query = searchQuery.toLowerCase();
+                                return (
+                                  (row.device_name?.toLowerCase().includes(query)) ||
+                                  (row.device_id?.toLowerCase().includes(query)) ||
+                                  (row.device_external_id?.toLowerCase().includes(query)) ||
+                                  (row.index_key?.toLowerCase().includes(query))
+                                );
+                              });
+                              
+                              const totalPages = Math.ceil(filtered.length / itemsPerPage);
+                              const startIndex = (currentPage - 1) * itemsPerPage;
+                              const endIndex = startIndex + itemsPerPage;
+                              
+                              return filtered.slice(startIndex, endIndex).map((row) => (
                               <tr key={`${row.device_id}`}>
                           <td>{row.tenant_name}</td>
                           <td>
-                            <code className="badge badge--neutral" style={{ fontSize: "var(--font-size-xs)" }}>
-                              {row.device_id || row.device_external_id}
-                            </code>
-                          </td>
-                          <td>
                             <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                              {row.device_name || "Unnamed Device"}
+                              {row.device_name || row.device_external_id}
                             </div>
+                            {row.device_id && (
+                              <div style={{ 
+                                fontSize: "var(--font-size-xs)", 
+                                color: "var(--color-text-tertiary)",
+                                fontWeight: "normal",
+                                marginTop: "var(--space-1)",
+                                fontFamily: "var(--font-family-mono)"
+                              }}>
+                                {row.device_id}
+                              </div>
+                            )}
                           </td>
                           <td>
                             <code className="badge badge--neutral" style={{ fontSize: "var(--font-size-xs)" }}>
@@ -401,9 +504,9 @@ export default function UtilityBillingPage() {
                             </code>
                           </td>
                           <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                                  {row.consumption.toFixed(2)}
+                                  {row.consumption.toFixed(2)} <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-tertiary)", marginLeft: "var(--space-1)", cursor: "help" }} title={row.unit === "L" ? "Litre" : row.unit === "kWh" ? "Kilowatt-hour" : row.unit === "m³" ? "Cubic meter" : row.unit}>{row.unit}</span>
                           </td>
-                          <td><span className="badge badge--info">{row.unit}</span></td>
+                          <td><span className="badge badge--info" title={row.unit === "L" ? "Litre" : row.unit === "kWh" ? "Kilowatt-hour" : row.unit === "m³" ? "Cubic meter" : row.unit} style={{ cursor: "help" }}>{row.unit}</span></td>
                           <td className="text-muted" style={{ fontSize: "var(--font-size-xs)" }}>
                                   {row.currency} {row.rate_per_unit.toFixed(4)}
                           </td>
@@ -411,12 +514,117 @@ export default function UtilityBillingPage() {
                                   {row.currency} {row.amount.toFixed(2)}
                           </td>
                         </tr>
-                      ))}
+                              ));
+                            })()}
                     </tbody>
                   </table>
                 </div>
-            </div>
-          </div>
+                {(() => {
+                  const filtered = rows.filter((row) => {
+                    if (!searchQuery.trim()) return true;
+                    const query = searchQuery.toLowerCase();
+                    return (
+                      (row.device_name?.toLowerCase().includes(query)) ||
+                      (row.device_id?.toLowerCase().includes(query)) ||
+                      (row.device_external_id?.toLowerCase().includes(query)) ||
+                      (row.index_key?.toLowerCase().includes(query))
+                    );
+                  });
+                  const totalPages = Math.ceil(filtered.length / itemsPerPage);
+                  
+                  if (totalPages <= 1) return null;
+                  
+                  return (
+                    <div style={{ 
+                      display: "flex", 
+                      justifyContent: "space-between", 
+                      alignItems: "center", 
+                      marginTop: "var(--space-6)",
+                      paddingTop: "var(--space-4)",
+                      borderTop: "1px solid var(--color-border-medium)",
+                      flexWrap: "wrap",
+                      gap: "var(--space-3)"
+                    }}>
+                      <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
+                        Page {currentPage} of {totalPages}
+                      </div>
+                      <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+                        <button
+                          className="btn btn--secondary"
+                          onClick={() => setCurrentPage(1)}
+                          disabled={currentPage === 1}
+                          style={{ padding: "var(--space-2) var(--space-3)" }}
+                          title="First page"
+                        >
+                          <Icon name="chevron-left" size={16} />
+                          <Icon name="chevron-left" size={16} style={{ marginLeft: "-4px" }} />
+                        </button>
+                        <button
+                          className="btn btn--secondary"
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                          style={{ padding: "var(--space-2) var(--space-3)" }}
+                          title="Previous page"
+                        >
+                          <Icon name="chevron-left" size={16} />
+                        </button>
+                        <div style={{ 
+                          display: "flex", 
+                          gap: "var(--space-1)",
+                          alignItems: "center"
+                        }}>
+                          {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                            let pageNum;
+                            if (totalPages <= 5) {
+                              pageNum = i + 1;
+                            } else if (currentPage <= 3) {
+                              pageNum = i + 1;
+                            } else if (currentPage >= totalPages - 2) {
+                              pageNum = totalPages - 4 + i;
+                            } else {
+                              pageNum = currentPage - 2 + i;
+                            }
+                            
+                            return (
+                              <button
+                                key={pageNum}
+                                className={`btn ${currentPage === pageNum ? "btn--primary" : "btn--secondary"}`}
+                                onClick={() => setCurrentPage(pageNum)}
+                                style={{ 
+                                  padding: "var(--space-2) var(--space-4)",
+                                  minWidth: "40px"
+                                }}
+                              >
+                                {pageNum}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <button
+                          className="btn btn--secondary"
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage === totalPages}
+                          style={{ padding: "var(--space-2) var(--space-3)" }}
+                          title="Next page"
+                        >
+                          <Icon name="chevron-right" size={16} />
+                        </button>
+                        <button
+                          className="btn btn--secondary"
+                          onClick={() => setCurrentPage(totalPages)}
+                          disabled={currentPage === totalPages}
+                          style={{ padding: "var(--space-2) var(--space-3)" }}
+                          title="Last page"
+                        >
+                          <Icon name="chevron-right" size={16} />
+                          <Icon name="chevron-right" size={16} style={{ marginLeft: "-4px" }} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
+                    </div>
+                  </div>
                 )}
         </>
       ),
@@ -505,7 +713,7 @@ export default function UtilityBillingPage() {
                   <Icon name="trending" size="lg" />
                 </div>
                 <div className="metric-card__value">
-                  {totalConsumption.toFixed(2)}
+                  {totalConsumption.toFixed(2)} <span style={{ fontSize: "var(--font-size-base)", fontWeight: "normal", cursor: "help" }} title={consolidatedRows[0]?.unit === "L" ? "Litre" : consolidatedRows[0]?.unit === "kWh" ? "Kilowatt-hour" : consolidatedRows[0]?.unit === "m³" ? "Cubic meter" : consolidatedRows[0]?.unit || "Litre"}>{consolidatedRows[0]?.unit || "L"}</span>
                 </div>
               </div>
               <div className="metric-card">
@@ -578,9 +786,9 @@ export default function UtilityBillingPage() {
                             </td>
                                 <td>{row.device_count}</td>
                             <td style={{ fontWeight: "var(--font-weight-semibold)" }}>
-                              {row.total_consumption.toFixed(2)}
+                              {row.total_consumption.toFixed(2)} <span style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-tertiary)", marginLeft: "var(--space-1)", cursor: "help" }} title={row.unit === "L" ? "Litre" : row.unit === "kWh" ? "Kilowatt-hour" : row.unit === "m³" ? "Cubic meter" : row.unit}>{row.unit}</span>
                             </td>
-                                <td><span className="badge badge--neutral">{row.unit}</span></td>
+                                <td><span className="badge badge--neutral" title={row.unit === "L" ? "Litre" : row.unit === "kWh" ? "Kilowatt-hour" : row.unit === "m³" ? "Cubic meter" : row.unit} style={{ cursor: "help" }}>{row.unit}</span></td>
                                 <td style={{ fontWeight: "var(--font-weight-bold)", fontSize: "var(--font-size-lg)", color: "var(--color-success-500)" }}>
                                   {row.currency} {row.total_cost.toFixed(2)}
                             </td>

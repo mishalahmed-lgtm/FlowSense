@@ -49,7 +49,7 @@ export default function DeviceRulesListPage() {
 
     try {
       setLoading(true);
-      setError(null);
+        setError(null);
       
       if (user?.tenant_id === 3) {
         try {
@@ -142,29 +142,29 @@ export default function DeviceRulesListPage() {
     e.preventDefault();
     
     try {
-      const payload = {
-        ...formState,
+        const payload = {
+          ...formState,
         device_id: formState.device_id || null,
         rule_type: formState.rule_type || "automation",
         action: formState.action || "log",
         is_active: formState.is_active ?? true,
-        condition: {
+          condition: {
           field: formState.condition.field || "",
           operator: formState.condition.operator || ">",
           value: formState.condition.value || "",
-        },
-      };
+          },
+        };
 
       if (user?.tenant_id === 3) {
         const { saveDeviceRuleToFirebase } = await import("../services/smartLPGFirebaseService.js");
         
         const ruleToSave = {
-          ...payload,
+            ...payload,
           id: selectedRule?.id,
           device_name: devices.find(d => d.device_id === payload.device_id)?.name || (payload.device_id ? `Device ${payload.device_id}` : "All Devices"),
           created_at: selectedRule?.created_at || new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
+            updated_at: new Date().toISOString(),
+          };
         
         await saveDeviceRuleToFirebase(ruleToSave);
         setSuccessMessage(selectedRule ? "Device rule updated successfully" : "Device rule created successfully");
@@ -270,12 +270,12 @@ export default function DeviceRulesListPage() {
           </h3>
         </div>
         <div className="card__body">
-          {loading ? (
-            <div style={{ textAlign: "center", padding: "var(--space-12)" }}>
-              <p className="text-muted">Loading device rules...</p>
-            </div>
-          ) : rules.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "var(--space-12)" }}>
+        {loading ? (
+          <div style={{ textAlign: "center", padding: "var(--space-12)" }}>
+            <p className="text-muted">Loading device rules...</p>
+          </div>
+        ) : rules.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "var(--space-12)" }}>
               <Icon name="inbox" size={48} style={{ opacity: 0.3 }} />
               <h3 style={{ marginTop: "var(--space-3)", color: "var(--color-text-secondary)", fontSize: "var(--font-size-lg)" }}>
                 No Device Rules Found
@@ -283,82 +283,82 @@ export default function DeviceRulesListPage() {
               <p className="text-muted" style={{ marginTop: "var(--space-2)", fontSize: "var(--font-size-sm)" }}>
                 Create your first device rule to get started
               </p>
-            </div>
-          ) : (
-            <div className="table-wrapper">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Device</th>
-                    <th>Type</th>
-                    <th>Condition</th>
-                    <th>Action</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
+          </div>
+        ) : (
+          <div className="table-wrapper">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Device</th>
+                  <th>Type</th>
+                  <th>Condition</th>
+                  <th>Action</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
                   {rules.map((rule, index) => {
                     const ruleId = rule.id || `rule_${index}`;
                     return (
                       <tr key={ruleId}>
-                        <td>
+                    <td>
                           <div style={{ fontWeight: "var(--font-weight-semibold)" }}>
                             {rule.name || "Unnamed Rule"}
                           </div>
-                          {rule.description && (
-                            <div className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>
-                              {rule.description}
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          {rule.device_name || rule.device_id || "All Devices"}
-                        </td>
-                        <td>
-                          <span className={`badge ${getRuleTypeBadgeClass(rule.rule_type)}`}>
+                      {rule.description && (
+                        <div className="text-muted" style={{ fontSize: "var(--font-size-sm)" }}>
+                          {rule.description}
+                        </div>
+                      )}
+                    </td>
+                    <td>
+                      {rule.device_name || rule.device_id || "All Devices"}
+                    </td>
+                    <td>
+                      <span className={`badge ${getRuleTypeBadgeClass(rule.rule_type)}`}>
                             {rule.rule_type ? String(rule.rule_type).toUpperCase() : "AUTOMATION"}
-                          </span>
-                        </td>
-                        <td>
-                          <code style={{ fontSize: "var(--font-size-xs)" }}>
+                      </span>
+                    </td>
+                    <td>
+                      <code style={{ fontSize: "var(--font-size-xs)" }}>
                             {String(rule.condition?.field || "")} {String(rule.condition?.operator || "")} {String(rule.condition?.value || "")}
-                          </code>
-                        </td>
-                        <td>
+                      </code>
+                    </td>
+                    <td>
                           <span className="badge badge--info">{formatAction(rule.action)}</span>
-                        </td>
-                        <td>
-                          <span className={`badge ${rule.is_active ? "badge--success" : "badge--neutral"}`}>
-                            {rule.is_active ? "Active" : "Inactive"}
-                          </span>
-                        </td>
-                        <td>
-                          <div style={{ display: "flex", gap: "var(--space-2)" }}>
-                            <button
+                    </td>
+                    <td>
+                      <span className={`badge ${rule.is_active ? "badge--success" : "badge--neutral"}`}>
+                        {rule.is_active ? "Active" : "Inactive"}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                        <button
                               className="btn btn--xs btn--secondary"
                               title="Edit Rule"
-                              onClick={() => openModal(rule)}
-                            >
+                          onClick={() => openModal(rule)}
+                        >
                               <Icon name="edit" size={14} />
-                            </button>
-                            <button
+                        </button>
+                        <button
                               className="btn btn--xs btn--danger"
                               title="Delete Rule"
-                              onClick={() => handleDelete(rule.id)}
-                            >
+                          onClick={() => handleDelete(rule.id)}
+                        >
                               <Icon name="trash" size={14} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          )}
+              </tbody>
+            </table>
+          </div>
+        )}
         </div>
       </div>
 
@@ -492,12 +492,12 @@ export default function DeviceRulesListPage() {
 
           <div className="form-group">
             <label className="form-label">
-              <input
-                type="checkbox"
-                checked={formState.is_active}
-                onChange={(e) => setFormState({ ...formState, is_active: e.target.checked })}
+            <input
+              type="checkbox"
+              checked={formState.is_active}
+              onChange={(e) => setFormState({ ...formState, is_active: e.target.checked })}
                 style={{ marginRight: "var(--space-2)", cursor: "pointer" }}
-              />
+            />
               Active
             </label>
           </div>

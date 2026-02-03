@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
@@ -11,6 +11,7 @@ import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 export default function AlertsPage() {
   const { token, isTenantAdmin, hasModule, user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const api = createApiClient(token);
   
   const [filterStatus, setFilterStatus] = useState("all");
@@ -29,6 +30,7 @@ export default function AlertsPage() {
   const [showDetails, setShowDetails] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [seeding, setSeeding] = useState(false);
 
   // Only tenant admins with alerts module can access
   if (!isTenantAdmin || !hasModule("alerts")) {
@@ -64,7 +66,7 @@ export default function AlertsPage() {
       if (isSmartLPGTenant(user?.tenant_id)) {
         console.log(`🔥 [ALERTS] Loading alerts from Firebase for tenant_id = ${user?.tenant_id}`);
         const { getAlertsFromFirebase } = await import("../services/smartLPGFirebaseService.js");
-        const allAlerts = await getAlertsFromFirebase(user?.tenant_id, { status: filterStatus, priority: filterPriority });
+        const allAlerts = await getAlertsFromFirebase(user?.tenant_id, { status: filterStatus === "all" ? null : filterStatus, priority: filterPriority === "all" ? null : filterPriority });
         
         console.log("✅ [ALERTS] Loaded", allAlerts.length, "alerts from Firebase");
         setAlerts(allAlerts);
@@ -81,12 +83,12 @@ export default function AlertsPage() {
       if (user?.tenant_id === 2) {
         console.log(`🔥 [ALERTS] Generating alerts for tenant_id = ${user?.tenant_id} (instant)`);
         
-        const { generateDummyAlerts } = await import("../utils/dummyData");
-        const dummyDeviceCount = 2000;
-        const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
-          device_id: `device_${i + 1}`,
-          name: `Device ${i + 1}`,
-        }));
+          const { generateDummyAlerts } = await import("../utils/dummyData");
+          const dummyDeviceCount = 2000;
+          const dummyDevices = Array.from({ length: dummyDeviceCount }, (_, i) => ({
+            device_id: `device_${i + 1}`,
+            name: `Device ${i + 1}`,
+          }));
         const allAlerts = generateDummyAlerts(dummyDevices, 25);
         
         // Apply filters
@@ -138,6 +140,21 @@ export default function AlertsPage() {
     if (!token) return;
     loadAlerts();
   }, [token, filterStatus, filterPriority]);
+
+  // Check for alertId in URL and open that alert
+  useEffect(() => {
+    const alertId = searchParams.get('alertId');
+    if (alertId && alerts.length > 0) {
+      const alert = alerts.find(a => a.id === alertId);
+      if (alert) {
+        setSelectedAlert(alert);
+        setShowDetails(true);
+        // Remove alertId from URL
+        searchParams.delete('alertId');
+        setSearchParams(searchParams, { replace: true });
+      }
+    }
+  }, [alerts, searchParams, setSearchParams]);
 
   const handleAcknowledge = async (alertId) => {
     try {
@@ -393,6 +410,35 @@ export default function AlertsPage() {
           </p>
         </div>
         <div className="page-header__actions">
+          {isSmartLPGTenant(user?.tenant_id) && (
+            <button
+              className="btn btn--secondary"
+              onClick={async () => {
+                setSeeding(true);
+                setError(null);
+                try {
+                  console.log("🌱 Starting data seeding...");
+                  const seedModule = await import("../scripts/seedSmartLPGData.js");
+                  const result = await seedModule.seedAll();
+                  console.log("✅ Seeding result:", result);
+                  // Clear cache and reload alerts after seeding
+                  const cacheKey = getCacheKey('alerts_page', { tenant_id: user?.tenant_id, filterStatus, filterPriority });
+                  localStorage.removeItem(cacheKey);
+                  await loadAlerts(true);
+                  alert(`✅ Successfully seeded ${result.alerts} alerts and ${result.fotaJobs} FOTA jobs!`);
+                } catch (error) {
+                  console.error("❌ Seeding error:", error);
+                  setError("Failed to seed data: " + error.message);
+                  alert("❌ Error seeding data: " + error.message);
+                } finally {
+                  setSeeding(false);
+                }
+              }}
+              disabled={seeding}
+            >
+              {seeding ? "Seeding Data..." : "Seed Sample Data"}
+            </button>
+          )}
           <button
             className="btn btn--primary"
             onClick={() => navigate("/alerts/rules")}

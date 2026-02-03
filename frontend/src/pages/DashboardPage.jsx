@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { createApiClient } from "../api/client.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useDashboardWebSocket } from "../hooks/useWebSocket.js";
@@ -15,6 +16,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 
 export default function DashboardPage() {
   const { token, user } = useAuth();
+  const navigate = useNavigate();
   const api = createApiClient(token);
   const [metrics, setMetrics] = useState(null);
     const [activity, setActivity] = useState(null);
@@ -23,11 +25,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
 
-  // Extract tenant_id safely for use in dependency arrays
-  const tenantId = user?.tenant_id ?? null;
-
   // Skip WebSocket for Firebase tenants (use Firebase real-time listeners instead)
-  const skipWebSocket = usesFirebase(tenantId);
+  const skipWebSocket = usesFirebase(user?.tenant_id);
 
   // Load Firebase data for Firebase tenants (with real-time listeners - no WebSocket needed)
   useEffect(() => {
@@ -280,28 +279,13 @@ export default function DashboardPage() {
   );
 
   useEffect(() => {
-    // Check if this tenant uses Firebase
-    const usesFirebaseForTenant = tenantId ? usesFirebase(tenantId) : false;
-    const hasToken = !!token;
-    
-    // For Firebase tenants: show "Online" immediately when tenant_id and token are available
-    // (tenantId being present means user is logged in)
-    // For non-Firebase tenants: show WebSocket connection status
-    if (usesFirebaseForTenant) {
-      // Firebase tenants: show online if tenant_id and token are available
-      const isConnected = !!tenantId && hasToken;
-      setWsConnected(isConnected);
-      if (isConnected && tenantId) {
-        console.log(`🔥 Firebase real-time listeners active for tenant_id = ${tenantId}`);
-      }
-    } else {
-      // Non-Firebase tenants: use WebSocket connection status
-      setWsConnected(wsConnectedState);
-      if (wsConnectedState) {
-        console.log("✓ Dashboard WebSocket connected - receiving live updates");
-      }
+    setWsConnected(skipWebSocket ? false : wsConnectedState);
+    if (wsConnectedState && !skipWebSocket) {
+      console.log("✓ Dashboard WebSocket connected - receiving live updates");
+    } else if (skipWebSocket) {
+      console.log(`🔥 Skipping WebSocket for tenant_id = ${user?.tenant_id} (using Firebase real-time listeners)`);
     }
-  }, [wsConnectedState, token, tenantId]);
+  }, [wsConnectedState]);
 
   // Format chart data for recharts
   const chartData = activity?.buckets?.map(bucket => ({
@@ -944,6 +928,9 @@ export default function DashboardPage() {
                       cursor: "pointer",
                       position: "relative",
                       overflow: "hidden"
+                    }}
+                    onClick={() => {
+                      navigate(`/alerts?alertId=${alert.id}`);
                     }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.borderColor = "var(--color-primary-400)";

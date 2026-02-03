@@ -143,11 +143,20 @@ export default function AnalyticsPage() {
       setLoading(true);
       setError(null);
       
-      // For SmartLPG tenant, load devices from Firebase instead of PostgreSQL
+      // For SmartLPG tenant, load devices, predictions, and models from Firebase instead of PostgreSQL
       if (isSmartLPGTenant(user?.tenant_id)) {
         console.log("🔥 [Analytics] Loading SmartLPG data from Firebase...");
         const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
-        const smartLPGData = await fetchSmartLPGDataForDashboard();
+        const { 
+          getAnalyticsPredictionsFromFirebase, 
+          getAnalyticsModelsFromFirebase 
+        } = await import("../services/smartLPGFirebaseService.js");
+        
+        const [smartLPGData, predictions, models] = await Promise.all([
+          fetchSmartLPGDataForDashboard(),
+          getAnalyticsPredictionsFromFirebase(user?.tenant_id || 3, 20),
+          getAnalyticsModelsFromFirebase(user?.tenant_id || 3)
+        ]);
         
         if (smartLPGData.success && smartLPGData.devices) {
           safeSetDevices(smartLPGData.devices);
@@ -157,9 +166,9 @@ export default function AnalyticsPage() {
           console.warn("⚠️ [Analytics] No SmartLPG devices found in Firebase");
         }
         
-        // SmartLPG doesn't have predictions or models in Firebase, set empty arrays
-        safeSetPredictions([]);
-        setModels([]);
+        safeSetPredictions(predictions || []);
+        setModels(models || []);
+        console.log(`✅ [Analytics] Loaded ${predictions?.length || 0} predictions and ${models?.length || 0} models from Firebase`);
       } else {
         // For other tenants, use PostgreSQL API
         const [devicesRes, predictionsRes, modelsRes] = await Promise.all([
@@ -243,7 +252,21 @@ export default function AnalyticsPage() {
     try {
       setTrainingModel(true);
       setError(null);
-      await api.post("/analytics/train-model", trainForm);
+      
+      // For SmartLPG tenant, save model to Firebase instead of PostgreSQL
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { saveAnalyticsModelToFirebase } = await import("../services/smartLPGFirebaseService.js");
+        await saveAnalyticsModelToFirebase({
+          ...trainForm,
+          tenant_id: user?.tenant_id || 3,
+          is_trained: false, // Will be updated when training completes
+        });
+        console.log("✅ Saved model to Firebase for SmartLPG tenant");
+      } else {
+        // For other tenants, use PostgreSQL API
+        await api.post("/analytics/train-model", trainForm);
+      }
+      
       setShowTrainModal(false);
       setTrainForm({ name: "", model_type: "anomaly_detection", algorithm: "isolation_forest", device_ids: [], days: 30 });
       await loadData();

@@ -1,0 +1,24 @@
+<svg width="240" height="100" viewBox="0 0 240 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- FlowSense Logo - Stylized F with gradient + FlowSense text -->
+  
+  <!-- Abstract F logo with gradient effect -->
+  <defs>
+    <linearGradient id="fGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#60E5FF;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#3BCCF5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1E9BC7;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Vertical stem of F -->
+  <path d="M 20 15 Q 20 10, 25 8 Q 30 6, 35 8 L 35 50 Q 35 55, 30 57 Q 25 59, 20 57 Z" fill="url(#fGradient)" stroke="none"/>
+  
+  <!-- Horizontal bar of F (curves upwards at right end) -->
+  <path d="M 25 25 Q 30 20, 40 22 Q 50 24, 55 28 Q 60 32, 58 35 Q 56 38, 50 36 Q 44 34, 38 32 Q 32 30, 28 28 Z" fill="url(#fGradient)" stroke="none"/>
+  
+  <!-- Small curved element for depth/layering -->
+  <path d="M 30 20 Q 35 18, 40 20 Q 45 22, 42 25 Q 39 28, 34 26 Z" fill="#60E5FF" opacity="0.6" stroke="none"/>
+  
+  <!-- FlowSense Text (white) -->
+  <text x="70" y="42" font-family="Arial, sans-serif" font-size="28" font-weight="600" fill="#FFFFFF" letter-spacing="1px">FlowSense</text>
+</svg>
