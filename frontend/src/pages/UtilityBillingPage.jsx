@@ -118,7 +118,7 @@ export default function UtilityBillingPage() {
       console.error("Error generating report:", err);
       setError("Failed to generate report");
     } finally {
-      setLoading(false);
+            setLoading(false);
     }
   };
 
@@ -162,17 +162,17 @@ export default function UtilityBillingPage() {
             total_cost: Math.round(totalCost * 100) / 100,
             currency: "AED",
             device_count: devices.length,
-          },
-        ];
-        
+            },
+          ];
+          
         setConsolidatedRows(consolidated);
-        setRows([]);
-      }
+          setRows([]);
+        }
     } catch (err) {
       console.error("Error generating consolidated report:", err);
       setError("Failed to generate consolidated report");
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
   };
 
@@ -192,7 +192,7 @@ export default function UtilityBillingPage() {
         } else if (consolidatedRows.length > 0) {
           // Consolidated report
           reportData = prepareConsolidatedReportData(consolidatedRows, fromDate, toDate);
-        } else {
+      } else {
           setError("No data available to generate report");
           return;
         }
@@ -547,7 +547,7 @@ export default function UtilityBillingPage() {
                     }}>
                       <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text-secondary)" }}>
                         Page {currentPage} of {totalPages}
-                      </div>
+            </div>
                       <div style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
                         <button
                           className="btn btn--secondary"
@@ -599,7 +599,7 @@ export default function UtilityBillingPage() {
                               </button>
                             );
                           })}
-                        </div>
+          </div>
                         <button
                           className="btn btn--secondary"
                           onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}

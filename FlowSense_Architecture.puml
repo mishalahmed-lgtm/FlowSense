@@ -1,0 +1,39 @@
+@startuml FlowSense Architecture
+skinparam backgroundColor #F5F5F5
+skinparam roundcorner 20
+skinparam shadowing true
+
+skinparam rectangle {
+    BackgroundColor #4ECDC4
+    BorderColor #2A9D94
+    FontColor #FFFFFF
+    FontSize 11
+    FontStyle bold
+}
+
+' Create the 7 layers stacked vertically
+' Each layer gets progressively wider from top to bottom
+
+rectangle "Supervising Layer\n\nMulti-tenant orchestration,\nuser management,\ndashboards, reporting,\nexport services" as L1 #4ECDC4
+
+rectangle "Business Rules Layer\n\nMulti-tenant management,\nutility billing,\nenergy management,\nFOTA orchestration,\nhealth monitoring" as L2 #4ECDC4
+
+rectangle "Intelligent Data Processing Layer\n\nAlerts, reports, query language,\nscheduled operations, AI analytics,\nrule engine, CEP processing" as L3 #4ECDC4
+
+rectangle "Data Aggregation Layer\n\nDevice data caching, synchronization\nand persistent storage services\n(Kafka, InfluxDB, PostgreSQL)" as L4 #4ECDC4
+
+rectangle "Basic Operations Layer\n\nDirect device configuration, control\nand monitoring operations" as L5 #4ECDC4
+
+rectangle "Device Abstraction Layer\n\nDevice provisioning, authentication\nDevice type abstraction and protocol translation" as L6 #4ECDC4
+
+rectangle "Device Network Layer\n\nMulti-protocol device connectivity\nHTTP, MQTT, TCP, LoRaWAN, Modbus, DALI" as L7 #4ECDC4
+
+' Stack them
+L1 -[hidden]- L2
+L2 -[hidden]- L3
+L3 -[hidden]- L4
+L4 -[hidden]- L5
+L5 -[hidden]- L6
+L6 -[hidden]- L7
+
+@enduml

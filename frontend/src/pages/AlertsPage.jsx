@@ -30,7 +30,6 @@ export default function AlertsPage() {
   const [showDetails, setShowDetails] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
-  const [seeding, setSeeding] = useState(false);
 
   // Only tenant admins with alerts module can access
   if (!isTenantAdmin || !hasModule("alerts")) {
@@ -410,35 +409,6 @@ export default function AlertsPage() {
           </p>
         </div>
         <div className="page-header__actions">
-          {isSmartLPGTenant(user?.tenant_id) && (
-            <button
-              className="btn btn--secondary"
-              onClick={async () => {
-                setSeeding(true);
-                setError(null);
-                try {
-                  console.log("🌱 Starting data seeding...");
-                  const seedModule = await import("../scripts/seedSmartLPGData.js");
-                  const result = await seedModule.seedAll();
-                  console.log("✅ Seeding result:", result);
-                  // Clear cache and reload alerts after seeding
-                  const cacheKey = getCacheKey('alerts_page', { tenant_id: user?.tenant_id, filterStatus, filterPriority });
-                  localStorage.removeItem(cacheKey);
-                  await loadAlerts(true);
-                  alert(`✅ Successfully seeded ${result.alerts} alerts and ${result.fotaJobs} FOTA jobs!`);
-                } catch (error) {
-                  console.error("❌ Seeding error:", error);
-                  setError("Failed to seed data: " + error.message);
-                  alert("❌ Error seeding data: " + error.message);
-                } finally {
-                  setSeeding(false);
-                }
-              }}
-              disabled={seeding}
-            >
-              {seeding ? "Seeding Data..." : "Seed Sample Data"}
-            </button>
-          )}
           <button
             className="btn btn--primary"
             onClick={() => navigate("/alerts/rules")}

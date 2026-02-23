@@ -4,7 +4,7 @@
  */
 
 import { db } from "../utils/firebase";
-import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy, Timestamp } from "firebase/firestore";
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy, limit as firestoreLimit, Timestamp } from "firebase/firestore";
 
 /**
  * Remove undefined values from an object recursively and convert to JSON-safe format
@@ -547,6 +547,96 @@ export async function deleteDeviceRuleFromFirebase(ruleId) {
     return { success: true };
   } catch (error) {
     console.error("❌ Error deleting device rule from Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get timeseries data from Firebase for a device and field key
+ * @param {string} deviceId - Device ID
+ * @param {string} key - Field key (e.g., 'level', 'temperature')
+ * @param {number} minutes - Lookback window in minutes (default: 60)
+ * @param {number} limit - Maximum number of points to return (default: 500)
+ * @returns {Promise<Array>} Array of {ts, value} objects
+ */
+export async function getTimeseriesFromFirebase(deviceId, key, minutes = 60, limit = 500) {
+  try {
+    const timeseriesRef = collection(db, "smartLPG_timeseries");
+    
+    // Calculate cutoff time
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - minutes * 60 * 1000);
+    
+    // Query without filters to avoid composite index requirement
+    // We'll filter by device_id, key, and timestamp client-side
+    // Fetch more documents to ensure we get enough after filtering
+    const fetchLimit = Math.max(limit * 10, 10000); // Fetch more to account for filtering
+    const q = query(
+      timeseriesRef,
+      orderBy("ts", "desc"),
+      firestoreLimit(fetchLimit)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    let points = [];
+    
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      // Filter by device_id, key, and timestamp client-side
+      if (data.device_id === deviceId && data.key === key) {
+        const ts = data.ts?.toDate ? data.ts.toDate() : new Date(data.ts);
+        if (ts >= cutoff) {
+          points.push({
+            ts: ts.toISOString(),
+            value: data.value
+          });
+        }
+      }
+    });
+    
+    // Sort by timestamp ascending and limit
+    points.sort((a, b) => new Date(a.ts) - new Date(b.ts));
+    points = points.slice(0, limit);
+    
+    console.log(`✅ Loaded ${points.length} timeseries points for device ${deviceId}, key ${key} (client-side filtered)`);
+    return points;
+  } catch (error) {
+    console.error("❌ Error getting timeseries from Firebase:", error);
+    return [];
+  }
+}
+
+/**
+ * Save timeseries data point to Firebase
+ * @param {string} deviceId - Device ID
+ * @param {string} key - Field key (e.g., 'level', 'temperature')
+ * @param {number} value - Numeric value
+ * @param {Date|string|Timestamp} timestamp - Timestamp (defaults to now)
+ * @param {number} tenantId - Tenant ID (default: 3 for SmartLPG)
+ * @returns {Promise<{success: boolean, id: string}>}
+ */
+export async function saveTimeseriesToFirebase(deviceId, key, value, timestamp = null, tenantId = 3) {
+  try {
+    const ts = timestamp 
+      ? (timestamp instanceof Timestamp ? timestamp : Timestamp.fromDate(new Date(timestamp)))
+      : Timestamp.now();
+    
+    // Create a unique document ID based on device_id, key, and timestamp
+    const docId = `${deviceId}_${key}_${ts.toMillis()}`;
+    const timeseriesRef = doc(db, "smartLPG_timeseries", docId);
+    
+    await setDoc(timeseriesRef, {
+      device_id: deviceId,
+      key: key,
+      value: typeof value === 'number' ? value : parseFloat(value) || 0,
+      ts: ts,
+      tenant_id: tenantId,
+      created_at: Timestamp.now()
+    }, { merge: true });
+    
+    return { success: true, id: docId };
+  } catch (error) {
+    console.error("❌ Error saving timeseries to Firebase:", error);
     throw error;
   }
 }

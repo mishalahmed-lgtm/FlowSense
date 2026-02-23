@@ -24,6 +24,10 @@ class TenantCreate(BaseModel):
     code: str = Field(..., min_length=1, max_length=50)
     country: Optional[str] = Field(None, max_length=100)
     is_active: bool = True
+    contact_email: Optional[str] = Field(None, max_length=255)
+    contact_phone: Optional[str] = Field(None, max_length=50)
+    business_address: Optional[str] = None
+    timezone: Optional[str] = Field(None, max_length=100)
 
 
 class TenantUpdate(BaseModel):
@@ -31,6 +35,10 @@ class TenantUpdate(BaseModel):
     code: Optional[str] = Field(None, min_length=1, max_length=50)
     country: Optional[str] = Field(None, max_length=100)
     is_active: Optional[bool] = None
+    contact_email: Optional[str] = Field(None, max_length=255)
+    contact_phone: Optional[str] = Field(None, max_length=50)
+    business_address: Optional[str] = None
+    timezone: Optional[str] = Field(None, max_length=100)
 
 
 class TenantResponse(BaseModel):
@@ -39,6 +47,10 @@ class TenantResponse(BaseModel):
     code: str
     country: Optional[str] = None
     is_active: bool
+    contact_email: Optional[str] = None
+    contact_phone: Optional[str] = None
+    business_address: Optional[str] = None
+    timezone: Optional[str] = None
     created_at: datetime
     device_count: int = 0
     user_count: int = 0
@@ -132,6 +144,10 @@ def list_tenants(
             code=tenant.code,
             country=tenant.country,
             is_active=tenant.is_active,
+            contact_email=tenant.contact_email,
+            contact_phone=tenant.contact_phone,
+            business_address=tenant.business_address,
+            timezone=tenant.timezone,
             created_at=tenant.created_at,
             device_count=len(tenant.devices),
             user_count=user_count,
@@ -160,6 +176,10 @@ def create_tenant(
         code=payload.code,
         country=payload.country,
         is_active=payload.is_active,
+        contact_email=payload.contact_email,
+        contact_phone=payload.contact_phone,
+        business_address=payload.business_address,
+        timezone=payload.timezone or "UTC",
     )
     db.add(tenant)
     db.commit()
@@ -171,6 +191,10 @@ def create_tenant(
         code=tenant.code,
         country=tenant.country,
         is_active=tenant.is_active,
+        contact_email=tenant.contact_email,
+        contact_phone=tenant.contact_phone,
+        business_address=tenant.business_address,
+        timezone=tenant.timezone,
         created_at=tenant.created_at,
         device_count=0,
         user_count=0,
@@ -209,6 +233,14 @@ def update_tenant(
         tenant.country = payload.country
     if payload.is_active is not None:
         tenant.is_active = payload.is_active
+    if payload.contact_email is not None:
+        tenant.contact_email = payload.contact_email
+    if payload.contact_phone is not None:
+        tenant.contact_phone = payload.contact_phone
+    if payload.business_address is not None:
+        tenant.business_address = payload.business_address
+    if payload.timezone is not None:
+        tenant.timezone = payload.timezone
     
     db.commit()
     db.refresh(tenant)
@@ -221,6 +253,10 @@ def update_tenant(
         code=tenant.code,
         country=tenant.country,
         is_active=tenant.is_active,
+        contact_email=tenant.contact_email,
+        contact_phone=tenant.contact_phone,
+        business_address=tenant.business_address,
+        timezone=tenant.timezone,
         created_at=tenant.created_at,
         device_count=len(tenant.devices),
         user_count=user_count,

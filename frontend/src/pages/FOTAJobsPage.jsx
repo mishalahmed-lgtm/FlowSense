@@ -21,7 +21,6 @@ export default function FOTAJobsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [showJobDetails, setShowJobDetails] = useState(false);
-  const [seeding, setSeeding] = useState(false);
   const [deviceSearchQuery, setDeviceSearchQuery] = useState("");
   
   // Form state
@@ -231,9 +230,9 @@ export default function FOTAJobsPage() {
         }
       } else {
         // For other tenants, use backend API
-        const response = await api.get(`/fota/jobs/${jobId}`);
-        setSelectedJob(response.data);
-        setShowJobDetails(true);
+      const response = await api.get(`/fota/jobs/${jobId}`);
+      setSelectedJob(response.data);
+      setShowJobDetails(true);
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load job details");
@@ -293,33 +292,6 @@ export default function FOTAJobsPage() {
           </p>
         </div>
         <div className="page-header__actions">
-          {isSmartLPGTenant(user?.tenant_id) && jobs.length === 0 && (
-            <button
-              className="btn btn--secondary"
-              onClick={async () => {
-                setSeeding(true);
-                setError(null);
-                try {
-                  console.log("🌱 Starting FOTA jobs seeding...");
-                  const seedModule = await import("../scripts/seedSmartLPGData.js");
-                  const result = await seedModule.seedFOTAJobs();
-                  console.log("✅ Seeding result:", result);
-                  // Reload jobs after seeding
-                  await loadJobs();
-                  alert(`✅ Successfully seeded ${result.count} FOTA jobs!`);
-                } catch (error) {
-                  console.error("❌ Seeding error:", error);
-                  setError("Failed to seed data: " + error.message);
-                  alert("❌ Error seeding data: " + error.message);
-                } finally {
-                  setSeeding(false);
-                }
-              }}
-              disabled={seeding}
-            >
-              {seeding ? "Seeding Data..." : "Seed Sample Data"}
-            </button>
-          )}
           <button className="btn-icon" onClick={loadJobs} title="Refresh">
             <Icon name="refresh" size={18} />
           </button>
@@ -541,9 +513,9 @@ export default function FOTAJobsPage() {
                       left: "var(--space-4)", 
                       top: "50%", 
                       transform: "translateY(-50%)",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "var(--space-2)",
+                    display: "flex", 
+                    alignItems: "center", 
+                    gap: "var(--space-2)", 
                       pointerEvents: "none"
                     }}>
                       <Icon 
@@ -809,23 +781,23 @@ export default function FOTAJobsPage() {
                                 width: "24px",
                                 height: "24px",
                                 flexShrink: 0
-                              }}>
-                                <input
-                                  type="checkbox"
+                  }}>
+                    <input
+                      type="checkbox"
                                   checked={isSelected}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setFormData({
-                                        ...formData,
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setFormData({
+                            ...formData,
                                         device_ids: [...formData.device_ids, deviceId.toString()],
-                                      });
-                                    } else {
-                                      setFormData({
-                                        ...formData,
+                          });
+                        } else {
+                          setFormData({
+                            ...formData,
                                         device_ids: formData.device_ids.filter(id => id !== deviceId.toString()),
-                                      });
-                                    }
-                                  }}
+                          });
+                        }
+                      }}
                                   style={{ 
                                     cursor: "pointer",
                                     width: "20px",
@@ -833,7 +805,7 @@ export default function FOTAJobsPage() {
                                     accentColor: "var(--color-primary)",
                                     margin: 0
                                   }}
-                                />
+                    />
                               </div>
                               
                               <div style={{ 
@@ -892,8 +864,8 @@ export default function FOTAJobsPage() {
                                 }}
                               >
                                 {device.protocol || "HTTP"}
-                              </span>
-                            </label>
+                    </span>
+                  </label>
                           );
                         })}
                       </>
@@ -958,7 +930,7 @@ export default function FOTAJobsPage() {
                 }}>
                   <Icon name="inbox" size={24} style={{ opacity: 0.5, marginBottom: "var(--space-2)" }} />
                   <p>No devices available. Please ensure devices are loaded.</p>
-                </div>
+              </div>
               )}
             </div>
 

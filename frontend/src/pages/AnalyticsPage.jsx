@@ -171,16 +171,16 @@ export default function AnalyticsPage() {
         console.log(`✅ [Analytics] Loaded ${predictions?.length || 0} predictions and ${models?.length || 0} models from Firebase`);
       } else {
         // For other tenants, use PostgreSQL API
-        const [devicesRes, predictionsRes, modelsRes] = await Promise.all([
-          api.get("/admin/devices"),
-          api.get("/analytics/predictions", { params: { limit: 20 } }),
-          api.get("/analytics/models")
-        ]);
-        
-        // Always ensure we set arrays using safe setters
-        safeSetDevices(devicesRes.data);
-        safeSetPredictions(predictionsRes.data);
-        setModels(Array.isArray(modelsRes.data) ? modelsRes.data : []);
+      const [devicesRes, predictionsRes, modelsRes] = await Promise.all([
+        api.get("/admin/devices"),
+        api.get("/analytics/predictions", { params: { limit: 20 } }),
+        api.get("/analytics/models")
+      ]);
+      
+      // Always ensure we set arrays using safe setters
+      safeSetDevices(devicesRes.data);
+      safeSetPredictions(predictionsRes.data);
+      setModels(Array.isArray(modelsRes.data) ? modelsRes.data : []);
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to load analytics data");
@@ -264,7 +264,7 @@ export default function AnalyticsPage() {
         console.log("✅ Saved model to Firebase for SmartLPG tenant");
       } else {
         // For other tenants, use PostgreSQL API
-        await api.post("/analytics/train-model", trainForm);
+      await api.post("/analytics/train-model", trainForm);
       }
       
       setShowTrainModal(false);

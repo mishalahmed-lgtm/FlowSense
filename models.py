@@ -25,6 +25,11 @@ class Tenant(Base):
     code = Column(String(50), unique=True, nullable=False, index=True)
     country = Column(String(100), nullable=True, index=True)
     is_active = Column(Boolean, default=True)
+    # Contact & Business Information
+    contact_email = Column(String(255), nullable=True, index=True)
+    contact_phone = Column(String(50), nullable=True)
+    business_address = Column(Text, nullable=True)
+    timezone = Column(String(100), nullable=True, default="UTC")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     

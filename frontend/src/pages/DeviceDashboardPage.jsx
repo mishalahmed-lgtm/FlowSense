@@ -6,6 +6,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
 import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";
 import { fetchFirebaseDataForDashboard } from "../services/firebaseDataMapper.js";
+import { getTimeseriesFromFirebase } from "../services/smartLPGFirebaseService.js";
 import GaugeWidget from "../components/widgets/GaugeWidget.jsx";
 import NumberWidget from "../components/widgets/NumberWidget.jsx";
 import LineChartWidget from "../components/widgets/LineChartWidget.jsx";
@@ -567,6 +568,21 @@ export default function DeviceDashboardPage() {
     async (field) => {
       if (!deviceId) return;
       
+      // For SmartLPG tenant, use Firebase timeseries
+      const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
+      if (isSmartLPG) {
+        try {
+          console.log(`🔥 [TIMESERIES] Loading from Firebase for device ${deviceId}, field ${field}`);
+          const points = await getTimeseriesFromFirebase(deviceId, field, 60, 500);
+          setHistoryData((prev) => ({ ...prev, [field]: points }));
+          console.log(`✅ [TIMESERIES] Loaded ${points.length} points from Firebase`);
+          return;
+        } catch (err) {
+          console.error(`❌ Failed to load timeseries from Firebase for ${field}:`, err);
+          // Fall through to try other sources
+        }
+      }
+      
       // First, try to get history from external data
       if (externalData && externalData.records && Array.isArray(externalData.records)) {
         const externalHistory = externalData.records
@@ -599,7 +615,7 @@ export default function DeviceDashboardPage() {
         }
       }
       
-      // Fallback to InfluxDB if external data doesn't have this field
+      // Fallback to InfluxDB/PostgreSQL API if external data doesn't have this field
       try {
         const resp = await api.get(`/dashboard/devices/${deviceId}/history`, {
           params: { key: field, minutes: 60 },
@@ -609,7 +625,7 @@ export default function DeviceDashboardPage() {
         console.error(`Failed to load history for ${field}:`, err);
       }
     },
-    [api, deviceId, externalData]
+    [api, deviceId, externalData, user]
   );
 
   // Load history for all chart widgets

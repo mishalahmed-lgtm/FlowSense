@@ -4,7 +4,7 @@
  */
 
 import { db } from "../utils/firebase.js";
-import { collection, doc, setDoc, Timestamp } from "firebase/firestore";
+import { collection, doc, setDoc, getDocs, Timestamp } from "firebase/firestore";
 
 const TENANT_ID = 3; // SmartLPG tenant ID
 
@@ -274,6 +274,163 @@ export async function seedFOTAJobs() {
 }
 
 /**
+ * Generate sample timeseries data for a device
+ * @param {string} deviceId - Device ID
+ * @param {string} key - Field key (e.g., 'level', 'temperature')
+ * @param {number} hours - Number of hours of data to generate
+ * @param {number} intervalMinutes - Interval between data points in minutes (default: 5)
+ * @returns {Array} Array of {ts, value} objects
+ */
+function generateTimeseriesData(deviceId, key, hours = 72, intervalMinutes = 5) {
+  const points = [];
+  const now = new Date();
+  const startTime = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  
+  // Base values and ranges for different field types
+  const fieldConfig = {
+    'level': { base: 60, range: 40, trend: 'stable' }, // 20-100%
+    'level_cm': { base: 120, range: 80, trend: 'stable' }, // 40-200 cm (typical tank height)
+    'lpg_tank_level': { base: 60, range: 40, trend: 'stable' }, // 20-100%
+    'temperature': { base: 25, range: 10, trend: 'cyclic' }, // 15-35°C with daily cycle
+    'pressure': { base: 150, range: 30, trend: 'stable' }, // 120-180 PSI
+    'battery': { base: 85, range: 15, trend: 'decreasing' }, // 70-100%, slowly decreasing
+    'flow_rate': { base: 2.5, range: 1.5, trend: 'variable' }, // 1-4 L/min
+    'total_consumption': { base: 0, range: 0, trend: 'increasing' }, // Cumulative, always increasing
+  };
+  
+  const config = fieldConfig[key] || { base: 50, range: 20, trend: 'stable' };
+  let currentValue = config.base + (Math.random() - 0.5) * config.range;
+  
+  // For cumulative fields, start from a random base
+  if (key === 'total_consumption') {
+    currentValue = Math.random() * 1000; // Start from 0-1000 L
+  }
+  
+  const totalPoints = Math.floor((hours * 60) / intervalMinutes);
+  
+  for (let i = 0; i < totalPoints; i++) {
+    const timestamp = new Date(startTime.getTime() + i * intervalMinutes * 60 * 1000);
+    
+    // Apply trend
+    switch (config.trend) {
+      case 'cyclic':
+        // Daily temperature cycle (cooler at night, warmer during day)
+        const hourOfDay = timestamp.getHours();
+        const cycleOffset = Math.sin((hourOfDay / 24) * 2 * Math.PI) * 5;
+        currentValue = config.base + cycleOffset + (Math.random() - 0.5) * config.range;
+        break;
+      case 'decreasing':
+        // Slowly decreasing (battery)
+        const decreaseRate = config.range / totalPoints;
+        currentValue = Math.max(config.base - config.range / 2, currentValue - decreaseRate + (Math.random() - 0.5) * 2);
+        break;
+      case 'increasing':
+        // Cumulative consumption (always increasing)
+        const increaseRate = (Math.random() * 0.1) + 0.05; // 0.05-0.15 per interval
+        currentValue += increaseRate;
+        break;
+      case 'variable':
+        // Variable flow rate
+        currentValue = config.base + (Math.random() - 0.5) * config.range;
+        break;
+      default: // 'stable'
+        // Stable with small random variation
+        currentValue = config.base + (Math.random() - 0.5) * config.range;
+    }
+    
+    // Ensure value stays within reasonable bounds
+    if (key === 'level' || key === 'lpg_tank_level' || key === 'battery') {
+      currentValue = Math.max(0, Math.min(100, currentValue));
+    } else if (key === 'level_cm') {
+      currentValue = Math.max(0, Math.min(250, currentValue)); // 0-250 cm
+    } else if (key === 'temperature') {
+      currentValue = Math.max(10, Math.min(50, currentValue));
+    } else if (key === 'pressure') {
+      currentValue = Math.max(100, Math.min(200, currentValue));
+    } else if (key === 'flow_rate') {
+      currentValue = Math.max(0, Math.min(10, currentValue));
+    }
+    
+    points.push({
+      ts: timestamp.toISOString(),
+      value: parseFloat(currentValue.toFixed(2))
+    });
+  }
+  
+  return points;
+}
+
+/**
+ * Seed timeseries data to Firebase
+ */
+export async function seedTimeseries() {
+  try {
+    console.log('🌱 Seeding timeseries data to Firebase...');
+    
+    // Fetch all devices from Firebase (not just hardcoded ones)
+    const devicesRef = collection(db, "smartLPG");
+    const devicesSnap = await getDocs(devicesRef);
+    const deviceIds = [];
+    
+    devicesSnap.forEach((docSnap) => {
+      const data = docSnap.data();
+      const deviceId = data.device_id || docSnap.id;
+      if (deviceId) {
+        deviceIds.push(deviceId);
+      }
+    });
+    
+    // If no devices found in Firebase, fall back to sample device IDs
+    const devicesToSeed = deviceIds.length > 0 ? deviceIds : SAMPLE_DEVICE_IDS;
+    
+    console.log(`📊 Found ${devicesToSeed.length} devices to seed timeseries data for:`, devicesToSeed);
+    
+    // Common field keys for SmartLPG devices
+    const fieldKeys = ['level', 'level_cm', 'lpg_tank_level', 'temperature', 'pressure', 'battery', 'flow_rate', 'total_consumption'];
+    
+    let totalPoints = 0;
+    const batchSize = 100; // Write in batches to avoid overwhelming Firebase
+    
+    for (const deviceId of devicesToSeed) {
+      for (const key of fieldKeys) {
+        // Generate 72 hours of data (5-minute intervals = ~864 points per field)
+        const points = generateTimeseriesData(deviceId, key, 72, 5);
+        
+        console.log(`📊 Generated ${points.length} points for device ${deviceId}, field ${key}`);
+        
+        // Write points in batches
+        for (let i = 0; i < points.length; i += batchSize) {
+          const batch = points.slice(i, i + batchSize);
+          const batchPromises = batch.map(point => {
+            const docId = `${deviceId}_${key}_${new Date(point.ts).getTime()}`;
+            const timeseriesRef = doc(db, "smartLPG_timeseries", docId);
+            return setDoc(timeseriesRef, {
+              device_id: deviceId,
+              key: key,
+              value: point.value,
+              ts: Timestamp.fromDate(new Date(point.ts)),
+              tenant_id: TENANT_ID,
+              created_at: Timestamp.now()
+            }, { merge: true });
+          });
+          
+          await Promise.all(batchPromises);
+          totalPoints += batch.length;
+        }
+        
+        console.log(`✅ Saved ${points.length} timeseries points for ${deviceId}/${key}`);
+      }
+    }
+    
+    console.log(`✅ Successfully seeded ${totalPoints} timeseries points to Firebase`);
+    return { success: true, count: totalPoints };
+  } catch (error) {
+    console.error('❌ Error seeding timeseries:', error);
+    throw error;
+  }
+}
+
+/**
  * Seed all data
  */
 export async function seedAll() {
@@ -287,6 +444,29 @@ export async function seedAll() {
       success: true, 
       alerts: alertsResult.count, 
       fotaJobs: jobsResult.count 
+    };
+  } catch (error) {
+    console.error('❌ Error during seeding:', error);
+    throw error;
+  }
+}
+
+/**
+ * Seed all data including timeseries
+ */
+export async function seedAllWithTimeseries() {
+  try {
+    console.log('🌱 Starting SmartLPG data seeding (including timeseries)...');
+    const alertsResult = await seedAlerts();
+    const jobsResult = await seedFOTAJobs();
+    const timeseriesResult = await seedTimeseries();
+    
+    console.log(`✅ Seeding complete! Created ${alertsResult.count} alerts, ${jobsResult.count} FOTA jobs, and ${timeseriesResult.count} timeseries points`);
+    return { 
+      success: true, 
+      alerts: alertsResult.count, 
+      fotaJobs: jobsResult.count,
+      timeseries: timeseriesResult.count
     };
   } catch (error) {
     console.error('❌ Error during seeding:', error);
