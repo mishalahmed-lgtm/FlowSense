@@ -97,13 +97,24 @@ export async function saveAlertRuleToFirebase(rule) {
   try {
     const ruleId = rule.id || `alert_rule_${Date.now()}`;
     const ruleRef = doc(db, "smartLPG_alert_rules", ruleId);
-    await setDoc(ruleRef, {
+    
+    // Ensure tenant_id is set and is a number (SmartLPG tenant_id = 3)
+    const ruleData = {
       ...rule,
       id: ruleId,
+      tenant_id: rule.tenant_id || 3, // Default to SmartLPG tenant
       updated_at: Timestamp.now(),
       created_at: rule.created_at || Timestamp.now(),
-    }, { merge: true });
-    console.log(`✅ Saved alert rule ${ruleId} to Firebase`);
+    };
+    
+    console.log(`💾 [ALERT RULES] Saving rule ${ruleId} to Firebase:`, {
+      name: ruleData.name,
+      tenant_id: ruleData.tenant_id,
+      condition: ruleData.condition,
+    });
+    
+    await setDoc(ruleRef, ruleData, { merge: true });
+    console.log(`✅ Saved alert rule ${ruleId} to Firebase with tenant_id=${ruleData.tenant_id}`);
     return { success: true, id: ruleId };
   } catch (error) {
     console.error("❌ Error saving alert rule to Firebase:", error);
@@ -114,19 +125,260 @@ export async function saveAlertRuleToFirebase(rule) {
 /**
  * Get alert rules from Firebase
  */
-export async function getAlertRulesFromFirebase() {
+export async function getAlertRulesFromFirebase(tenantId = null) {
   try {
     const rulesRef = collection(db, "smartLPG_alert_rules");
     const rulesSnap = await getDocs(rulesRef);
     const rules = [];
+    let totalRules = 0;
+    const allRules = [];
+    
+    console.log(`🔍 [ALERT RULES] Fetching rules from Firebase, filtering for tenant_id=${tenantId}`);
+    
     rulesSnap.forEach((doc) => {
-      rules.push({ ...doc.data(), id: doc.id });
+      totalRules++;
+      const rule = { ...doc.data(), id: doc.id };
+      allRules.push(rule);
+      
+      // Normalize tenant_id for comparison (handle both string and number)
+      const ruleTenantId = rule.tenant_id != null ? Number(rule.tenant_id) : null;
+      const requestedTenantId = tenantId != null ? Number(tenantId) : null;
+      
+      console.log(`📋 [ALERT RULES] Found rule: "${rule.name || rule.id}", tenant_id=${ruleTenantId} (type: ${typeof rule.tenant_id}), requested=${requestedTenantId}`);
+      console.log(`   Full rule data:`, rule);
+      
+      // Filter by tenant_id if provided
+      if (!tenantId || ruleTenantId === requestedTenantId) {
+        rules.push(rule);
+        console.log(`✅ [ALERT RULES] Included rule: ${rule.name || rule.id}`);
+      } else {
+        console.log(`⏭️ [ALERT RULES] Excluded rule: ${rule.name || rule.id} (tenant_id mismatch: ${ruleTenantId} !== ${requestedTenantId})`);
+      }
     });
-    console.log(`✅ Loaded ${rules.length} alert rules from Firebase`);
+    
+    console.log(`✅ Loaded ${rules.length} alert rules from Firebase (${totalRules} total, filtered for tenant_id=${tenantId})`);
+    
+    if (totalRules === 0) {
+      console.warn(`⚠️ [ALERT RULES] No rules found in Firebase collection 'smartLPG_alert_rules'.`);
+      console.warn(`⚠️ [ALERT RULES] Collection might be empty or rules are being saved to a different collection.`);
+    } else if (totalRules > 0 && rules.length === 0) {
+      console.warn(`⚠️ [ALERT RULES] Found ${totalRules} rules but none match tenant_id=${tenantId}`);
+      console.warn(`⚠️ [ALERT RULES] All rules found:`, allRules.map(r => ({ name: r.name, tenant_id: r.tenant_id })));
+    }
+    
     return rules;
   } catch (error) {
     console.error("❌ Error getting alert rules from Firebase:", error);
     return [];
+  }
+}
+
+/**
+ * Map common field name aliases to actual field names
+ */
+function mapFieldName(fieldName) {
+  const fieldMap = {
+    'tmp': 'temperature',
+    'temp': 'temperature',
+    'level': 'level',
+    'lpg_level': 'lpg_tank_level',
+    'gas_level': 'lpg_tank_level',
+    'batt': 'battery',
+    'flow': 'flow_rate',
+    'consumption': 'total_consumption',
+  };
+  return fieldMap[fieldName?.toLowerCase()] || fieldName;
+}
+
+/**
+ * Evaluate alert rule condition against a value
+ */
+function evaluateCondition(condition, fieldValue) {
+  if (!condition || !condition.field || !condition.operator) {
+    return false;
+  }
+  
+  const operator = condition.operator;
+  const threshold = parseFloat(condition.value);
+  const value = parseFloat(fieldValue);
+  
+  if (isNaN(value) || isNaN(threshold)) {
+    return false;
+  }
+  
+  switch (operator) {
+    case ">":
+      return value > threshold;
+    case ">=":
+      return value >= threshold;
+    case "<":
+      return value < threshold;
+    case "<=":
+      return value <= threshold;
+    case "==":
+      return value === threshold;
+    case "!=":
+      return value !== threshold;
+    default:
+      console.warn(`Unknown operator: ${operator}`);
+      return false;
+  }
+}
+
+/**
+ * Evaluate alert rules against timeseries data and create alerts
+ */
+export async function evaluateAlertRulesAndCreateAlerts(tenantId) {
+  try {
+    console.log(`🔍 [ALERT RULES] Evaluating alert rules for tenant_id = ${tenantId}...`);
+    
+    // Get all active alert rules for this tenant
+    const rules = await getAlertRulesFromFirebase(tenantId);
+    const activeRules = rules.filter(rule => rule.is_active !== false);
+    
+    if (activeRules.length === 0) {
+      console.log("⚠️ [ALERT RULES] No active alert rules found");
+      return { evaluated: 0, created: 0 };
+    }
+    
+    console.log(`📋 [ALERT RULES] Found ${activeRules.length} active rules`);
+    
+    // Get all devices for this tenant
+    const { fetchSmartLPGDataForDashboard } = await import("./smartLPGDataMapper.js");
+    const deviceData = await fetchSmartLPGDataForDashboard();
+    const devices = deviceData.devices || [];
+    
+    if (devices.length === 0) {
+      console.log("⚠️ [ALERT RULES] No devices found");
+      return { evaluated: 0, created: 0 };
+    }
+    
+    let evaluatedCount = 0;
+    let createdCount = 0;
+    
+    // For each rule, check against recent timeseries data
+    for (const rule of activeRules) {
+      try {
+        const condition = rule.condition || {};
+        let field = condition.field;
+        
+        if (!field) {
+          console.warn(`⚠️ [ALERT RULES] Rule ${rule.id} has no field in condition`);
+          continue;
+        }
+        
+        // Map field name to actual field name (e.g., 'tmp' -> 'temperature')
+        const mappedField = mapFieldName(field);
+        if (mappedField !== field) {
+          console.log(`📝 [ALERT RULES] Mapped field "${field}" to "${mappedField}" for rule ${rule.id}`);
+          field = mappedField;
+        }
+        
+        // Determine which devices to check based on scope
+        let devicesToCheck = [];
+        if (rule.device_id) {
+          // Device-specific rule
+          const device = devices.find(d => d.device_id === rule.device_id || d.id === rule.device_id);
+          if (device) {
+            devicesToCheck = [device];
+          }
+        } else if (rule.device_type) {
+          // Device type rule - check all devices of this type
+          devicesToCheck = devices.filter(d => d.device_type === rule.device_type);
+          console.log(`📋 [ALERT RULES] Found ${devicesToCheck.length} devices of type "${rule.device_type}"`);
+        } else {
+          // Tenant-wide rule - check all devices
+          devicesToCheck = devices;
+        }
+        
+        // Check each device
+        for (const device of devicesToCheck) {
+          evaluatedCount++;
+          
+          // Get latest timeseries value for this field
+          const timeseries = await getTimeseriesFromFirebase(device.device_id || device.id, field, 60, 1);
+          
+          if (timeseries.length === 0) {
+            console.log(`⏭️ [ALERT RULES] No timeseries data for device ${device.device_id || device.id}, field ${field}`);
+            continue; // No data for this field
+          }
+          
+          if (timeseries.length === 0) {
+            continue; // No data for this field
+          }
+          
+          const latestValue = timeseries[timeseries.length - 1].value;
+          
+          console.log(`🔍 [ALERT RULES] Checking rule ${rule.id} for device ${device.device_id || device.id}: ${field} = ${latestValue}, condition: ${condition.operator} ${condition.value}`);
+          
+          // Evaluate condition
+          if (evaluateCondition(condition, latestValue)) {
+            console.log(`✅ [ALERT RULES] Condition met for rule ${rule.id}, device ${device.device_id || device.id}: ${latestValue} ${condition.operator} ${condition.value}`);
+            // Condition met - check if alert already exists (avoid duplicates)
+            const existingAlerts = await getAlertsFromFirebase(tenantId);
+            const recentAlert = existingAlerts.find(alert => 
+              alert.rule_id === rule.id &&
+              alert.device_id === (device.device_id || device.id) &&
+              alert.status === "open" &&
+              new Date(alert.created_at) > new Date(Date.now() - 5 * 60 * 1000) // Within last 5 minutes
+            );
+            
+            if (recentAlert) {
+              console.log(`⏭️ [ALERT RULES] Alert already exists for rule ${rule.id}, device ${device.device_id}`);
+              continue;
+            }
+            
+            // Create alert using rule's title_template and message_template
+            // Replace placeholders in templates
+            let title = rule.title_template || rule.name || `Alert: ${field} ${condition.operator} ${condition.value}`;
+            let message = rule.message_template || `${field} is ${latestValue} (threshold: ${condition.operator} ${condition.value})`;
+            
+            // Replace template variables
+            title = title
+              .replace(/{level}/g, latestValue)
+              .replace(/{temp}/g, latestValue)
+              .replace(/{value}/g, latestValue)
+              .replace(/{device}/g, device.name || device.device_id || "Unknown Device");
+            
+            message = message
+              .replace(/{level}/g, latestValue)
+              .replace(/{temp}/g, latestValue)
+              .replace(/{value}/g, latestValue)
+              .replace(/{device}/g, device.name || device.device_id || "Unknown Device");
+            
+            const alert = {
+              rule_id: rule.id,
+              rule_name: rule.name, // Store rule name for reference
+              device_id: device.device_id || device.id,
+              device_name: device.name || device.device_id,
+              tenant_id: tenantId,
+              title: title,
+              message: message,
+              priority: rule.priority || "medium",
+              status: "open",
+              trigger_data: {
+                field: field,
+                value: latestValue,
+                threshold: condition.value,
+                operator: condition.operator,
+              },
+            };
+            
+            await saveAlertToFirebase(alert);
+            createdCount++;
+            console.log(`✅ [ALERT RULES] Created alert "${title}" for rule "${rule.name}", device ${device.device_id || device.id}: ${field} = ${latestValue}`);
+          }
+        }
+      } catch (ruleError) {
+        console.error(`❌ [ALERT RULES] Error evaluating rule ${rule.id}:`, ruleError);
+      }
+    }
+    
+    console.log(`✅ [ALERT RULES] Evaluation complete: ${evaluatedCount} checks, ${createdCount} alerts created`);
+    return { evaluated: evaluatedCount, created: createdCount };
+  } catch (error) {
+    console.error("❌ [ALERT RULES] Error evaluating alert rules:", error);
+    throw error;
   }
 }
 
@@ -634,6 +886,100 @@ export async function saveAnalyticsModelToFirebase(model) {
     return { success: true, id: modelRef.id };
   } catch (error) {
     console.error("❌ Error saving analytics model to Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get firmware versions from Firebase (for SmartLPG tenant)
+ */
+export async function getFirmwareVersionsFromFirebase(tenantId = null) {
+  try {
+    const firmwareVersionsRef = collection(db, "smartLPG_firmware_versions");
+    
+    // Fetch all documents ordered by created_at (no tenant_id filter to avoid composite index)
+    let q = query(firmwareVersionsRef, orderBy("created_at", "desc"));
+    
+    let versionsSnap;
+    try {
+      versionsSnap = await getDocs(q);
+    } catch (indexError) {
+      // If index error, fetch all without ordering and sort client-side
+      console.warn("⚠️ Index error, fetching all firmware versions and filtering client-side...");
+      versionsSnap = await getDocs(firmwareVersionsRef);
+    }
+    
+    const versions = [];
+    versionsSnap.forEach((doc) => {
+      const data = doc.data();
+      
+      // Client-side filtering for tenant_id if provided
+      if (tenantId && data.tenant_id !== tenantId) {
+        return; // Skip this version
+      }
+      
+      versions.push({
+        id: doc.id,
+        device_type: data.device_type || "",
+        name: data.name || "",
+        version: data.version || "",
+        file_path: data.file_path || "",
+        checksum: data.checksum || null,
+        file_size_bytes: data.file_size_bytes || null,
+        release_notes: data.release_notes || null,
+        min_hw_version: data.min_hw_version || null,
+        is_recommended: data.is_recommended || false,
+        is_mandatory: data.is_mandatory || false,
+        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at || new Date().toISOString(),
+        firmware_name: data.name || "", // Alias for consistency
+      });
+    });
+    
+    // Sort by created_at descending (if we fetched without ordering)
+    if (versions.length > 0 && !versions[0].created_at) {
+      // If no created_at, just return as-is
+    } else {
+      versions.sort((a, b) => {
+        const dateA = new Date(a.created_at || 0);
+        const dateB = new Date(b.created_at || 0);
+        return dateB - dateA; // Descending order
+      });
+    }
+    
+    console.log(`✅ Loaded ${versions.length} firmware versions from Firebase${tenantId ? ` (filtered for tenant_id=${tenantId})` : ""}`);
+    return versions;
+  } catch (error) {
+    console.error("❌ Error getting firmware versions from Firebase:", error);
+    return [];
+  }
+}
+
+/**
+ * Save firmware version to Firebase (for SmartLPG tenant)
+ */
+export async function saveFirmwareVersionToFirebase(firmwareVersion) {
+  try {
+    const firmwareVersionData = cleanForFirebase({
+      device_type: firmwareVersion.device_type,
+      name: firmwareVersion.name,
+      version: firmwareVersion.version,
+      file_path: firmwareVersion.file_path || "",
+      checksum: firmwareVersion.checksum || null,
+      file_size_bytes: firmwareVersion.file_size_bytes || null,
+      release_notes: firmwareVersion.release_notes || null,
+      min_hw_version: firmwareVersion.min_hw_version || null,
+      is_recommended: firmwareVersion.is_recommended || false,
+      is_mandatory: firmwareVersion.is_mandatory || false,
+      tenant_id: firmwareVersion.tenant_id || 3, // Default to SmartLPG tenant
+      created_at: Timestamp.now(),
+    });
+    
+    const firmwareVersionRef = doc(collection(db, "smartLPG_firmware_versions"));
+    await setDoc(firmwareVersionRef, firmwareVersionData);
+    console.log(`✅ Saved firmware version ${firmwareVersion.name} v${firmwareVersion.version} to Firebase`);
+    return { success: true, id: firmwareVersionRef.id };
+  } catch (error) {
+    console.error("❌ Error saving firmware version to Firebase:", error);
     throw error;
   }
 }

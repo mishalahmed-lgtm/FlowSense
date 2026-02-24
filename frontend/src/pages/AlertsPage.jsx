@@ -69,6 +69,22 @@ export default function AlertsPage() {
       // For SmartLPG tenant, load from Firebase
       if (isSmartLPGTenant(user?.tenant_id)) {
         console.log(`🔥 [ALERTS] Loading alerts from Firebase for tenant_id = ${user?.tenant_id}`);
+        
+        // First, evaluate alert rules and create alerts if needed (only on initial load, not on filter changes)
+        if (forceRefresh || alerts.length === 0) {
+          try {
+            const { evaluateAlertRulesAndCreateAlerts } = await import("../services/smartLPGFirebaseService.js");
+            console.log(`🔍 [ALERTS] Evaluating alert rules to create alerts...`);
+            const evalResult = await evaluateAlertRulesAndCreateAlerts(user?.tenant_id);
+            if (evalResult.created > 0) {
+              console.log(`✅ [ALERTS] Created ${evalResult.created} new alerts from rules`);
+            }
+          } catch (evalError) {
+            console.warn("⚠️ [ALERTS] Failed to evaluate alert rules:", evalError);
+            // Don't fail the whole load if evaluation fails
+          }
+        }
+        
         const { getAlertsFromFirebase } = await import("../services/smartLPGFirebaseService.js");
         const allAlerts = await getAlertsFromFirebase(user?.tenant_id, { status: filterStatus === "all" ? null : filterStatus, priority: filterPriority === "all" ? null : filterPriority });
         
@@ -466,7 +482,27 @@ export default function AlertsPage() {
             Monitor, triage, and resolve alerts across your devices
           </p>
         </div>
-        <div className="page-header__actions">
+        <div className="page-header__actions" style={{ display: "flex", gap: "var(--space-2)" }}>
+          {isSmartLPGTenant(user?.tenant_id) && (
+            <button
+              className="btn btn--secondary"
+              onClick={async () => {
+                try {
+                  setError(null);
+                  setLoading(true);
+                  const { evaluateAlertRulesAndCreateAlerts } = await import("../services/smartLPGFirebaseService.js");
+                  const result = await evaluateAlertRulesAndCreateAlerts(user?.tenant_id);
+                  alert(`Evaluated ${result.evaluated} conditions, created ${result.created} alerts`);
+                  await loadAlerts(true);
+                } catch (err) {
+                  setError(err.message || "Failed to evaluate alert rules");
+                  setLoading(false);
+                }
+              }}
+            >
+              Evaluate Rules & Create Alerts
+            </button>
+          )}
           <button
             className="btn btn--primary"
             onClick={() => navigate("/alerts/rules")}
@@ -541,7 +577,6 @@ export default function AlertsPage() {
         </div>
       )}
 
-
       {/* Alerts Table */}
       <div className="card">
         {loading ? (
@@ -580,6 +615,16 @@ export default function AlertsPage() {
                       {alert.message && (
                         <div className="text-muted" style={{ fontSize: "var(--font-size-sm)", marginTop: "var(--space-1)" }}>
                           {alert.message.substring(0, 100)}{alert.message.length > 100 ? "..." : ""}
+                        </div>
+                      )}
+                      {alert.rule_id || alert.rule_name ? (
+                        <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-1)", display: "flex", alignItems: "center", gap: "var(--space-1)" }}>
+                          <span style={{ opacity: 0.6 }}>📋</span>
+                          <span>From rule: {alert.rule_name || alert.rule_id}</span>
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-tertiary)", marginTop: "var(--space-1)", fontStyle: "italic" }}>
+                          (Manual/Seeded alert)
                         </div>
                       )}
                     </td>

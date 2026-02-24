@@ -231,12 +231,12 @@ export default function AnalyticsPage() {
         setPatternResults(results);
       } else {
         // For other tenants, use PostgreSQL API
-        const resp = await api.post("/analytics/analyze-patterns", {
-          device_ids: finalDevicesArray.map(d => d?.device_id).filter(Boolean),
-          analysis_type: "occupancy",
-          days: 7
-        });
-        setPatternResults(resp.data);
+      const resp = await api.post("/analytics/analyze-patterns", {
+        device_ids: finalDevicesArray.map(d => d?.device_id).filter(Boolean),
+        analysis_type: "occupancy",
+        days: 7
+      });
+      setPatternResults(resp.data);
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to analyze patterns");
@@ -273,12 +273,12 @@ export default function AnalyticsPage() {
         }
       } else {
         // For other tenants, use PostgreSQL API
-        const resp = await api.post("/analytics/analyze-correlations", {
-          device_ids: [correlationForm.device1, correlationForm.device2],
-          field_keys: [correlationForm.field1, correlationForm.field2],
-          days: 7
-        });
-        setCorrelationResults(resp.data);
+      const resp = await api.post("/analytics/analyze-correlations", {
+        device_ids: [correlationForm.device1, correlationForm.device2],
+        field_keys: [correlationForm.field1, correlationForm.field2],
+        days: 7
+      });
+      setCorrelationResults(resp.data);
       }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to analyze correlations");

@@ -22,7 +22,9 @@ export default function AlertRulesPage() {
   const [formState, setFormState] = useState({
     name: "",
     description: "",
+    scope: "tenant_wide", // "tenant_wide", "device_type", "specific_device"
     device_id: null,
+    device_type: null,
     condition: { field: "", operator: ">", value: "" },
     priority: "medium",
     title_template: "",
@@ -39,6 +41,7 @@ export default function AlertRulesPage() {
     max_alerts_per_window: 10,
     is_active: true,
   });
+  const [deviceSearchQuery, setDeviceSearchQuery] = useState("");
 
   // Only tenant admins with alerts module can access
   if (!isTenantAdmin || !hasModule("alerts")) {
@@ -75,8 +78,25 @@ export default function AlertRulesPage() {
 
   const loadDevices = async () => {
     try {
-      const response = await api.get("/admin/devices");
-      setDevices(response.data);
+      // For SmartLPG tenant, load devices from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { fetchSmartLPGDataForDashboard } = await import("../services/smartLPGDataMapper.js");
+        const deviceData = await fetchSmartLPGDataForDashboard();
+        if (deviceData.success && deviceData.devices) {
+          // Map Firebase devices to format expected by Alert Rules page
+          const mappedDevices = deviceData.devices.map((device) => ({
+            id: device.device_id || device.id,
+            device_id: device.device_id || device.id,
+            name: device.name || device.device_name || device.device_id,
+            device_type: device.device_type || device.device_type_id || null,
+          }));
+          setDevices(mappedDevices);
+          console.log(`✅ Loaded ${mappedDevices.length} devices from Firebase for Alert Rules`);
+        }
+      } else {
+        const response = await api.get("/admin/devices");
+        setDevices(response.data);
+      }
     } catch (err) {
       console.error("Failed to load devices:", err);
     }
@@ -88,13 +108,41 @@ export default function AlertRulesPage() {
     loadDevices();
   }, [token]);
 
+  // Get unique device types from devices
+  const deviceTypes = Array.isArray(devices) 
+    ? Array.from(new Set(devices.map(d => d.device_type).filter(Boolean))).sort()
+    : [];
+  
+  // Filter devices based on search query
+  const filteredDevices = Array.isArray(devices) 
+    ? devices.filter(device => {
+        if (!deviceSearchQuery) return true;
+        const query = deviceSearchQuery.toLowerCase();
+        return (
+          (device.name || "").toLowerCase().includes(query) ||
+          (device.device_id || "").toLowerCase().includes(query) ||
+          (device.id || "").toLowerCase().includes(query)
+        );
+      })
+    : [];
+
   const openModal = (rule = null) => {
     if (rule) {
       setSelectedRule(rule);
+      // Determine scope based on rule
+      let scope = "tenant_wide";
+      if (rule.device_id) {
+        scope = "specific_device";
+      } else if (rule.device_type) {
+        scope = "device_type";
+      }
+      
       setFormState({
         name: rule.name || "",
         description: rule.description || "",
+        scope: scope,
         device_id: rule.device_id || null,
+        device_type: rule.device_type || null,
         condition: rule.condition || { field: "", operator: ">", value: "" },
         priority: rule.priority || "medium",
         title_template: rule.title_template || "",
@@ -116,7 +164,9 @@ export default function AlertRulesPage() {
       setFormState({
         name: "",
         description: "",
+        scope: "tenant_wide",
         device_id: null,
+        device_type: null,
         condition: { field: "", operator: ">", value: "" },
         priority: "medium",
         title_template: "",
@@ -134,6 +184,7 @@ export default function AlertRulesPage() {
         is_active: true,
       });
     }
+    setDeviceSearchQuery("");
     setShowModal(true);
     setError(null);
     setSuccessMessage(null);
@@ -149,6 +200,7 @@ export default function AlertRulesPage() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      // Build payload based on scope
       const payload = {
         ...formState,
         tenant_id: user?.tenant_id,
@@ -158,16 +210,40 @@ export default function AlertRulesPage() {
           value: formState.condition.value,
         },
       };
+      
+      // Set device_id and device_type based on scope
+      if (formState.scope === "tenant_wide") {
+        payload.device_id = null;
+        payload.device_type = null;
+      } else if (formState.scope === "device_type") {
+        payload.device_id = null;
+        payload.device_type = formState.device_type;
+      } else if (formState.scope === "specific_device") {
+        // For SmartLPG, device_id is a string, not an integer
+        payload.device_id = isSmartLPGTenant(user?.tenant_id) ? formState.device_id : (formState.device_id ? parseInt(formState.device_id) : null);
+        payload.device_type = null;
+      }
+      
+      // Remove scope from payload (it's just for UI)
+      delete payload.scope;
 
       // For SmartLPG tenant, save to Firebase instead of PostgreSQL
       if (isSmartLPGTenant(user?.tenant_id)) {
         const { saveAlertRuleToFirebase } = await import("../services/smartLPGFirebaseService.js");
-        if (selectedRule) {
-          await saveAlertRuleToFirebase({ ...payload, id: selectedRule.id });
-          setSuccessMessage("Alert rule updated successfully in Firebase");
-        } else {
-          await saveAlertRuleToFirebase(payload);
-          setSuccessMessage("Alert rule created successfully in Firebase");
+        console.log(`💾 [ALERT RULES] Saving rule to Firebase:`, payload);
+        try {
+          if (selectedRule) {
+            const result = await saveAlertRuleToFirebase({ ...payload, id: selectedRule.id });
+            console.log(`✅ [ALERT RULES] Rule updated:`, result);
+            setSuccessMessage("Alert rule updated successfully in Firebase");
+          } else {
+            const result = await saveAlertRuleToFirebase(payload);
+            console.log(`✅ [ALERT RULES] Rule created:`, result);
+            setSuccessMessage("Alert rule created successfully in Firebase");
+          }
+        } catch (saveError) {
+          console.error(`❌ [ALERT RULES] Failed to save rule:`, saveError);
+          throw saveError;
         }
       } else {
       if (selectedRule) {
@@ -237,7 +313,25 @@ export default function AlertRulesPage() {
             Configure rules that trigger alerts based on device telemetry
           </p>
         </div>
-        <div className="page-header__actions">
+        <div className="page-header__actions" style={{ display: "flex", gap: "var(--space-2)" }}>
+          {isSmartLPGTenant(user?.tenant_id) && (
+            <button
+              className="btn btn--secondary"
+              onClick={async () => {
+                try {
+                  setError(null);
+                  setSuccessMessage(null);
+                  const { evaluateAlertRulesAndCreateAlerts } = await import("../services/smartLPGFirebaseService.js");
+                  const result = await evaluateAlertRulesAndCreateAlerts(user?.tenant_id);
+                  setSuccessMessage(`Evaluated ${result.evaluated} conditions, created ${result.created} alerts`);
+                } catch (err) {
+                  setError(err.message || "Failed to evaluate alert rules");
+                }
+              }}
+            >
+              Evaluate Rules & Create Alerts
+            </button>
+          )}
           <button
             className="btn btn--primary"
             onClick={() => openModal()}
@@ -296,7 +390,9 @@ export default function AlertRulesPage() {
                     </td>
                     <td>
                       {rule.device_id
-                        ? devices.find(d => d.id === rule.device_id)?.name || `Device ${rule.device_id}`
+                        ? devices.find(d => d.id === rule.device_id || d.device_id === rule.device_id)?.name || `Device ${rule.device_id}`
+                        : rule.device_type
+                        ? `Device Type: ${rule.device_type}`
                         : rule.tenant_id ? "Tenant-wide" : "Global"}
                     </td>
                     <td>
@@ -375,19 +471,146 @@ export default function AlertRulesPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Device (optional - leave empty for tenant-wide rule)</label>
-            <select
-              className="form-select"
-              value={formState.device_id || ""}
-              onChange={(e) => setFormState({ ...formState, device_id: e.target.value ? parseInt(e.target.value) : null })}
-            >
-              <option value="">All Devices (Tenant-wide)</option>
-              {devices.map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.name || device.device_id}
-                </option>
-              ))}
-            </select>
+            <label className="form-label">Rule Scope</label>
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)", marginBottom: "var(--space-4)" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="scope"
+                  value="tenant_wide"
+                  checked={formState.scope === "tenant_wide"}
+                  onChange={(e) => setFormState({ ...formState, scope: e.target.value, device_id: null, device_type: null })}
+                />
+                <span>Tenant-wide (All devices)</span>
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="scope"
+                  value="device_type"
+                  checked={formState.scope === "device_type"}
+                  onChange={(e) => setFormState({ ...formState, scope: e.target.value, device_id: null })}
+                />
+                <span>Device Type</span>
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", cursor: "pointer" }}>
+                <input
+                  type="radio"
+                  name="scope"
+                  value="specific_device"
+                  checked={formState.scope === "specific_device"}
+                  onChange={(e) => setFormState({ ...formState, scope: e.target.value, device_type: null })}
+                />
+                <span>Specific Device</span>
+              </label>
+            </div>
+            
+            {formState.scope === "device_type" && (
+              <div className="form-group" style={{ marginTop: "var(--space-4)" }}>
+                <label className="form-label">Device Type</label>
+                <select
+                  className="form-select"
+                  value={formState.device_type || ""}
+                  onChange={(e) => setFormState({ ...formState, device_type: e.target.value || null })}
+                  required
+                >
+                  <option value="">Select device type...</option>
+                  {deviceTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {formState.scope === "specific_device" && (
+              <div className="form-group" style={{ marginTop: "var(--space-4)" }}>
+                <label className="form-label">Device</label>
+                <div style={{ marginBottom: "var(--space-2)", position: "relative" }}>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Search devices by name or ID..."
+                    value={deviceSearchQuery}
+                    onChange={(e) => {
+                      setDeviceSearchQuery(e.target.value);
+                      // Clear device selection when search changes
+                      if (e.target.value && formState.device_id) {
+                        const selectedDevice = devices.find(d => d.id === formState.device_id || d.device_id === formState.device_id);
+                        const deviceMatches = selectedDevice && (
+                          (selectedDevice.name || "").toLowerCase().includes(e.target.value.toLowerCase()) ||
+                          (selectedDevice.device_id || "").toLowerCase().includes(e.target.value.toLowerCase()) ||
+                          (selectedDevice.id || "").toLowerCase().includes(e.target.value.toLowerCase())
+                        );
+                        if (!deviceMatches) {
+                          setFormState({ ...formState, device_id: null });
+                        }
+                      }
+                    }}
+                    style={{
+                      paddingLeft: "var(--space-10)",
+                      paddingRight: deviceSearchQuery ? "var(--space-10)" : "var(--space-4)",
+                    }}
+                  />
+                  <span style={{ position: "absolute", left: "var(--space-3)", top: "50%", transform: "translateY(-50%)", color: "var(--color-text-tertiary)" }}>🔍</span>
+                  {deviceSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeviceSearchQuery("");
+                        setFormState({ ...formState, device_id: null });
+                      }}
+                      style={{
+                        position: "absolute",
+                        right: "var(--space-2)",
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        color: "var(--color-text-tertiary)",
+                        cursor: "pointer",
+                        padding: "var(--space-1)",
+                      }}
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <select
+                  className="form-select"
+                  value={formState.device_id || ""}
+                  onChange={(e) => setFormState({ ...formState, device_id: e.target.value || null })}
+                  required
+                  style={{ 
+                    maxHeight: "200px", 
+                    overflowY: "auto",
+                    width: "100%"
+                  }}
+                >
+                  <option value="">Select a device...</option>
+                  {filteredDevices.length > 0 ? (
+                    filteredDevices.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.name || device.device_id} {device.device_id && device.device_id !== device.name ? `(${device.device_id})` : ""}
+                      </option>
+                    ))
+                  ) : (
+                    <option value="" disabled>No devices found</option>
+                  )}
+                </select>
+                {filteredDevices.length === 0 && deviceSearchQuery && (
+                  <small className="form-help" style={{ color: "var(--color-text-warning)", display: "block", marginTop: "var(--space-2)" }}>
+                    No devices found matching "{deviceSearchQuery}"
+                  </small>
+                )}
+                {filteredDevices.length > 0 && deviceSearchQuery && filteredDevices.length < devices.length && (
+                  <small className="form-help" style={{ display: "block", marginTop: "var(--space-2)", color: "var(--color-text-tertiary)" }}>
+                    Showing {filteredDevices.length} of {devices.length} devices
+                  </small>
+                )}
+              </div>
+            )}
           </div>
 
           <div style={{ border: "1px solid var(--color-border-light)", padding: "var(--space-4)", borderRadius: "var(--radius-md)" }}>

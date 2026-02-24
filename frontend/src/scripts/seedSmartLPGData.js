@@ -431,6 +431,98 @@ export async function seedTimeseries() {
 }
 
 /**
+ * Seed firmware versions for SmartLPG devices
+ */
+export async function seedFirmwareVersions() {
+  try {
+    console.log('🌱 Seeding firmware versions to Firebase...');
+    
+    const firmwareVersions = [
+      {
+        device_type: "Tekelek Ultrasonic Meter",
+        name: "Tekelek LPG Meter Firmware",
+        version: "2.1.0",
+        file_path: "/data/firmware/tekelek_lpg_meter_v2.1.0.bin",
+        checksum: "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6",
+        file_size_bytes: 524288, // 512 KB
+        release_notes: "Improved gas level accuracy, battery optimization, bug fixes",
+        min_hw_version: "1.0",
+        is_recommended: true,
+        is_mandatory: false,
+      },
+      {
+        device_type: "Tekelek Ultrasonic Meter",
+        name: "Tekelek LPG Meter Firmware",
+        version: "2.0.5",
+        file_path: "/data/firmware/tekelek_lpg_meter_v2.0.5.bin",
+        checksum: "b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7",
+        file_size_bytes: 516096,
+        release_notes: "Stable release with enhanced connectivity",
+        min_hw_version: "1.0",
+        is_recommended: false,
+        is_mandatory: false,
+      },
+      {
+        device_type: "Tekelek Ultrasonic Meter",
+        name: "Tekelek LPG Meter Firmware",
+        version: "1.9.2",
+        file_path: "/data/firmware/tekelek_lpg_meter_v1.9.2.bin",
+        checksum: "c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8",
+        file_size_bytes: 507904,
+        release_notes: "Legacy stable version",
+        min_hw_version: "1.0",
+        is_recommended: false,
+        is_mandatory: false,
+      },
+      {
+        device_type: "ASCO Valve Controller",
+        name: "ASCO Valve Firmware",
+        version: "1.5.0",
+        file_path: "/data/firmware/asco_valve_v1.5.0.bin",
+        checksum: "d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9",
+        file_size_bytes: 262144, // 256 KB
+        release_notes: "Improved valve control precision and safety features",
+        min_hw_version: "1.0",
+        is_recommended: true,
+        is_mandatory: false,
+      },
+      {
+        device_type: "ASCO Valve Controller",
+        name: "ASCO Valve Firmware",
+        version: "1.4.3",
+        file_path: "/data/firmware/asco_valve_v1.4.3.bin",
+        checksum: "e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
+        file_size_bytes: 258048,
+        release_notes: "Previous stable release",
+        min_hw_version: "1.0",
+        is_recommended: false,
+        is_mandatory: false,
+      },
+    ];
+    
+    const firmwareVersionsRef = collection(db, "smartLPG_firmware_versions");
+    let count = 0;
+    
+    for (const fw of firmwareVersions) {
+      const fwRef = doc(firmwareVersionsRef);
+      await setDoc(fwRef, {
+        ...fw,
+        tenant_id: TENANT_ID,
+        created_at: Timestamp.now(),
+      });
+      count++;
+      console.log(`✅ Seeded firmware version: ${fw.name} v${fw.version}`);
+    }
+    
+    console.log(`✅ Successfully seeded ${count} firmware versions to Firebase`);
+    return { success: true, count };
+  } catch (error) {
+    console.error('❌ Error seeding firmware versions:', error);
+    throw error;
+  }
+}
+
+/**
  * Seed all data
  */
 export async function seedAll() {
@@ -467,6 +559,175 @@ export async function seedAllWithTimeseries() {
       alerts: alertsResult.count, 
       fotaJobs: jobsResult.count,
       timeseries: timeseriesResult.count
+    };
+  } catch (error) {
+    console.error('❌ Error during seeding:', error);
+    throw error;
+  }
+}
+
+/**
+ * Seed alert rules to Firebase (for SmartLPG tenant)
+ */
+export async function seedAlertRules() {
+  try {
+    console.log('🌱 Seeding alert rules to Firebase...');
+    
+    const alertRules = [
+      {
+        name: "Gas Tank Low Alert",
+        description: "Alert when LPG tank level drops below 25%",
+        device_id: null, // Tenant-wide rule
+        tenant_id: TENANT_ID,
+        condition: {
+          field: "lpg_tank_level",
+          operator: "<",
+          value: "25"
+        },
+        priority: "critical",
+        title_template: "Gas Tank Low - Refill Required",
+        message_template: "Gas level is at {level}% for device {device}",
+        notify_email: true,
+        notify_sms: false,
+        notify_webhook: false,
+        escalation_enabled: false,
+        aggregation_enabled: true,
+        aggregation_window_minutes: 5,
+        max_alerts_per_window: 10,
+        is_active: true,
+      },
+      {
+        name: "High Temperature Alert",
+        description: "Alert when temperature exceeds 40°C",
+        device_id: null, // Tenant-wide rule
+        tenant_id: TENANT_ID,
+        condition: {
+          field: "temperature",
+          operator: ">",
+          value: "40"
+        },
+        priority: "high",
+        title_template: "High Temperature Warning",
+        message_template: "Temperature is {temp}°C for device {device}",
+        notify_email: true,
+        notify_sms: false,
+        notify_webhook: false,
+        escalation_enabled: false,
+        aggregation_enabled: true,
+        aggregation_window_minutes: 10,
+        max_alerts_per_window: 5,
+        is_active: true,
+      },
+      {
+        name: "Temperature Alert (tmp > 89)",
+        description: "Alert when temperature exceeds 89 (using tmp field)",
+        device_id: null, // Tenant-wide rule
+        tenant_id: TENANT_ID,
+        condition: {
+          field: "tmp",
+          operator: ">",
+          value: "89"
+        },
+        priority: "medium",
+        title_template: "Temperature Alert",
+        message_template: "Temperature (tmp) is {value} for device {device}",
+        notify_email: true,
+        notify_sms: false,
+        notify_webhook: false,
+        escalation_enabled: false,
+        aggregation_enabled: true,
+        aggregation_window_minutes: 5,
+        max_alerts_per_window: 10,
+        is_active: true,
+      },
+      {
+        name: "Low Battery Alert",
+        description: "Alert when device battery drops below 20%",
+        device_id: null, // Tenant-wide rule
+        tenant_id: TENANT_ID,
+        condition: {
+          field: "battery",
+          operator: "<",
+          value: "20"
+        },
+        priority: "medium",
+        title_template: "Battery Low",
+        message_template: "Device battery is running low for device {device}",
+        notify_email: true,
+        notify_sms: false,
+        notify_webhook: false,
+        escalation_enabled: false,
+        aggregation_enabled: true,
+        aggregation_window_minutes: 15,
+        max_alerts_per_window: 3,
+        is_active: true,
+      },
+      {
+        name: "High Pressure Alert",
+        description: "Alert when pressure exceeds 180 PSI",
+        device_id: null, // Tenant-wide rule
+        tenant_id: TENANT_ID,
+        condition: {
+          field: "pressure",
+          operator: ">",
+          value: "180"
+        },
+        priority: "critical",
+        title_template: "High Pressure Warning",
+        message_template: "Tank pressure exceeded safe limits for device {device}",
+        notify_email: true,
+        notify_sms: true,
+        notify_webhook: false,
+        escalation_enabled: true,
+        escalation_delay_minutes: 30,
+        escalation_priority: "critical",
+        aggregation_enabled: true,
+        aggregation_window_minutes: 5,
+        max_alerts_per_window: 5,
+        is_active: true,
+      },
+    ];
+    
+    const rulesRef = collection(db, "smartLPG_alert_rules");
+    let count = 0;
+    
+    for (const rule of alertRules) {
+      const ruleId = `alert_rule_${Date.now()}_${count}`;
+      const ruleRef = doc(rulesRef, ruleId);
+      await setDoc(ruleRef, {
+        ...rule,
+        id: ruleId,
+        created_at: Timestamp.now(),
+        updated_at: Timestamp.now(),
+      });
+      count++;
+      console.log(`✅ Seeded alert rule: ${rule.name} (${ruleId})`);
+    }
+    
+    console.log(`✅ Successfully seeded ${count} alert rules to Firebase`);
+    return { success: true, count };
+  } catch (error) {
+    console.error('❌ Error seeding alert rules:', error);
+    throw error;
+  }
+}
+
+/**
+ * Seed all data including firmware versions
+ */
+export async function seedAllWithFirmware() {
+  try {
+    console.log('🌱 Starting SmartLPG data seeding (including firmware versions)...');
+    const alertsResult = await seedAlerts();
+    const jobsResult = await seedFOTAJobs();
+    const firmwareResult = await seedFirmwareVersions();
+    
+    console.log(`✅ Seeding complete! Created ${alertsResult.count} alerts, ${jobsResult.count} FOTA jobs, and ${firmwareResult.count} firmware versions`);
+    return { 
+      success: true, 
+      alerts: alertsResult.count, 
+      fotaJobs: jobsResult.count,
+      firmwareVersions: firmwareResult.count
     };
   } catch (error) {
     console.error('❌ Error during seeding:', error);

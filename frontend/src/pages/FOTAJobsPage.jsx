@@ -113,29 +113,39 @@ export default function FOTAJobsPage() {
 
   const loadFirmwareVersions = async () => {
     try {
-      const response = await api.get("/fota/firmwares");
+      // For SmartLPG tenant, load from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        console.log(`🔥 [FOTA] Loading firmware versions from Firebase for tenant_id = ${user?.tenant_id}...`);
+        const { getFirmwareVersionsFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const versions = await getFirmwareVersionsFromFirebase(user?.tenant_id);
+        setFirmwareVersions(versions);
+        console.log(`✅ [FOTA] Loaded ${versions.length} firmware versions from Firebase`);
+        if (versions.length === 0) {
+          console.warn(`⚠️ [FOTA] No firmware versions found in Firebase. You may need to create firmware versions first.`);
+        }
+        return;
+      }
+      
+      // For other tenants, use backend API
+      console.log(`🔍 [FOTA] Loading firmware versions for tenant_id = ${user?.tenant_id}...`);
+      const response = await api.get("/fota/firmware-versions");
+      console.log(`📦 [FOTA] API response:`, response.data);
       const allVersions = [];
       if (response.data && Array.isArray(response.data)) {
-      for (const firmware of response.data) {
-          try {
-        const versionsResp = await api.get(`/fota/firmwares/${firmware.id}/versions`);
-            if (versionsResp.data && Array.isArray(versionsResp.data)) {
-        for (const version of versionsResp.data) {
-          allVersions.push({
-            ...version,
-            firmware_name: firmware.name,
-            device_type_id: firmware.device_type_id,
-          });
-              }
-            }
-          } catch (versionErr) {
-            console.error(`Failed to load versions for firmware ${firmware.id}:`, versionErr);
-          }
-        }
+        // The API returns a flat list of firmware versions directly
+        allVersions.push(...response.data.map(version => ({
+          ...version,
+          firmware_name: version.name, // Use name as firmware_name for consistency
+        })));
       }
       setFirmwareVersions(allVersions);
+      console.log(`✅ [FOTA] Loaded ${allVersions.length} firmware versions`);
+      if (allVersions.length === 0) {
+        console.warn(`⚠️ [FOTA] No firmware versions found. You may need to create firmware versions first.`);
+      }
     } catch (err) {
-      console.error("Failed to load firmware versions:", err);
+      console.error("❌ [FOTA] Failed to load firmware versions:", err);
+      console.error("❌ [FOTA] Error details:", err.response?.data || err.message);
       setFirmwareVersions([]); // Ensure it's always an array
     }
   };
@@ -159,28 +169,30 @@ export default function FOTAJobsPage() {
         return;
       }
       
-      const payload = {
-        name: formData.name,
-        firmware_version_id: parseInt(formData.firmware_version_id),
-        device_ids: formData.device_ids.map(id => {
-          // Try to parse as integer, but keep original if it fails (for Firebase device IDs)
-          const parsed = parseInt(id);
-          return isNaN(parsed) ? id : parsed;
-        }),
-        tenant_id: user?.tenant_id,
-      };
-      if (formData.scheduled_at) {
-        payload.scheduled_at = formData.scheduled_at;
-      }
-      
       // For SmartLPG tenant, save to Firebase instead of PostgreSQL
       if (isSmartLPGTenant(user?.tenant_id)) {
-        const { saveFOTAJobToFirebase } = await import("../services/smartLPGFirebaseService.js");
-        const firmwareVersion = firmwareVersions.find(fv => fv.id === payload.firmware_version_id);
+        // For Firebase, firmware_version_id should be a string (Firebase document ID)
+        const firmwareVersionId = formData.firmware_version_id; // Keep as string for Firebase
+        const firmwareVersion = firmwareVersions.find(fv => fv.id === firmwareVersionId || fv.id === String(firmwareVersionId));
         if (!firmwareVersion) {
           setError("Firmware version not found");
           return;
         }
+        
+        const payload = {
+          name: formData.name,
+          firmware_version_id: firmwareVersionId,
+          device_ids: formData.device_ids.map(id => {
+            // Keep device IDs as strings for Firebase
+            return id;
+          }),
+          tenant_id: user?.tenant_id,
+        };
+        if (formData.scheduled_at) {
+          payload.scheduled_at = formData.scheduled_at;
+        }
+        
+        const { saveFOTAJobToFirebase } = await import("../services/smartLPGFirebaseService.js");
         
         const fotaJob = {
           name: payload.name,
@@ -203,11 +215,26 @@ export default function FOTAJobsPage() {
         await loadJobs();
         setError(null);
       } else {
-      await api.post("/fota/jobs", payload);
-      setShowCreateModal(false);
-      setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
-      setDeviceSearchQuery("");
-      await loadJobs();
+        // For other tenants, use backend API (firmware_version_id should be integer)
+        const payload = {
+          name: formData.name,
+          firmware_version_id: parseInt(formData.firmware_version_id),
+          device_ids: formData.device_ids.map(id => {
+            // Try to parse as integer, but keep original if it fails
+            const parsed = parseInt(id);
+            return isNaN(parsed) ? id : parsed;
+          }),
+          tenant_id: user?.tenant_id,
+        };
+        if (formData.scheduled_at) {
+          payload.scheduled_at = formData.scheduled_at;
+        }
+        
+        await api.post("/fota/jobs", payload);
+        setShowCreateModal(false);
+        setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
+        setDeviceSearchQuery("");
+        await loadJobs();
       }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || "Failed to create FOTA job";
@@ -389,7 +416,7 @@ export default function FOTAJobsPage() {
                       borderRadius: "var(--radius-sm)",
                       fontSize: "var(--font-size-xs)"
                     }}>
-                      {job.firmware_version?.version || "N/A"}
+                      {typeof job.firmware_version === 'string' ? job.firmware_version : (job.firmware_version?.version) || "N/A"}
                     </code>
                   </td>
                   <td>{job.device_count || 0} devices</td>
@@ -442,14 +469,44 @@ export default function FOTAJobsPage() {
                 value={formData.firmware_version_id}
                 onChange={(e) => setFormData({ ...formData, firmware_version_id: e.target.value })}
                 required
+                disabled={firmwareVersions.length === 0}
               >
-                <option value="">Select firmware version...</option>
+                <option value="">
+                  {firmwareVersions.length === 0 ? "No firmware versions available" : "Select firmware version..."}
+                </option>
                 {firmwareVersions.map((fv) => (
                   <option key={fv.id} value={fv.id}>
                     {fv.firmware_name} - v{fv.version} {fv.is_recommended ? "(Recommended)" : ""}
                   </option>
                 ))}
               </select>
+              {firmwareVersions.length === 0 && (
+                <div style={{ marginTop: "var(--space-2)" }}>
+                  <small className="form-help" style={{ color: "var(--color-text-warning)", display: "block", marginBottom: "var(--space-2)" }}>
+                    ⚠️ No firmware versions found. Please create firmware versions first before creating a FOTA job.
+                  </small>
+                  {isSmartLPGTenant(user?.tenant_id) && (
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--secondary"
+                      onClick={async () => {
+                        try {
+                          const { seedFirmwareVersions } = await import("../scripts/seedSmartLPGData.js");
+                          await seedFirmwareVersions();
+                          await loadFirmwareVersions();
+                          alert("✅ Firmware versions seeded successfully!");
+                        } catch (err) {
+                          console.error("Failed to seed firmware versions:", err);
+                          alert("❌ Failed to seed firmware versions: " + err.message);
+                        }
+                      }}
+                      style={{ marginTop: "var(--space-2)" }}
+                    >
+                      Seed Sample Firmware Versions
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="form-group">
@@ -992,7 +1049,7 @@ export default function FOTAJobsPage() {
                   borderRadius: "var(--radius-sm)",
                   fontSize: "var(--font-size-xs)"
                 }}>
-                  {selectedJob.firmware_version?.version || "N/A"}
+                  {typeof selectedJob.firmware_version === 'string' ? selectedJob.firmware_version : (selectedJob.firmware_version?.version) || "N/A"}
                 </code>
               </div>
               <div>
@@ -1034,12 +1091,12 @@ export default function FOTAJobsPage() {
                           <td>{device.device_name || device.name || `Device ${device.device_id || device.id || idx + 1}`}</td>
                           <td>
                             <code style={{ fontSize: "var(--font-size-xs)" }}>
-                              {device.current_version || selectedJob.firmware_version || selectedJob.firmware_version?.version || "Unknown"}
+                              {device.current_version || (typeof selectedJob.firmware_version === 'string' ? selectedJob.firmware_version : selectedJob.firmware_version?.version) || "Unknown"}
                             </code>
                           </td>
                           <td>
                             <code style={{ fontSize: "var(--font-size-xs)" }}>
-                              {device.target_version || selectedJob.firmware_version || selectedJob.firmware_version?.version || "N/A"}
+                              {device.target_version || (typeof selectedJob.firmware_version === 'string' ? selectedJob.firmware_version : selectedJob.firmware_version?.version) || "N/A"}
                             </code>
                           </td>
                           <td>
