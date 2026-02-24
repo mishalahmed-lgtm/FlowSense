@@ -45,8 +45,13 @@ export default function AlertsPage() {
   const loadAlerts = async (forceRefresh = false) => {
     const cacheKey = getCacheKey('alerts_page', { tenant_id: user?.tenant_id, filterStatus, filterPriority });
     
+    // For SmartLPG tenant, always clear cache to ensure fresh data with triggered_at
+    if (isSmartLPGTenant(user?.tenant_id)) {
+      localStorage.removeItem(cacheKey);
+    }
+    
     // Check cache first for instant loading
-    if (!forceRefresh) {
+    if (!forceRefresh && !isSmartLPGTenant(user?.tenant_id)) {
       const cached = loadFromCache(cacheKey);
       if (cached) {
         console.log("📦 [ALERTS] Using cached data - instant load");
@@ -229,6 +234,25 @@ export default function AlertsPage() {
     
     // Fetch full alert details, notifications, and audit logs
     try {
+      // For SmartLPG tenant, get alert from Firebase
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { getAlertFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const alertData = await getAlertFromFirebase(alert.id);
+        if (alertData) {
+          setSelectedAlert(alertData);
+          // SmartLPG doesn't have separate notifications/audit logs, set empty arrays
+          setNotifications([]);
+          setAuditLogs([]);
+        } else {
+          // Fallback to using the alert from list
+          setSelectedAlert(alert);
+          setNotifications([]);
+          setAuditLogs([]);
+        }
+        return;
+      }
+      
+      // For other tenants, use PostgreSQL API
       const [alertResp, notifResp, auditResp] = await Promise.all([
         api.get(`/alerts/${alert.id}`),
         api.get(`/alerts/${alert.id}/notifications`),
@@ -242,6 +266,8 @@ export default function AlertsPage() {
       setError(err.response?.data?.detail || "Failed to load alert details");
       // Fallback to using the alert from list
       setSelectedAlert(alert);
+      setNotifications([]);
+      setAuditLogs([]);
     }
   };
 
@@ -269,8 +295,40 @@ export default function AlertsPage() {
   const formatTriggerInfo = (triggerData) => {
     if (!triggerData) return null;
 
-    const payload = triggerData.payload || triggerData;
     const info = [];
+    
+    // Handle Firebase SmartLPG trigger_data structure (field, value, threshold, operator)
+    if (triggerData.field && triggerData.value !== undefined) {
+      const fieldLabels = {
+        'lpg_tank_level': 'Gas Tank Level',
+        'level': 'Level',
+        'level_cm': 'Level (cm)',
+        'temperature': 'Temperature',
+        'pressure': 'Pressure',
+        'battery': 'Battery',
+        'flow_rate': 'Flow Rate',
+        'total_consumption': 'Total Consumption',
+        'connectivity': 'Connectivity'
+      };
+      
+      const fieldLabel = fieldLabels[triggerData.field] || triggerData.field;
+      const value = typeof triggerData.value === 'number' ? triggerData.value.toFixed(1) : triggerData.value;
+      
+      info.push({ label: fieldLabel, value: `${value}${triggerData.field === 'lpg_tank_level' || triggerData.field === 'level' || triggerData.field === 'battery' ? '%' : triggerData.field === 'temperature' ? '°C' : triggerData.field === 'pressure' ? ' bar' : triggerData.field === 'level_cm' ? ' cm' : ''}` });
+      
+      if (triggerData.threshold !== undefined) {
+        const threshold = typeof triggerData.threshold === 'number' ? triggerData.threshold.toFixed(1) : triggerData.threshold;
+        info.push({ label: 'Threshold', value: `${threshold}${triggerData.field === 'lpg_tank_level' || triggerData.field === 'level' || triggerData.field === 'battery' ? '%' : triggerData.field === 'temperature' ? '°C' : triggerData.field === 'pressure' ? ' bar' : triggerData.field === 'level_cm' ? ' cm' : ''}` });
+      }
+      
+      if (triggerData.operator) {
+        info.push({ label: 'Condition', value: `${triggerData.operator} ${triggerData.threshold !== undefined ? (typeof triggerData.threshold === 'number' ? triggerData.threshold.toFixed(1) : triggerData.threshold) : ''}` });
+      }
+      
+      return info;
+    }
+
+    const payload = triggerData.payload || triggerData;
 
     // Common telemetry fields to extract
     const commonFields = {
@@ -537,7 +595,12 @@ export default function AlertsPage() {
                       </span>
                     </td>
                     <td style={{ whiteSpace: "nowrap" }}>
-                      {new Date(alert.triggered_at).toLocaleString()}
+                      {(() => {
+                        const dateStr = alert.triggered_at || alert.created_at;
+                        if (!dateStr) return "—";
+                        const date = new Date(dateStr);
+                        return isNaN(date.getTime()) ? "—" : date.toLocaleString();
+                      })()}
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "var(--space-2)" }}>

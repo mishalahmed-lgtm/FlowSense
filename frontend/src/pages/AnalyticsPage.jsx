@@ -207,12 +207,37 @@ export default function AnalyticsPage() {
     try {
       setAnalyzingPatterns(true);
       setError(null);
-      const resp = await api.post("/analytics/analyze-patterns", {
-        device_ids: finalDevicesArray.map(d => d?.device_id).filter(Boolean),
-        analysis_type: "occupancy",
-        days: 7
-      });
-      setPatternResults(resp.data);
+      
+      // For SmartLPG tenant, use Firebase functions
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { analyzePatternsFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const results = [];
+        
+        for (const device of finalDevicesArray) {
+          if (device?.device_id) {
+            const result = await analyzePatternsFromFirebase(
+              device.device_id,
+              device.name || device.device_id,
+              "occupancy",
+              null, // fieldKey - null means analyze all fields
+              7 // days
+            );
+            if (result) {
+              results.push(result);
+            }
+          }
+        }
+        
+        setPatternResults(results);
+      } else {
+        // For other tenants, use PostgreSQL API
+        const resp = await api.post("/analytics/analyze-patterns", {
+          device_ids: finalDevicesArray.map(d => d?.device_id).filter(Boolean),
+          analysis_type: "occupancy",
+          days: 7
+        });
+        setPatternResults(resp.data);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to analyze patterns");
     } finally {
@@ -229,12 +254,32 @@ export default function AnalyticsPage() {
     try {
       setAnalyzingCorrelations(true);
       setError(null);
-      const resp = await api.post("/analytics/analyze-correlations", {
-        device_ids: [correlationForm.device1, correlationForm.device2],
-        field_keys: [correlationForm.field1, correlationForm.field2],
-        days: 7
-      });
-      setCorrelationResults(resp.data);
+      
+      // For SmartLPG tenant, use Firebase functions
+      if (isSmartLPGTenant(user?.tenant_id)) {
+        const { analyzeCorrelationFromFirebase } = await import("../services/smartLPGFirebaseService.js");
+        const result = await analyzeCorrelationFromFirebase(
+          correlationForm.device1,
+          correlationForm.device2,
+          correlationForm.field1,
+          correlationForm.field2,
+          7 // days
+        );
+        
+        if (result) {
+          setCorrelationResults([result]);
+        } else {
+          setError("Insufficient data for correlation analysis. Need at least 10 aligned data points.");
+        }
+      } else {
+        // For other tenants, use PostgreSQL API
+        const resp = await api.post("/analytics/analyze-correlations", {
+          device_ids: [correlationForm.device1, correlationForm.device2],
+          field_keys: [correlationForm.field1, correlationForm.field2],
+          days: 7
+        });
+        setCorrelationResults(resp.data);
+      }
     } catch (err) {
       setError(err.response?.data?.detail || "Failed to analyze correlations");
     } finally {

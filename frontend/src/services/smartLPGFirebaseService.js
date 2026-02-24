@@ -185,6 +185,103 @@ export async function updateAlertStatusInFirebase(alertId, status) {
 }
 
 /**
+ * Update alert in Firebase (generic update function)
+ * @param {string} alertId - Alert ID
+ * @param {Object} updates - Object containing fields to update
+ */
+export async function updateAlertInFirebase(alertId, updates) {
+  try {
+    const alertRef = doc(db, "smartLPG_alerts", alertId);
+    const updateData = cleanForFirebase({
+      ...updates,
+      updated_at: Timestamp.now(),
+    });
+    await setDoc(alertRef, updateData, { merge: true });
+    console.log(`✅ Updated alert ${alertId} in Firebase:`, updates);
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error updating alert in Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get a single alert from Firebase by ID
+ * @param {string} alertId - Alert ID
+ * @returns {Promise<Object|null>} Alert data or null if not found
+ */
+export async function getAlertFromFirebase(alertId) {
+  try {
+    const alertRef = doc(db, "smartLPG_alerts", alertId);
+    const alertSnap = await getDoc(alertRef);
+    
+    if (alertSnap.exists()) {
+      const data = alertSnap.data();
+      
+      // Convert Firebase Timestamps to ISO strings
+      let created_at = null;
+      if (data.created_at) {
+        if (data.created_at.toDate) {
+          created_at = data.created_at.toDate().toISOString();
+        } else if (typeof data.created_at === 'string') {
+          created_at = data.created_at;
+        } else if (data.created_at instanceof Date) {
+          created_at = data.created_at.toISOString();
+        }
+      }
+      
+      let updated_at = null;
+      if (data.updated_at) {
+        if (data.updated_at.toDate) {
+          updated_at = data.updated_at.toDate().toISOString();
+        } else if (typeof data.updated_at === 'string') {
+          updated_at = data.updated_at;
+        } else if (data.updated_at instanceof Date) {
+          updated_at = data.updated_at.toISOString();
+        }
+      }
+      
+      let acknowledged_at = null;
+      if (data.acknowledged_at) {
+        if (data.acknowledged_at.toDate) {
+          acknowledged_at = data.acknowledged_at.toDate().toISOString();
+        } else if (typeof data.acknowledged_at === 'string') {
+          acknowledged_at = data.acknowledged_at;
+        } else if (data.acknowledged_at instanceof Date) {
+          acknowledged_at = data.acknowledged_at.toISOString();
+        }
+      }
+      
+      let resolved_at = null;
+      if (data.resolved_at) {
+        if (data.resolved_at.toDate) {
+          resolved_at = data.resolved_at.toDate().toISOString();
+        } else if (typeof data.resolved_at === 'string') {
+          resolved_at = data.resolved_at;
+        } else if (data.resolved_at instanceof Date) {
+          resolved_at = data.resolved_at.toISOString();
+        }
+      }
+      
+      return {
+        ...data,
+        id: alertSnap.id,
+        created_at: created_at,
+        updated_at: updated_at,
+        acknowledged_at: acknowledged_at,
+        resolved_at: resolved_at,
+        // Use created_at as triggered_at for SmartLPG alerts (they don't have a separate triggered_at field)
+        triggered_at: created_at || updated_at || new Date().toISOString(),
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error("❌ Error getting alert from Firebase:", error);
+    return null;
+  }
+}
+
+/**
  * Get alerts from Firebase with optional filtering
  */
 export async function getAlertsFromFirebase(tenantId = null, options = {}) {
@@ -205,11 +302,61 @@ export async function getAlertsFromFirebase(tenantId = null, options = {}) {
     let alerts = [];
     alertsSnap.forEach((doc) => {
       const data = doc.data();
+      
+      // Convert Firebase Timestamps to ISO strings
+      let created_at = null;
+      if (data.created_at) {
+        if (data.created_at.toDate) {
+          created_at = data.created_at.toDate().toISOString();
+        } else if (typeof data.created_at === 'string') {
+          created_at = data.created_at;
+        } else if (data.created_at instanceof Date) {
+          created_at = data.created_at.toISOString();
+        }
+      }
+      
+      let updated_at = null;
+      if (data.updated_at) {
+        if (data.updated_at.toDate) {
+          updated_at = data.updated_at.toDate().toISOString();
+        } else if (typeof data.updated_at === 'string') {
+          updated_at = data.updated_at;
+        } else if (data.updated_at instanceof Date) {
+          updated_at = data.updated_at.toISOString();
+        }
+      }
+      
+      let acknowledged_at = null;
+      if (data.acknowledged_at) {
+        if (data.acknowledged_at.toDate) {
+          acknowledged_at = data.acknowledged_at.toDate().toISOString();
+        } else if (typeof data.acknowledged_at === 'string') {
+          acknowledged_at = data.acknowledged_at;
+        } else if (data.acknowledged_at instanceof Date) {
+          acknowledged_at = data.acknowledged_at.toISOString();
+        }
+      }
+      
+      let resolved_at = null;
+      if (data.resolved_at) {
+        if (data.resolved_at.toDate) {
+          resolved_at = data.resolved_at.toDate().toISOString();
+        } else if (typeof data.resolved_at === 'string') {
+          resolved_at = data.resolved_at;
+        } else if (data.resolved_at instanceof Date) {
+          resolved_at = data.resolved_at.toISOString();
+        }
+      }
+      
       alerts.push({
         ...data,
         id: doc.id,
-        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
-        updated_at: data.updated_at?.toDate?.()?.toISOString() || data.updated_at,
+        created_at: created_at,
+        updated_at: updated_at,
+        acknowledged_at: acknowledged_at,
+        resolved_at: resolved_at,
+        // Use created_at as triggered_at for SmartLPG alerts (they don't have a separate triggered_at field)
+        triggered_at: created_at || updated_at || new Date().toISOString(),
       });
     });
     
@@ -344,29 +491,34 @@ export async function updateDeviceInFirebase(device) {
 export async function getAnalyticsPredictionsFromFirebase(tenantId, limit = 20) {
   try {
     const predictionsRef = collection(db, "smartLPG_analytics_predictions");
+    // Fetch all predictions ordered by predicted_at, then filter by tenant_id client-side
+    // This avoids the need for a composite index
     const q = query(
       predictionsRef,
-      where("tenant_id", "==", tenantId),
-      orderBy("predicted_at", "desc")
+      orderBy("predicted_at", "desc"),
+      firestoreLimit(1000) // Fetch enough to account for filtering
     );
     const querySnapshot = await getDocs(q);
     
     const predictions = [];
     querySnapshot.forEach((docSnap) => {
       const data = docSnap.data();
-      predictions.push({
-        id: docSnap.id,
-        device_id: data.device_id,
-        device_name: data.device_name,
-        prediction_type: data.prediction_type,
-        predicted_value: data.predicted_value,
-        confidence: data.confidence,
-        predicted_at: data.predicted_at?.toDate?.()?.toISOString() || data.predicted_at,
-        ...data
-      });
+      // Filter by tenant_id client-side
+      if (data.tenant_id === tenantId) {
+        predictions.push({
+          id: docSnap.id,
+          device_id: data.device_id,
+          device_name: data.device_name,
+          prediction_type: data.prediction_type,
+          predicted_value: data.predicted_value,
+          confidence: data.confidence,
+          predicted_at: data.predicted_at?.toDate?.()?.toISOString() || data.predicted_at,
+          ...data
+        });
+      }
     });
     
-    // Sort by predicted_at descending and limit
+    // Sort by predicted_at descending and limit (already sorted by query, but ensure it)
     predictions.sort((a, b) => {
       const dateA = new Date(a.predicted_at || 0);
       const dateB = new Date(b.predicted_at || 0);
@@ -414,27 +566,39 @@ export async function saveAnalyticsPredictionToFirebase(prediction) {
 export async function getAnalyticsModelsFromFirebase(tenantId) {
   try {
     const modelsRef = collection(db, "smartLPG_analytics_models");
+    // Fetch all models ordered by created_at, then filter by tenant_id client-side
+    // This avoids the need for a composite index
     const q = query(
       modelsRef,
-      where("tenant_id", "==", tenantId),
-      orderBy("created_at", "desc")
+      orderBy("created_at", "desc"),
+      firestoreLimit(1000) // Fetch enough to account for filtering
     );
     const querySnapshot = await getDocs(q);
     
     const models = [];
     querySnapshot.forEach((docSnap) => {
       const data = docSnap.data();
-      models.push({
-        id: docSnap.id,
-        name: data.name,
-        model_type: data.model_type,
-        algorithm: data.algorithm,
-        is_trained: data.is_trained || false,
-        training_accuracy: data.training_accuracy,
-        trained_at: data.trained_at?.toDate?.()?.toISOString() || data.trained_at,
-        created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
-        ...data
-      });
+      // Filter by tenant_id client-side
+      if (data.tenant_id === tenantId) {
+        models.push({
+          id: docSnap.id,
+          name: data.name,
+          model_type: data.model_type,
+          algorithm: data.algorithm,
+          is_trained: data.is_trained || false,
+          training_accuracy: data.training_accuracy,
+          trained_at: data.trained_at?.toDate?.()?.toISOString() || data.trained_at,
+          created_at: data.created_at?.toDate?.()?.toISOString() || data.created_at,
+          ...data
+        });
+      }
+    });
+    
+    // Sort by created_at descending (already sorted by query, but ensure it)
+    models.sort((a, b) => {
+      const dateA = new Date(a.created_at || 0);
+      const dateB = new Date(b.created_at || 0);
+      return dateB - dateA;
     });
     
     return models;
@@ -638,5 +802,276 @@ export async function saveTimeseriesToFirebase(deviceId, key, value, timestamp =
   } catch (error) {
     console.error("❌ Error saving timeseries to Firebase:", error);
     throw error;
+  }
+}
+
+/**
+ * Analyze patterns for SmartLPG devices from Firebase timeseries data
+ * @param {string} deviceId - Device ID
+ * @param {string} deviceName - Device name
+ * @param {string} analysisType - Type of analysis (occupancy, traffic, energy_consumption)
+ * @param {string|null} fieldKey - Optional field key to filter by
+ * @param {number} days - Number of days to analyze
+ * @returns {Promise<Object|null>} Pattern analysis result
+ */
+export async function analyzePatternsFromFirebase(deviceId, deviceName, analysisType = "occupancy", fieldKey = null, days = 7) {
+  try {
+    // Calculate time range
+    const now = new Date();
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    
+    // Get timeseries data for the device
+    const timeseriesRef = collection(db, "smartLPG_timeseries");
+    const fetchLimit = 10000; // Fetch enough to account for filtering
+    const q = query(
+      timeseriesRef,
+      orderBy("ts", "desc"),
+      firestoreLimit(fetchLimit)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const data = [];
+    
+    querySnapshot.forEach((docSnap) => {
+      const docData = docSnap.data();
+      // Filter by device_id, field key (if specified), and timestamp
+      if (docData.device_id === deviceId) {
+        if (!fieldKey || docData.key === fieldKey) {
+          const ts = docData.ts?.toDate ? docData.ts.toDate() : new Date(docData.ts);
+          if (ts >= startDate && ts <= now && docData.value != null) {
+            data.push({
+              timestamp: ts,
+              key: docData.key,
+              value: typeof docData.value === 'number' ? docData.value : parseFloat(docData.value) || 0
+            });
+          }
+        }
+      }
+    });
+    
+    if (data.length === 0) {
+      return null;
+    }
+    
+    // Sort by timestamp
+    data.sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Calculate hourly and daily averages
+    const hourlyData = {};
+    const dailyData = {};
+    
+    data.forEach(point => {
+      const hour = point.timestamp.getHours();
+      const dayOfWeek = point.timestamp.getDay();
+      
+      if (!hourlyData[hour]) {
+        hourlyData[hour] = { sum: 0, count: 0 };
+      }
+      hourlyData[hour].sum += point.value;
+      hourlyData[hour].count += 1;
+      
+      if (!dailyData[dayOfWeek]) {
+        dailyData[dayOfWeek] = { sum: 0, count: 0 };
+      }
+      dailyData[dayOfWeek].sum += point.value;
+      dailyData[dayOfWeek].count += 1;
+    });
+    
+    // Calculate averages
+    const hourlyAvg = {};
+    const dailyAvg = {};
+    
+    Object.keys(hourlyData).forEach(hour => {
+      hourlyAvg[parseInt(hour)] = hourlyData[hour].sum / hourlyData[hour].count;
+    });
+    
+    Object.keys(dailyData).forEach(day => {
+      dailyAvg[parseInt(day)] = dailyData[day].sum / dailyData[day].count;
+    });
+    
+    // Find peak hour and day
+    let peakHour = null;
+    let peakDay = null;
+    let maxHourlyAvg = -Infinity;
+    let maxDailyAvg = -Infinity;
+    
+    Object.keys(hourlyAvg).forEach(hour => {
+      if (hourlyAvg[parseInt(hour)] > maxHourlyAvg) {
+        maxHourlyAvg = hourlyAvg[parseInt(hour)];
+        peakHour = parseInt(hour);
+      }
+    });
+    
+    Object.keys(dailyAvg).forEach(day => {
+      if (dailyAvg[parseInt(day)] > maxDailyAvg) {
+        maxDailyAvg = dailyAvg[parseInt(day)];
+        peakDay = parseInt(day);
+      }
+    });
+    
+    // Calculate trend
+    let trend = "stable";
+    if (data.length > 1) {
+      const midPoint = Math.floor(data.length / 2);
+      const firstHalf = data.slice(0, midPoint);
+      const secondHalf = data.slice(midPoint);
+      
+      const firstHalfAvg = firstHalf.reduce((sum, p) => sum + p.value, 0) / firstHalf.length;
+      const secondHalfAvg = secondHalf.reduce((sum, p) => sum + p.value, 0) / secondHalf.length;
+      
+      if (secondHalfAvg > firstHalfAvg * 1.1) {
+        trend = "increasing";
+      } else if (secondHalfAvg < firstHalfAvg * 0.9) {
+        trend = "decreasing";
+      }
+    }
+    
+    return {
+      device_id: deviceId,
+      device_name: deviceName,
+      analysis_type: analysisType,
+      field_key: fieldKey,
+      peak_times: {
+        hour: peakHour,
+        day: peakDay
+      },
+      trends: {
+        overall: trend
+      },
+      summary: `Analyzed ${data.length} data points. ${peakHour !== null ? `Peak usage at hour ${peakHour}.` : 'No clear peak time detected.'}`,
+      insights: {
+        trend: trend,
+        peak_hour: peakHour
+      }
+    };
+  } catch (error) {
+    console.error("❌ Error analyzing patterns from Firebase:", error);
+    return null;
+  }
+}
+
+/**
+ * Analyze correlations between two devices/fields from Firebase timeseries data
+ * @param {string} device1Id - First device ID
+ * @param {string} device2Id - Second device ID
+ * @param {string} field1Key - First field key
+ * @param {string} field2Key - Second field key
+ * @param {number} days - Number of days to analyze
+ * @returns {Promise<Object|null>} Correlation result
+ */
+export async function analyzeCorrelationFromFirebase(device1Id, device2Id, field1Key, field2Key, days = 7) {
+  try {
+    // Calculate time range
+    const now = new Date();
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    
+    // Get timeseries data for both devices
+    const timeseriesRef = collection(db, "smartLPG_timeseries");
+    const fetchLimit = 10000;
+    const q = query(
+      timeseriesRef,
+      orderBy("ts", "desc"),
+      firestoreLimit(fetchLimit)
+    );
+    
+    const querySnapshot = await getDocs(q);
+    const device1Data = [];
+    const device2Data = [];
+    
+    querySnapshot.forEach((docSnap) => {
+      const docData = docSnap.data();
+      const ts = docData.ts?.toDate ? docData.ts.toDate() : new Date(docData.ts);
+      
+      if (ts >= startDate && ts <= now && docData.value != null) {
+        if (docData.device_id === device1Id && docData.key === field1Key) {
+          device1Data.push({
+            timestamp: ts,
+            value: typeof docData.value === 'number' ? docData.value : parseFloat(docData.value) || 0
+          });
+        } else if (docData.device_id === device2Id && docData.key === field2Key) {
+          device2Data.push({
+            timestamp: ts,
+            value: typeof docData.value === 'number' ? docData.value : parseFloat(docData.value) || 0
+          });
+        }
+      }
+    });
+    
+    if (device1Data.length === 0 || device2Data.length === 0) {
+      return null;
+    }
+    
+    // Align timestamps (find closest match within 5 minutes)
+    const alignedValues = [];
+    const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
+    
+    device1Data.forEach(point1 => {
+      let closest = null;
+      let minDiff = Infinity;
+      
+      device2Data.forEach(point2 => {
+        const diff = Math.abs(point2.timestamp - point1.timestamp);
+        if (diff < minDiff && diff < fiveMinutes) {
+          minDiff = diff;
+          closest = point2;
+        }
+      });
+      
+      if (closest) {
+        alignedValues.push([point1.value, closest.value]);
+      }
+    });
+    
+    if (alignedValues.length < 10) {
+      return null; // Need at least 10 aligned points
+    }
+    
+    // Calculate correlation coefficient
+    const values1 = alignedValues.map(v => v[0]);
+    const values2 = alignedValues.map(v => v[1]);
+    
+    const mean1 = values1.reduce((sum, v) => sum + v, 0) / values1.length;
+    const mean2 = values2.reduce((sum, v) => sum + v, 0) / values2.length;
+    
+    let numerator = 0;
+    let denom1 = 0;
+    let denom2 = 0;
+    
+    for (let i = 0; i < values1.length; i++) {
+      const diff1 = values1[i] - mean1;
+      const diff2 = values2[i] - mean2;
+      numerator += diff1 * diff2;
+      denom1 += diff1 * diff1;
+      denom2 += diff2 * diff2;
+    }
+    
+    const denominator = Math.sqrt(denom1 * denom2);
+    const correlation = denominator > 0 ? numerator / denominator : 0;
+    
+    // Check for NaN
+    if (correlation !== correlation) {
+      return null;
+    }
+    
+    // Determine correlation type
+    let correlationType = "none";
+    if (correlation > 0.5) {
+      correlationType = "positive";
+    } else if (correlation < -0.5) {
+      correlationType = "negative";
+    }
+    
+    return {
+      device1_id: device1Id,
+      device2_id: device2Id,
+      field1_key: field1Key,
+      field2_key: field2Key,
+      correlation_coefficient: correlation,
+      correlation_type: correlationType,
+      insights: `Correlation coefficient: ${correlation.toFixed(3)}. ${correlationType === 'positive' ? 'Strong positive correlation' : correlationType === 'negative' ? 'Strong negative correlation' : 'Weak correlation'}.`
+    };
+  } catch (error) {
+    console.error("❌ Error analyzing correlation from Firebase:", error);
+    return null;
   }
 }
