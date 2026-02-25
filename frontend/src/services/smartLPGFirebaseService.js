@@ -175,14 +175,15 @@ export async function getAlertRulesFromFirebase(tenantId = null) {
 
 /**
  * Map common field name aliases to actual field names
+ * Maps rule field names to actual timeseries field names in Firebase
  */
 function mapFieldName(fieldName) {
   const fieldMap = {
     'tmp': 'temperature',
     'temp': 'temperature',
-    'level': 'level',
-    'lpg_level': 'lpg_tank_level',
-    'gas_level': 'lpg_tank_level',
+    'lpg_tank_level': 'level', // Map lpg_tank_level to level (actual field name)
+    'lpg_level': 'level',
+    'gas_level': 'level',
     'batt': 'battery',
     'flow': 'flow_rate',
     'consumption': 'total_consumption',
@@ -296,14 +297,34 @@ export async function evaluateAlertRulesAndCreateAlerts(tenantId) {
           evaluatedCount++;
           
           // Get latest timeseries value for this field
-          const timeseries = await getTimeseriesFromFirebase(device.device_id || device.id, field, 60, 1);
+          // Try the mapped field first, then try alternative field names if no data found
+          let timeseries = await getTimeseriesFromFirebase(device.device_id || device.id, field, 60, 1);
+          let triedFields = [field];
           
+          // If no data found, try alternative field names
           if (timeseries.length === 0) {
-            console.log(`⏭️ [ALERT RULES] No timeseries data for device ${device.device_id || device.id}, field ${field}`);
-            continue; // No data for this field
+            const alternatives = [];
+            if (field === 'level') {
+              alternatives.push('lpg_tank_level', 'level_cm');
+            } else if (field === 'lpg_tank_level') {
+              alternatives.push('level', 'level_cm');
+            } else if (field === 'temperature') {
+              alternatives.push('tmp', 'temp');
+            }
+            
+            for (const altField of alternatives) {
+              triedFields.push(altField);
+              timeseries = await getTimeseriesFromFirebase(device.device_id || device.id, altField, 60, 1);
+              if (timeseries.length > 0) {
+                console.log(`📝 [ALERT RULES] Found data using alternative field "${altField}" instead of "${field}"`);
+                field = altField; // Update field for alert creation
+                break;
+              }
+            }
           }
           
           if (timeseries.length === 0) {
+            console.log(`⏭️ [ALERT RULES] No timeseries data for device ${device.device_id || device.id}, field ${field} (tried: ${triedFields.join(', ')})`);
             continue; // No data for this field
           }
           

@@ -578,9 +578,10 @@ export async function seedAlertRules() {
         name: "Gas Tank Low Alert",
         description: "Alert when LPG tank level drops below 25%",
         device_id: null, // Tenant-wide rule
+        device_type: null,
         tenant_id: TENANT_ID,
         condition: {
-          field: "lpg_tank_level",
+          field: "level",
           operator: "<",
           value: "25"
         },
@@ -600,6 +601,7 @@ export async function seedAlertRules() {
         name: "High Temperature Alert",
         description: "Alert when temperature exceeds 40°C",
         device_id: null, // Tenant-wide rule
+        device_type: null,
         tenant_id: TENANT_ID,
         condition: {
           field: "temperature",
@@ -622,6 +624,7 @@ export async function seedAlertRules() {
         name: "Temperature Alert (tmp > 89)",
         description: "Alert when temperature exceeds 89 (using tmp field)",
         device_id: null, // Tenant-wide rule
+        device_type: null,
         tenant_id: TENANT_ID,
         condition: {
           field: "tmp",
@@ -644,6 +647,7 @@ export async function seedAlertRules() {
         name: "Low Battery Alert",
         description: "Alert when device battery drops below 20%",
         device_id: null, // Tenant-wide rule
+        device_type: null,
         tenant_id: TENANT_ID,
         condition: {
           field: "battery",
@@ -666,6 +670,7 @@ export async function seedAlertRules() {
         name: "High Pressure Alert",
         description: "Alert when pressure exceeds 180 PSI",
         device_id: null, // Tenant-wide rule
+        device_type: null,
         tenant_id: TENANT_ID,
         condition: {
           field: "pressure",
@@ -684,6 +689,29 @@ export async function seedAlertRules() {
         aggregation_enabled: true,
         aggregation_window_minutes: 5,
         max_alerts_per_window: 5,
+        is_active: true,
+      },
+      {
+        name: "Low Level (level_cm)",
+        description: "Alert when level in cm drops below 50",
+        device_id: null,
+        device_type: null,
+        tenant_id: TENANT_ID,
+        condition: {
+          field: "level_cm",
+          operator: "<",
+          value: "50"
+        },
+        priority: "high",
+        title_template: "Low Level Warning",
+        message_template: "Level is {value} cm for device {device}",
+        notify_email: true,
+        notify_sms: false,
+        notify_webhook: false,
+        escalation_enabled: false,
+        aggregation_enabled: true,
+        aggregation_window_minutes: 5,
+        max_alerts_per_window: 10,
         is_active: true,
       },
     ];

@@ -70,20 +70,8 @@ export default function AlertsPage() {
       if (isSmartLPGTenant(user?.tenant_id)) {
         console.log(`🔥 [ALERTS] Loading alerts from Firebase for tenant_id = ${user?.tenant_id}`);
         
-        // First, evaluate alert rules and create alerts if needed (only on initial load, not on filter changes)
-        if (forceRefresh || alerts.length === 0) {
-          try {
-            const { evaluateAlertRulesAndCreateAlerts } = await import("../services/smartLPGFirebaseService.js");
-            console.log(`🔍 [ALERTS] Evaluating alert rules to create alerts...`);
-            const evalResult = await evaluateAlertRulesAndCreateAlerts(user?.tenant_id);
-            if (evalResult.created > 0) {
-              console.log(`✅ [ALERTS] Created ${evalResult.created} new alerts from rules`);
-            }
-          } catch (evalError) {
-            console.warn("⚠️ [ALERTS] Failed to evaluate alert rules:", evalError);
-            // Don't fail the whole load if evaluation fails
-          }
-        }
+        // Don't automatically evaluate rules - user can click button if needed
+        // This prevents unnecessary timeseries fetching from DB
         
         const { getAlertsFromFirebase } = await import("../services/smartLPGFirebaseService.js");
         const allAlerts = await getAlertsFromFirebase(user?.tenant_id, { status: filterStatus === "all" ? null : filterStatus, priority: filterPriority === "all" ? null : filterPriority });
@@ -491,11 +479,22 @@ export default function AlertsPage() {
                   setError(null);
                   setLoading(true);
                   const { evaluateAlertRulesAndCreateAlerts } = await import("../services/smartLPGFirebaseService.js");
+                  console.log("🔄 [ALERTS] Manually evaluating alert rules...");
                   const result = await evaluateAlertRulesAndCreateAlerts(user?.tenant_id);
-                  alert(`Evaluated ${result.evaluated} conditions, created ${result.created} alerts`);
+                  console.log(`✅ [ALERTS] Evaluation complete: ${result.evaluated} conditions checked, ${result.created} alerts created`);
+                  
+                  if (result.evaluated === 0) {
+                    alert(`No alert rules found. Please create rules in "Manage Alert Rules" first.`);
+                  } else if (result.created === 0) {
+                    alert(`Evaluated ${result.evaluated} conditions from rules, but no new alerts created.\n\nThis means:\n- Rules exist but conditions are not met\n- Or alerts already exist for these conditions\n\nCheck your alert rules and device data.`);
+                  } else {
+                    alert(`✅ Successfully evaluated ${result.evaluated} conditions!\n\nCreated ${result.created} new alerts from rules.`);
+                  }
+                  
                   await loadAlerts(true);
                 } catch (err) {
-                  setError(err.message || "Failed to evaluate alert rules");
+                  console.error("❌ [ALERTS] Error evaluating rules:", err);
+                  setError(err.message || "Failed to evaluate alert rules. Check console for details.");
                   setLoading(false);
                 }
               }}
