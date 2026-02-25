@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import Icon from "../Icon.jsx";
 import "./widgets.css";
 
-export default function TankWidget({ title, value, unit = "%", min = 0, max = 100 }) {
+export default function TankWidget({ title, value, unit = "%", min = 0, max = 100, decimals = 0 }) {
   const numericValue = typeof value === "number" ? value : min;
   const clamped = Math.min(max, Math.max(min, numericValue));
   const percentage = max === min ? 0 : ((clamped - min) / (max - min)) * 100;
@@ -93,7 +93,7 @@ export default function TankWidget({ title, value, unit = "%", min = 0, max = 10
               stroke="#111827"
               strokeWidth="0.5"
             >
-              {typeof value === "number" ? value.toFixed(0) : "—"}
+              {typeof value === "number" ? value.toFixed(decimals) : "—"}
             </text>
             <text
               x="60"
@@ -119,5 +119,6 @@ TankWidget.propTypes = {
   unit: PropTypes.string,
   min: PropTypes.number,
   max: PropTypes.number,
+  decimals: PropTypes.number,
 };
 

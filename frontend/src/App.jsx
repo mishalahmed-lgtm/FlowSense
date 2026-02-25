@@ -20,9 +20,11 @@ import AnalyticsPage from "./pages/AnalyticsPage.jsx";
 import EnergyManagementDashboard from "./pages/EnergyManagementDashboard.jsx";
 import EnvironmentalMonitoringDashboard from "./pages/EnvironmentalMonitoringDashboard.jsx";
 import DevicesMapPage from "./pages/DevicesMapPage.jsx";
+import DisplaySettingsPage from "./pages/DisplaySettingsPage.jsx";
 import Navbar from "./components/Navbar.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import { useAuth } from "./context/AuthContext.jsx";
+import { isSmartLPGTenant } from "./utils/tenantHelpers.js";
 
 function AppLayout({ children }) {
   const { isAuthenticated } = useAuth();
@@ -56,7 +58,7 @@ function AppLayout({ children }) {
 }
 
 function App() {
-  const { hasModule, isAdmin, isTenantAdmin, isAuthenticated } = useAuth();
+  const { hasModule, isAdmin, isTenantAdmin, isAuthenticated, user } = useAuth();
 
   // Show login page if not authenticated
   if (!isAuthenticated) {
@@ -144,6 +146,11 @@ function App() {
               <>
                 <Route path="/dashboard/environmental" element={<EnvironmentalMonitoringDashboard />} />
               </>
+            )}
+            
+            {/* Display Settings - Only for SmartLPG tenant */}
+            {isSmartLPGTenant(user?.tenant_id) && (
+              <Route path="/settings/display" element={<DisplaySettingsPage />} />
             )}
             
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

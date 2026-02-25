@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import Icon from "../Icon.jsx";
 import "./widgets.css";
 
-export default function BatteryWidget({ title, value, min = 0, max = 100 }) {
+export default function BatteryWidget({ title, value, min = 0, max = 100, decimals = 0 }) {
   const numericValue = typeof value === "number" ? value : min;
   const clamped = Math.min(max, Math.max(min, numericValue));
   const percentage = max === min ? 0 : ((clamped - min) / (max - min)) * 100;
@@ -75,7 +75,7 @@ export default function BatteryWidget({ title, value, min = 0, max = 100 }) {
           )}
         </svg>
         <div className="battery-value">
-          {typeof value === "number" ? value.toFixed(0) : "—"}
+          {typeof value === "number" ? value.toFixed(decimals) : "—"}
           <span className="battery-unit">%</span>
         </div>
       </div>
@@ -88,5 +88,6 @@ BatteryWidget.propTypes = {
   value: PropTypes.number,
   min: PropTypes.number,
   max: PropTypes.number,
+  decimals: PropTypes.number,
 };
 

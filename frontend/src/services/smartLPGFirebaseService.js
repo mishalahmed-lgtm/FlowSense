@@ -704,17 +704,25 @@ export async function saveDeviceToFirebase(device) {
     const existingData = existingSnap.exists() ? existingSnap.data() : {};
     
     // Merge new device data with existing
+    // Handle undefined values - Firebase doesn't allow undefined
     const deviceData = {
       ...existingData,
       device_id: deviceId,
-      name: device.name || existingData.name,
-      device_type: device.device_type || existingData.device_type,
+      name: device.name || existingData.name || deviceId,
+      device_type: device.device_type !== undefined ? device.device_type : (existingData.device_type !== undefined ? existingData.device_type : ""),
       protocol: device.protocol || existingData.protocol || "NB-IoT/CAT-M1",
       is_active: device.is_active !== undefined ? device.is_active : (existingData.is_active !== undefined ? existingData.is_active : true),
       tenant_id: device.tenant_id || existingData.tenant_id || 3,
       metadata: device.metadata || existingData.metadata || {},
       updated_at: Timestamp.now(),
     };
+    
+    // Remove undefined fields (Firebase doesn't allow them)
+    Object.keys(deviceData).forEach(key => {
+      if (deviceData[key] === undefined) {
+        delete deviceData[key];
+      }
+    });
     
     // Set created_at only if device is new
     if (!existingSnap.exists()) {
@@ -1418,6 +1426,51 @@ export async function analyzeCorrelationFromFirebase(device1Id, device2Id, field
     };
   } catch (error) {
     console.error("❌ Error analyzing correlation from Firebase:", error);
+    return null;
+  }
+}
+
+/**
+ * Save display settings to Firebase
+ * @param {string} tenantId - Tenant ID
+ * @param {Object} settings - Display settings object
+ */
+export async function saveDisplaySettingsToFirebase(tenantId, settings) {
+  try {
+    const settingsRef = doc(db, "smartLPG_display_settings", String(tenantId));
+    const settingsData = {
+      tenant_id: tenantId,
+      ...settings,
+      updated_at: Timestamp.now(),
+      created_at: Timestamp.now(),
+    };
+    await setDoc(settingsRef, settingsData, { merge: true });
+    console.log(`✅ Saved display settings for tenant ${tenantId} to Firebase`);
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error saving display settings to Firebase:", error);
+    throw error;
+  }
+}
+
+/**
+ * Get display settings from Firebase
+ * @param {string} tenantId - Tenant ID
+ * @returns {Promise<Object|null>} Display settings or null if not found
+ */
+export async function getDisplaySettingsFromFirebase(tenantId) {
+  try {
+    const settingsRef = doc(db, "smartLPG_display_settings", String(tenantId));
+    const settingsSnap = await getDoc(settingsRef);
+    if (settingsSnap.exists()) {
+      const data = settingsSnap.data();
+      console.log(`✅ Loaded display settings for tenant ${tenantId} from Firebase`);
+      return data;
+    }
+    console.log(`⚠️ No display settings found for tenant ${tenantId}, returning defaults`);
+    return null;
+  } catch (error) {
+    console.error("❌ Error getting display settings from Firebase:", error);
     return null;
   }
 }

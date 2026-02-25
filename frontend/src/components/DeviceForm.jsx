@@ -9,6 +9,12 @@ const baseMetadata = {
   },
   mqtt_settings: {},
   tcp_settings: {},
+  nbiot_settings: {},
+  lorawan_settings: {},
+  dali_settings: {},
+  modbus_settings: {},
+  coap_settings: {},
+  websocket_settings: {},
   extras: {},
 };
 
@@ -29,37 +35,38 @@ export default function DeviceForm({
     setFormState(buildInitialState(initialDevice, userTenantId));
   }, [initialDevice, userTenantId]);
 
-  // Get unique protocols (only the ones user wants)
-  const allowedProtocols = ['MQTT', 'HTTP', 'TCP', 'LoRaWAN', 'DALI', 'Modbus_TCP'];
+  // Get unique protocols from all device types (show all available protocols)
   const protocolDisplayMap = {
     'Modbus_TCP': 'Modbus'
   };
   
+  // Get all unique protocols from device types
   const uniqueProtocols = [...new Set(deviceTypes
-    .filter(dt => allowedProtocols.includes(dt.protocol))
+    .filter(dt => dt.protocol) // Only include device types with a protocol
     .map(dt => dt.protocol)
   )].sort();
 
   // Map protocol to device type ID (prefer generic device types like "MQTT", "HTTP", "TCP" over specific ones)
   const protocolToDeviceTypeId = {};
-  const genericDeviceTypeNames = ['MQTT', 'HTTP', 'TCP', 'LoRaWAN', 'DALI', 'Modbus_TCP'];
+  const genericDeviceTypeNames = ['MQTT', 'HTTP', 'TCP', 'LoRaWAN', 'DALI', 'Modbus_TCP', 'NB-IoT', 'NB-IoT/CAT-M1'];
   
-  // First pass: find generic device types
+  // First pass: find generic device types (prefer exact name matches)
   deviceTypes.forEach(dt => {
-    if (allowedProtocols.includes(dt.protocol) && genericDeviceTypeNames.includes(dt.name)) {
+    if (dt.protocol && genericDeviceTypeNames.includes(dt.name)) {
       protocolToDeviceTypeId[dt.protocol] = dt.id;
     }
   });
   
   // Second pass: fill in any missing protocols with first available device type
   deviceTypes.forEach(dt => {
-    if (allowedProtocols.includes(dt.protocol) && !protocolToDeviceTypeId[dt.protocol]) {
+    if (dt.protocol && !protocolToDeviceTypeId[dt.protocol]) {
       protocolToDeviceTypeId[dt.protocol] = dt.id;
     }
   });
 
   const currentDeviceType = deviceTypes.find((dt) => dt.id === Number(formState.device_type_id));
-  const currentProtocol = currentDeviceType?.protocol;
+  // Use protocol from formState if set, otherwise fall back to device type's protocol
+  const currentProtocol = formState.protocol || currentDeviceType?.protocol;
 
   const handleChange = (field, value) => {
     if (field === 'protocol') {

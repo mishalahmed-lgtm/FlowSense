@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import Icon from "../Icon.jsx";
 import "./widgets.css";
 
-export default function GaugeWidget({ title, value, unit, min = 0, max = 100 }) {
+export default function GaugeWidget({ title, value, unit, min = 0, max = 100, decimals = 1 }) {
   const numericValue = typeof value === "number" ? value : min;
   const clamped = Math.min(max, Math.max(min, numericValue));
   const percentage = max === min ? 0 : ((clamped - min) / (max - min)) * 100;
@@ -50,7 +50,7 @@ export default function GaugeWidget({ title, value, unit, min = 0, max = 100 }) 
           />
           {/* Center text */}
           <text x="100" y="85" textAnchor="middle" className="gauge-value">
-            {typeof value === "number" ? value.toFixed(1) : "—"}
+            {typeof value === "number" ? value.toFixed(decimals) : "—"}
           </text>
           <text x="100" y="105" textAnchor="middle" className="gauge-unit">
             {unit || ""}
@@ -71,5 +71,6 @@ GaugeWidget.propTypes = {
   unit: PropTypes.string,
   min: PropTypes.number,
   max: PropTypes.number,
+  decimals: PropTypes.number,
 };
 

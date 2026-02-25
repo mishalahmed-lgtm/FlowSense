@@ -2,11 +2,11 @@ import PropTypes from "prop-types";
 import Icon from "../Icon.jsx";
 import "./widgets.css";
 
-export default function NumberWidget({ title, value, unit }) {
+export default function NumberWidget({ title, value, unit, decimals = 1 }) {
   const displayValue =
     value !== null && value !== undefined
       ? typeof value === "number"
-        ? value.toFixed(1)
+        ? value.toFixed(decimals)
         : String(value)
       : "—";
 
@@ -39,5 +39,6 @@ NumberWidget.propTypes = {
   title: PropTypes.string.isRequired,
   value: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
   unit: PropTypes.string,
+  decimals: PropTypes.number,
 };
 

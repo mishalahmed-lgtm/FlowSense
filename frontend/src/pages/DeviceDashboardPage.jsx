@@ -6,7 +6,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
 import { fetchSmartLPGDataForDashboard } from "../services/smartLPGDataMapper.js";
 import { fetchFirebaseDataForDashboard } from "../services/firebaseDataMapper.js";
-import { getTimeseriesFromFirebase } from "../services/smartLPGFirebaseService.js";
+import { getTimeseriesFromFirebase, getDisplaySettingsFromFirebase } from "../services/smartLPGFirebaseService.js";
 import GaugeWidget from "../components/widgets/GaugeWidget.jsx";
 import NumberWidget from "../components/widgets/NumberWidget.jsx";
 import LineChartWidget from "../components/widgets/LineChartWidget.jsx";
@@ -227,6 +227,7 @@ export default function DeviceDashboardPage() {
   });
   const [availableKeys, setAvailableKeys] = useState([]);
   const [discoveredFields, setDiscoveredFields] = useState([]);
+  const [displaySettings, setDisplaySettings] = useState(null);
 
   // Load device and dashboard config
   useEffect(() => {
@@ -249,6 +250,21 @@ export default function DeviceDashboardPage() {
         if (isFirebaseTenant) {
           const isSmartLPG = isSmartLPGTenant(user?.tenant_id);
           console.log(`🔥 Loading device data from Firebase for tenant_id = ${user?.tenant_id}...`);
+          
+          // Load display settings for SmartLPG tenant
+          let loadedDisplaySettings = null;
+          if (isSmartLPG) {
+            try {
+              loadedDisplaySettings = await getDisplaySettingsFromFirebase(user.tenant_id);
+              setDisplaySettings(loadedDisplaySettings);
+              console.log("✅ Loaded display settings:", loadedDisplaySettings);
+              console.log("✅ Display settings loaded:", loadedDisplaySettings);
+            } catch (err) {
+              console.warn("⚠️ Failed to load display settings:", err);
+              console.warn("⚠️ Error details:", err.message);
+            }
+          }
+          
           const fetchFunction = isSmartLPG ? fetchSmartLPGDataForDashboard : fetchFirebaseDataForDashboard;
           const firebaseData = await fetchFunction();
           
@@ -290,48 +306,77 @@ export default function DeviceDashboardPage() {
               console.log("📊 Filtered fields count:", fields.length);
               
               // Convert to field objects format expected by widget library
-              const fieldObjects = fields.map(key => {
-                const value = telemetryFromFirebase[key];
-                const isNumber = typeof value === 'number';
-                const keyLower = key.toLowerCase();
-                
-                // Determine unit based on field name
-                let unit = '';
-                if (keyLower.includes('level_percent') || keyLower.includes('percent')) {
-                  unit = '%';
-                } else if (keyLower.includes('level_cm') || keyLower.includes('cm')) {
-                  unit = 'cm';
-                } else if (keyLower.includes('temp') || keyLower.includes('temperature')) {
-                  unit = '°C';
-                } else if (keyLower.includes('battery_volt') || keyLower.includes('voltage')) {
-                  unit = 'V';
-                } else if (keyLower.includes('battery') && !keyLower.includes('volt')) {
-                  unit = '%';
-                } else if (keyLower.includes('signal_rssi') || keyLower.includes('rssi')) {
-                  unit = 'dBm';
-                } else if (keyLower.includes('humidity')) {
-                  unit = '%';
-                } else if (keyLower.includes('pm') || keyLower.includes('co2') || keyLower.includes('aqi')) {
-                  unit = 'ppm';
-                }
-                
-                // Create display name
-                const displayName = key
-                  .replace(/_/g, ' ')
-                  .replace(/\b\w/g, l => l.toUpperCase())
-                  .replace(/Cm/g, 'CM')
-                  .replace(/Pm/g, 'PM');
-                
-                return {
-                  key: key,
-                  display_name: displayName,
-                  field_type: isNumber ? 'number' : 'string',
-                  type: isNumber ? 'number' : 'string', // Keep both for compatibility
-                  unit: unit,
-                  min_value: isNumber ? (value * 0.5) : null, // Estimate min
-                  max_value: isNumber ? (value * 1.5) : null, // Estimate max
-                };
-              });
+              const fieldObjects = fields
+                .filter(key => {
+                  // Filter out invisible fields based on display settings (check device-type-specific first, then global)
+                  if (isSmartLPG && loadedDisplaySettings) {
+                    const deviceType = found.device_type || found.deviceType;
+                    let fieldSetting = null;
+                    if (deviceType && loadedDisplaySettings.deviceTypeSettings?.[deviceType]?.fieldSettings?.[key]) {
+                      fieldSetting = loadedDisplaySettings.deviceTypeSettings[deviceType].fieldSettings[key];
+                    } else if (loadedDisplaySettings.fieldSettings?.[key]) {
+                      fieldSetting = loadedDisplaySettings.fieldSettings[key];
+                    }
+                    if (fieldSetting) {
+                      return fieldSetting.visible !== false;
+                    }
+                  }
+                  return true;
+                })
+                .map(key => {
+                  const value = telemetryFromFirebase[key];
+                  const isNumber = typeof value === 'number';
+                  const keyLower = key.toLowerCase();
+                  
+                  // Get display settings for this field (check device-type-specific first, then global)
+                  let fieldSetting = null;
+                  if (isSmartLPG && loadedDisplaySettings) {
+                    const deviceType = found.device_type || found.deviceType;
+                    if (deviceType && loadedDisplaySettings.deviceTypeSettings?.[deviceType]?.fieldSettings?.[key]) {
+                      fieldSetting = loadedDisplaySettings.deviceTypeSettings[deviceType].fieldSettings[key];
+                    } else if (loadedDisplaySettings.fieldSettings?.[key]) {
+                      fieldSetting = loadedDisplaySettings.fieldSettings[key];
+                    }
+                  }
+                  
+                  // Determine unit based on field name
+                  let unit = '';
+                  if (keyLower.includes('level_percent') || keyLower.includes('percent')) {
+                    unit = '%';
+                  } else if (keyLower.includes('level_cm') || keyLower.includes('cm')) {
+                    unit = 'cm';
+                  } else if (keyLower.includes('temp') || keyLower.includes('temperature')) {
+                    unit = '°C';
+                  } else if (keyLower.includes('battery_volt') || keyLower.includes('voltage')) {
+                    unit = 'V';
+                  } else if (keyLower.includes('battery') && !keyLower.includes('volt')) {
+                    unit = '%';
+                  } else if (keyLower.includes('signal_rssi') || keyLower.includes('rssi')) {
+                    unit = 'dBm';
+                  } else if (keyLower.includes('humidity')) {
+                    unit = '%';
+                  } else if (keyLower.includes('pm') || keyLower.includes('co2') || keyLower.includes('aqi')) {
+                    unit = 'ppm';
+                  }
+                  
+                  // Use display name from settings, or create default
+                  const displayName = fieldSetting?.displayName || key
+                    .replace(/_/g, ' ')
+                    .replace(/\b\w/g, l => l.toUpperCase())
+                    .replace(/Cm/g, 'CM')
+                    .replace(/Pm/g, 'PM');
+                  
+                  return {
+                    key: key,
+                    display_name: displayName,
+                    field_type: isNumber ? 'number' : 'string',
+                    type: isNumber ? 'number' : 'string', // Keep both for compatibility
+                    unit: unit,
+                    min_value: isNumber ? (value * 0.5) : null, // Estimate min
+                    max_value: isNumber ? (value * 1.5) : null, // Estimate max
+                    decimals: fieldSetting?.decimals ?? (isSmartLPG ? (loadedDisplaySettings?.defaultDecimals ?? 2) : 2),
+                  };
+                });
               
               setDiscoveredFields(fieldObjects);
               console.log("📊 Discovered fields from Firebase:", fieldObjects);
@@ -1007,6 +1052,7 @@ export default function DeviceDashboardPage() {
         min,
         max,
         icon,
+        decimals: field.decimals ?? 2, // Use decimals from display settings
         isDynamic: true,
       });
 
@@ -1062,6 +1108,24 @@ export default function DeviceDashboardPage() {
       }
     }
     
+    // Get decimals from widget config, or from display settings if not set
+    let widgetDecimals = widget.decimals;
+    if (widgetDecimals === undefined && isSmartLPGTenant(user?.tenant_id) && displaySettings) {
+      const deviceType = device?.device_type || device?.deviceType;
+      let fieldSetting = null;
+      if (deviceType && displaySettings.deviceTypeSettings?.[deviceType]?.fieldSettings?.[widget.field]) {
+        fieldSetting = displaySettings.deviceTypeSettings[deviceType].fieldSettings[widget.field];
+        console.log(`📊 [Display Settings] Using device-type-specific setting for ${widget.field} (${deviceType}):`, fieldSetting);
+      } else if (displaySettings.fieldSettings?.[widget.field]) {
+        fieldSetting = displaySettings.fieldSettings[widget.field];
+        console.log(`📊 [Display Settings] Using global setting for ${widget.field}:`, fieldSetting);
+      }
+      widgetDecimals = fieldSetting?.decimals ?? displaySettings.defaultDecimals ?? 2;
+      console.log(`📊 [Display Settings] Final decimals for ${widget.field}: ${widgetDecimals} (from ${fieldSetting ? 'field setting' : 'default'})`);
+    } else if (widgetDecimals !== undefined) {
+      console.log(`📊 [Display Settings] Using widget.decimals for ${widget.field}: ${widgetDecimals}`);
+    }
+    
     const history = historyData[widget.field];
 
     switch (widget.type) {
@@ -1073,10 +1137,11 @@ export default function DeviceDashboardPage() {
             unit={widget.unit}
             min={widget.min}
             max={widget.max}
+            decimals={widgetDecimals}
           />
         );
       case "number":
-        return <NumberWidget title={widget.title} value={value} unit={widget.unit} />;
+        return <NumberWidget title={widget.title} value={value} unit={widget.unit} decimals={widgetDecimals} />;
       case "thermometer":
         return (
           <ThermometerWidget
@@ -1085,6 +1150,7 @@ export default function DeviceDashboardPage() {
             unit={widget.unit}
             min={widget.min}
             max={widget.max}
+            decimals={widgetDecimals}
           />
         );
       case "tank":
@@ -1095,6 +1161,7 @@ export default function DeviceDashboardPage() {
             unit={widget.unit}
             min={widget.min}
             max={widget.max}
+            decimals={widgetDecimals}
           />
         );
       case "battery":
@@ -1104,6 +1171,7 @@ export default function DeviceDashboardPage() {
             value={value}
             min={widget.min}
             max={widget.max}
+            decimals={widgetDecimals}
           />
         );
       case "chart":
@@ -1345,9 +1413,24 @@ export default function DeviceDashboardPage() {
                               </td>
                               <td style={{ fontWeight: reading.is_anomaly ? "var(--font-weight-semibold)" : "var(--font-weight-normal)", fontFamily: "var(--font-family-mono)" }}>
                                 {reading.value !== null && reading.value !== undefined
-                                  ? typeof reading.value === "number"
-                                    ? reading.value.toFixed(2)
-                                    : String(reading.value)
+                                  ? (() => {
+                                      if (typeof reading.value === "number") {
+                                        // Get decimal places from display settings (check device-type-specific first, then global)
+                                        let decimals = 2;
+                                        if (isSmartLPGTenant(user?.tenant_id) && displaySettings) {
+                                          const deviceType = device?.device_type || device?.deviceType;
+                                          let fieldSetting = null;
+                                          if (deviceType && displaySettings.deviceTypeSettings?.[deviceType]?.fieldSettings?.[reading.key]) {
+                                            fieldSetting = displaySettings.deviceTypeSettings[deviceType].fieldSettings[reading.key];
+                                          } else if (displaySettings.fieldSettings?.[reading.key]) {
+                                            fieldSetting = displaySettings.fieldSettings[reading.key];
+                                          }
+                                          decimals = fieldSetting?.decimals ?? displaySettings.defaultDecimals ?? 2;
+                                        }
+                                        return reading.value.toFixed(decimals);
+                                      }
+                                      return String(reading.value);
+                                    })()
                                   : "—"}
                               </td>
                               <td>

@@ -94,8 +94,8 @@ export default function AlertRulesPage() {
           console.log(`✅ Loaded ${mappedDevices.length} devices from Firebase for Alert Rules`);
         }
       } else {
-        const response = await api.get("/admin/devices");
-        setDevices(response.data);
+      const response = await api.get("/admin/devices");
+      setDevices(response.data);
       }
     } catch (err) {
       console.error("Failed to load devices:", err);
@@ -210,7 +210,7 @@ export default function AlertRulesPage() {
           value: formState.condition.value,
         },
       };
-      
+
       // Set device_id and device_type based on scope
       if (formState.scope === "tenant_wide") {
         payload.device_id = null;
@@ -508,19 +508,19 @@ export default function AlertRulesPage() {
             {formState.scope === "device_type" && (
               <div className="form-group" style={{ marginTop: "var(--space-4)" }}>
                 <label className="form-label">Device Type</label>
-                <select
-                  className="form-select"
+            <select
+              className="form-select"
                   value={formState.device_type || ""}
                   onChange={(e) => setFormState({ ...formState, device_type: e.target.value || null })}
                   required
-                >
+            >
                   <option value="">Select device type...</option>
                   {deviceTypes.map((type) => (
                     <option key={type} value={type}>
                       {type}
-                    </option>
-                  ))}
-                </select>
+                </option>
+              ))}
+            </select>
               </div>
             )}
             

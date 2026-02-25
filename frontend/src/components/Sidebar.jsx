@@ -1,5 +1,6 @@
 import { Link, NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { isSmartLPGTenant } from "../utils/tenantHelpers.js";
 import Icon from "./Icon.jsx";
 
 export default function Sidebar() {
@@ -167,6 +168,17 @@ export default function Sidebar() {
                 <span>{item.label}</span>
               </NavLink>
             ))}
+            {isSmartLPGTenant(user?.tenant_id) && (
+              <NavLink 
+                to="/settings/display" 
+                className="sidebar__link"
+              >
+                <span className="sidebar__link-icon">
+                  <Icon name="settings" size={18} />
+                </span>
+                <span>Display Settings</span>
+              </NavLink>
+            )}
           </nav>
         </div>
       )}

@@ -6,6 +6,7 @@ import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import DeviceForm from "../components/DeviceForm.jsx";
+import ProtocolFields from "../components/ProtocolFields.jsx";
 import Modal from "../components/Modal.jsx";
 import { saveToCache, loadFromCache, getCacheKey } from "../utils/pageCache.js";
 import { isSmartLPGTenant, isFirebaseTenant } from "../utils/tenantHelpers.js";
@@ -79,6 +80,31 @@ export default function DevicesPage() {
   const [totalPages, setTotalPages] = useState(initialCache.totalPages);
   const [totalActiveCount, setTotalActiveCount] = useState(initialCache.totalActiveCount);
   const [totalInactiveCount, setTotalInactiveCount] = useState(initialCache.totalInactiveCount);
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState("");
+  const [bulkImportDeviceType, setBulkImportDeviceType] = useState("");
+  const [bulkImportPrefix, setBulkImportPrefix] = useState("");
+  const [bulkImportSuffix, setBulkImportSuffix] = useState("");
+  const [bulkImporting, setBulkImporting] = useState(false);
+  const [bulkImportMode, setBulkImportMode] = useState("csv"); // "csv" or "text"
+  const [csvFile, setCsvFile] = useState(null);
+  const [csvData, setCsvData] = useState([]);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [columnMapping, setColumnMapping] = useState({});
+  const [showCsvPreview, setShowCsvPreview] = useState(false);
+  const [bulkImportProtocol, setBulkImportProtocol] = useState("");
+  const [bulkImportMetadata, setBulkImportMetadata] = useState({
+    http_settings: { payload_mode: "default", payload_template: "", rate_limit: 120 },
+    mqtt_settings: {},
+    tcp_settings: {},
+    nbiot_settings: {},
+    lorawan_settings: {},
+    dali_settings: {},
+    modbus_settings: {},
+    coap_settings: {},
+    websocket_settings: {},
+    access_token: "",
+  });
 
   const loadDevices = async (pageNum = currentPage, forceRefresh = false) => {
     try {
@@ -401,12 +427,31 @@ export default function DevicesPage() {
 
   const loadReferenceData = async () => {
     try {
-      // For SmartLPG tenant, use default device types (don't query DB)
+      // For SmartLPG tenant, try to load from API first (which returns all protocols)
+      // Fallback to defaults if API fails
       if (isSmartLPGTenant(user?.tenant_id)) {
+        try {
+          const typesResponse = await api.get("/admin/device-types");
+          if (typesResponse.data && typesResponse.data.length > 0) {
+            setDeviceTypes(typesResponse.data);
+            console.log(`✅ Loaded ${typesResponse.data.length} device types from API for SmartLPG tenant`);
+            return;
+          }
+        } catch (apiErr) {
+          console.warn("API call failed, using default device types:", apiErr);
+        }
+        // Fallback to comprehensive defaults
         const defaultDeviceTypes = [
-          { id: 1, name: "HTTP", protocol: "HTTP", description: "HTTP device" },
-          { id: 2, name: "MQTT", protocol: "MQTT", description: "MQTT device" },
-          { id: 3, name: "NB-IoT", protocol: "NB-IoT", description: "NB-IoT device" },
+          { id: 1, name: "HTTP", protocol: "HTTP", description: "Generic HTTP device" },
+          { id: 2, name: "MQTT", protocol: "MQTT", description: "Generic MQTT device" },
+          { id: 3, name: "TCP", protocol: "TCP", description: "Generic TCP device" },
+          { id: 4, name: "TCP_HEX", protocol: "TCP_HEX", description: "TCP device with hexadecimal payload" },
+          { id: 5, name: "NB-IoT", protocol: "NB-IoT", description: "NB-IoT/CAT-M1 device" },
+          { id: 6, name: "LoRaWAN", protocol: "LoRaWAN", description: "LoRaWAN device" },
+          { id: 7, name: "DALI", protocol: "DALI", description: "DALI device" },
+          { id: 8, name: "Modbus_TCP", protocol: "Modbus_TCP", description: "Modbus TCP device" },
+          { id: 9, name: "CoAP", protocol: "CoAP", description: "CoAP device" },
+          { id: 10, name: "WebSocket", protocol: "WebSocket", description: "WebSocket device" },
         ];
         setDeviceTypes(defaultDeviceTypes);
         console.log("Using default device types for SmartLPG tenant");
@@ -419,9 +464,16 @@ export default function DevicesPage() {
       // If DB is unavailable, use default device types for SmartLPG tenant
       if (isSmartLPGTenant(user?.tenant_id)) {
         const defaultDeviceTypes = [
-          { id: 1, name: "HTTP", protocol: "HTTP", description: "HTTP device" },
-          { id: 2, name: "MQTT", protocol: "MQTT", description: "MQTT device" },
-          { id: 3, name: "NB-IoT", protocol: "NB-IoT", description: "NB-IoT device" },
+          { id: 1, name: "HTTP", protocol: "HTTP", description: "Generic HTTP device" },
+          { id: 2, name: "MQTT", protocol: "MQTT", description: "Generic MQTT device" },
+          { id: 3, name: "TCP", protocol: "TCP", description: "Generic TCP device" },
+          { id: 4, name: "TCP_HEX", protocol: "TCP_HEX", description: "TCP device with hexadecimal payload" },
+          { id: 5, name: "NB-IoT", protocol: "NB-IoT", description: "NB-IoT/CAT-M1 device" },
+          { id: 6, name: "LoRaWAN", protocol: "LoRaWAN", description: "LoRaWAN device" },
+          { id: 7, name: "DALI", protocol: "DALI", description: "DALI device" },
+          { id: 8, name: "Modbus_TCP", protocol: "Modbus_TCP", description: "Modbus TCP device" },
+          { id: 9, name: "CoAP", protocol: "CoAP", description: "CoAP device" },
+          { id: 10, name: "WebSocket", protocol: "WebSocket", description: "WebSocket device" },
         ];
         setDeviceTypes(defaultDeviceTypes);
         console.log("DB unavailable, using default device types for SmartLPG tenant");
@@ -552,6 +604,243 @@ export default function DevicesPage() {
     }
   };
 
+  const handleCsvFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv')) {
+      setError("Please upload a CSV file");
+      return;
+    }
+
+    setCsvFile(file);
+    const reader = new FileReader();
+    
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const lines = text.split('\n').filter(line => line.trim());
+      
+      if (lines.length === 0) {
+        setError("CSV file is empty");
+        return;
+      }
+
+      // Parse CSV (handle quoted values and commas)
+      const parseCsvLine = (line) => {
+        const result = [];
+        let current = '';
+        let inQuotes = false;
+        
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim());
+        return result;
+      };
+
+      const headers = parseCsvLine(lines[0]).map(h => h.replace(/^"|"$/g, ''));
+      setCsvHeaders(headers);
+
+      const data = [];
+      for (let i = 1; i < lines.length; i++) {
+        const values = parseCsvLine(lines[i]);
+        const row = {};
+        headers.forEach((header, index) => {
+          row[header] = values[index]?.replace(/^"|"$/g, '') || '';
+        });
+        if (Object.values(row).some(v => v.trim())) {
+          data.push(row);
+        }
+      }
+
+      setCsvData(data);
+      
+      // Auto-map common column names
+      const autoMapping = {};
+      headers.forEach(header => {
+        const headerLower = header.toLowerCase().trim();
+        if (headerLower.includes('device_id') || headerLower.includes('device id') || headerLower === 'id') {
+          autoMapping['device_id'] = header;
+        } else if (headerLower.includes('name') && !headerLower.includes('device')) {
+          autoMapping['name'] = header;
+        } else if (headerLower.includes('device_type') || headerLower.includes('device type') || headerLower.includes('type')) {
+          autoMapping['device_type'] = header;
+        } else if (headerLower.includes('protocol')) {
+          autoMapping['protocol'] = header;
+        } else if (headerLower.includes('access_token') || headerLower.includes('token')) {
+          autoMapping['access_token'] = header;
+        } else if (headerLower.includes('active') || headerLower.includes('is_active')) {
+          autoMapping['is_active'] = header;
+        }
+      });
+      setColumnMapping(autoMapping);
+      setShowCsvPreview(true);
+      setError(null);
+    };
+
+    reader.readAsText(file);
+  };
+
+  const handleBulkImport = async () => {
+    if (!isSmartLPGTenant(user?.tenant_id)) {
+      setError("Bulk import is only available for SmartLPG tenant");
+      return;
+    }
+
+    setBulkImporting(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const { saveDeviceToFirebase } = await import("../services/smartLPGFirebaseService.js");
+      
+      let devicesToImport = [];
+
+      if (bulkImportMode === "csv") {
+        // Import from CSV
+        if (csvData.length === 0) {
+          setError("No data to import. Please upload a CSV file.");
+          setBulkImporting(false);
+          return;
+        }
+
+        if (!columnMapping['device_id']) {
+          setError("Please map the 'device_id' column");
+          setBulkImporting(false);
+          return;
+        }
+
+        devicesToImport = csvData.map((row, index) => {
+          const deviceId = row[columnMapping['device_id']]?.trim();
+          if (!deviceId) {
+            throw new Error(`Row ${index + 2}: device_id is required`);
+          }
+
+          const protocol = row[columnMapping['protocol']]?.trim() || bulkImportProtocol || "NB-IoT";
+          
+          const device = {
+            device_id: deviceId,
+            name: row[columnMapping['name']]?.trim() || deviceId,
+            device_type: row[columnMapping['device_type']]?.trim() || bulkImportDeviceType || "", // From CSV, dropdown, or empty
+            protocol: protocol,
+            tenant_id: user.tenant_id,
+            is_active: row[columnMapping['is_active']]?.trim().toLowerCase() === 'true' || 
+                      row[columnMapping['is_active']]?.trim() === '1' || 
+                      row[columnMapping['is_active']]?.trim() === '' ||
+                      true, // Default to true
+            metadata: {
+              ...bulkImportMetadata,
+              access_token: row[columnMapping['access_token']]?.trim() || bulkImportMetadata.access_token || "",
+            },
+          };
+
+          return device;
+        });
+      } else {
+        // Import from text (legacy mode)
+        if (!bulkImportText.trim()) {
+          setError("Please enter device IDs");
+          setBulkImporting(false);
+          return;
+        }
+
+        // Device type is optional - can be empty
+
+        const lines = bulkImportText.split(/\n|,/).map(line => line.trim()).filter(line => line);
+        const deviceIds = lines.map(line => {
+          let id = line;
+          if (bulkImportPrefix && id.startsWith(bulkImportPrefix)) {
+            id = id.substring(bulkImportPrefix.length);
+          }
+          if (bulkImportSuffix && id.endsWith(bulkImportSuffix)) {
+            id = id.substring(0, id.length - bulkImportSuffix.length);
+          }
+          return id.trim();
+        }).filter(id => id);
+
+        if (deviceIds.length === 0) {
+          setError("No valid device IDs found");
+          setBulkImporting(false);
+          return;
+        }
+
+        devicesToImport = deviceIds.map(deviceId => ({
+          device_id: deviceId,
+          name: deviceId,
+          device_type: bulkImportDeviceType || "",
+          protocol: bulkImportProtocol || "NB-IoT",
+          tenant_id: user.tenant_id,
+          is_active: true,
+          metadata: {
+            ...bulkImportMetadata,
+            access_token: bulkImportMetadata.access_token || "",
+          },
+        }));
+      }
+
+      // Create devices
+      let successCount = 0;
+      let errorCount = 0;
+      const errors = [];
+
+      for (const device of devicesToImport) {
+        try {
+          if (!device.device_id) {
+            throw new Error("device_id is required");
+          }
+          await saveDeviceToFirebase(device);
+          successCount++;
+        } catch (err) {
+          errorCount++;
+          errors.push(`${device.device_id || 'Unknown'}: ${err.message || "Failed to create"}`);
+        }
+      }
+
+      // Clear cache and refresh
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('devices_cache_')) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      if (errorCount === 0) {
+        setSuccessMessage(`Successfully imported ${successCount} device(s)`);
+        // Reset form
+        setBulkImportText("");
+        setBulkImportDeviceType("");
+        setBulkImportPrefix("");
+        setBulkImportSuffix("");
+        setCsvFile(null);
+        setCsvData([]);
+        setCsvHeaders([]);
+        setColumnMapping({});
+        setShowCsvPreview(false);
+        setTimeout(() => {
+          setShowBulkImportModal(false);
+          loadDevices(currentPage, true);
+        }, 1500);
+      } else {
+        setError(`Imported ${successCount} device(s), ${errorCount} failed. ${errors.slice(0, 3).join("; ")}${errors.length > 3 ? "..." : ""}`);
+        setTimeout(() => {
+          setShowBulkImportModal(false);
+          loadDevices(currentPage, true);
+        }, 3000);
+      }
+    } catch (err) {
+      setError(err.message || "Failed to import devices");
+    } finally {
+      setBulkImporting(false);
+    }
+  };
+
   const handleDeleteDevice = async (deviceId) => {
     if (!window.confirm("Delete this device? This cannot be undone.")) return;
     try {
@@ -658,6 +947,12 @@ export default function DevicesPage() {
           }} title="Refresh">
             <Icon name="refresh" size={18} />
           </button>
+          {isSmartLPGTenant(user?.tenant_id) && (
+            <button className="btn btn--secondary" onClick={() => setShowBulkImportModal(true)}>
+              <Icon name="upload" size={18} />
+              <span>Bulk Import Devices</span>
+            </button>
+          )}
           <button className="btn btn--primary" onClick={() => openModal()}>
             <Icon name="plus" size={18} />
             <span>Add Device</span>
@@ -1012,6 +1307,414 @@ export default function DevicesPage() {
             onSubmit={selectedDevice ? handleUpdateDevice : handleCreateDevice}
             onCancel={closeModal}
           />
+        </Modal>
+      )}
+
+      {/* Bulk Import Modal */}
+      {showBulkImportModal && (
+        <Modal
+          title="Bulk Import Devices"
+          onClose={() => {
+            setShowBulkImportModal(false);
+            setBulkImportText("");
+            setBulkImportDeviceType("");
+            setBulkImportPrefix("");
+            setBulkImportSuffix("");
+            setBulkImportProtocol("");
+            setBulkImportMetadata({
+              http_settings: { payload_mode: "default", payload_template: "", rate_limit: 120 },
+              mqtt_settings: {},
+              tcp_settings: {},
+              nbiot_settings: {},
+              lorawan_settings: {},
+              dali_settings: {},
+              modbus_settings: {},
+              coap_settings: {},
+              websocket_settings: {},
+              access_token: "",
+            });
+            setCsvFile(null);
+            setCsvData([]);
+            setCsvHeaders([]);
+            setColumnMapping({});
+            setShowCsvPreview(false);
+            setBulkImportMode("csv");
+            setError(null);
+            setSuccessMessage(null);
+          }}
+        >
+          <div style={{ padding: "var(--space-4)", maxHeight: "80vh", overflowY: "auto" }}>
+            {error && (
+              <div className="alert alert--error" style={{ marginBottom: "var(--space-4)" }}>
+                {error}
+              </div>
+            )}
+            {successMessage && (
+              <div className="alert alert--success" style={{ marginBottom: "var(--space-4)" }}>
+                {successMessage}
+              </div>
+            )}
+
+            {/* Import Mode Selection */}
+            <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+              <label className="form-label">Import Method</label>
+              <div style={{ display: "flex", gap: "var(--space-3)" }}>
+                <label className="radio">
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="csv"
+                    checked={bulkImportMode === "csv"}
+                    onChange={(e) => {
+                      setBulkImportMode(e.target.value);
+                      setShowCsvPreview(false);
+                      setCsvData([]);
+                    }}
+                  />
+                  <span>CSV Upload</span>
+                </label>
+                <label className="radio">
+                  <input
+                    type="radio"
+                    name="importMode"
+                    value="text"
+                    checked={bulkImportMode === "text"}
+                    onChange={(e) => setBulkImportMode(e.target.value)}
+                  />
+                  <span>Text Input (Simple)</span>
+                </label>
+              </div>
+            </div>
+
+            {bulkImportMode === "csv" ? (
+              <>
+                {/* CSV Upload */}
+                <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                  <label className="form-label">Upload CSV File *</label>
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleCsvFileUpload}
+                    className="form-input"
+                  />
+                  <small className="form-help">
+                    CSV should include columns: device_id, name, protocol, access_token, is_active
+                  </small>
+                </div>
+
+                {/* Column Mapping */}
+                {csvHeaders.length > 0 && (
+                  <div className="card" style={{ marginBottom: "var(--space-4)" }}>
+                    <h3 style={{ fontSize: "var(--font-size-md)", marginBottom: "var(--space-3)" }}>Map CSV Columns</h3>
+                    <div style={{ display: "grid", gap: "var(--space-3)" }}>
+                      {['device_id', 'name', 'device_type', 'protocol', 'access_token', 'is_active'].map(field => (
+                        <div key={field} className="form-group">
+                          <label className="form-label">
+                            {field === 'device_id' ? 'Device ID *' : field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                          </label>
+                          <select
+                            className="form-select"
+                            value={columnMapping[field] || ""}
+                            onChange={(e) => setColumnMapping(prev => ({ ...prev, [field]: e.target.value }))}
+                            required={field === 'device_id'}
+                          >
+                            <option value="">-- Select CSV column --</option>
+                            {csvHeaders.map(header => (
+                              <option key={header} value={header}>{header}</option>
+                            ))}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+
+                {/* Default Device Type (if not in CSV) */}
+                {!columnMapping['device_type'] && (
+                  <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                    <label className="form-label">Default Device Type (Optional)</label>
+                    <select
+                      className="form-select"
+                      value={bulkImportDeviceType}
+                      onChange={(e) => {
+                        setBulkImportDeviceType(e.target.value);
+                        // Auto-set protocol from device type if available
+                        const selectedType = deviceTypes.find(dt => dt.name === e.target.value);
+                        if (selectedType?.protocol && !bulkImportProtocol && !columnMapping['protocol']) {
+                          setBulkImportProtocol(selectedType.protocol);
+                        }
+                      }}
+                    >
+                      <option value="">Select default device type (optional)...</option>
+                      {deviceTypes
+                        .filter(dt => dt.name && dt.name.trim())
+                        .map((dt) => (
+                          <option key={dt.id} value={dt.name}>
+                            {dt.name}
+                          </option>
+                        ))}
+                    </select>
+                    <small className="form-help">
+                      Used if device_type column is not mapped in CSV. Optional - can be left empty.
+                    </small>
+                  </div>
+                )}
+
+                {/* Default Protocol (if not in CSV) */}
+                {!columnMapping['protocol'] && (
+                  <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                    <label className="form-label">Default Protocol *</label>
+                    <select
+                      className="form-select"
+                      value={bulkImportProtocol}
+                      onChange={(e) => setBulkImportProtocol(e.target.value)}
+                      required
+                    >
+                      <option value="">Select default protocol...</option>
+                      {[...new Set(deviceTypes.map(dt => dt.protocol).filter(Boolean))].sort().map((protocol) => (
+                        <option key={protocol} value={protocol}>
+                          {protocol}
+                        </option>
+                      ))}
+                    </select>
+                    <small className="form-help">
+                      Used if protocol column is not mapped in CSV. Protocol-specific settings will apply to all devices.
+                    </small>
+                  </div>
+                )}
+
+                {/* Protocol-Specific Fields (for CSV mode) */}
+                {bulkImportProtocol && !columnMapping['protocol'] && (
+                  <div style={{ marginBottom: "var(--space-4)" }}>
+                    <ProtocolFields
+                      protocol={bulkImportProtocol}
+                      metadata={bulkImportMetadata}
+                      onChange={(group, data) => {
+                        setBulkImportMetadata(prev => ({
+                          ...prev,
+                          [group]: data,
+                        }));
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Default Access Token (if not in CSV) */}
+                {!columnMapping['access_token'] && (
+                  <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                    <label className="form-label">Default Access Token *</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={bulkImportMetadata.access_token || ""}
+                      onChange={(e) => setBulkImportMetadata(prev => ({ ...prev, access_token: e.target.value }))}
+                      placeholder="Enter default access token"
+                      required={!columnMapping['access_token']}
+                    />
+                    <small className="form-help">
+                      Used if access_token column is not mapped in CSV. Required for device authentication.
+                    </small>
+                  </div>
+                )}
+
+                {/* CSV Preview */}
+                {showCsvPreview && csvData.length > 0 && (
+                  <div className="card" style={{ marginBottom: "var(--space-4)" }}>
+                    <h3 style={{ fontSize: "var(--font-size-md)", marginBottom: "var(--space-3)" }}>
+                      Preview ({csvData.length} devices)
+                    </h3>
+                    <div style={{ overflowX: "auto", maxHeight: "300px", overflowY: "auto" }}>
+                      <table className="table" style={{ fontSize: "var(--font-size-xs)" }}>
+                        <thead>
+                          <tr>
+                            {csvHeaders.slice(0, 6).map(header => (
+                              <th key={header}>{header}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {csvData.slice(0, 10).map((row, idx) => (
+                            <tr key={idx}>
+                              {csvHeaders.slice(0, 6).map(header => (
+                                <td key={header}>{row[header] || "—"}</td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {csvData.length > 10 && (
+                        <div style={{ padding: "var(--space-2)", textAlign: "center", color: "var(--color-text-secondary)" }}>
+                          ... and {csvData.length - 10} more rows
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Text Input Mode (Legacy) */}
+                <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                  <label className="form-label">Device Type (Optional)</label>
+                  <select
+                    className="form-select"
+                    value={bulkImportDeviceType}
+                    onChange={(e) => {
+                      setBulkImportDeviceType(e.target.value);
+                      // Auto-set protocol from device type if available
+                      const selectedType = deviceTypes.find(dt => dt.name === e.target.value);
+                      if (selectedType?.protocol && !bulkImportProtocol) {
+                        setBulkImportProtocol(selectedType.protocol);
+                      }
+                    }}
+                  >
+                    <option value="">Select device type (optional)...</option>
+                    {deviceTypes
+                      .filter(dt => dt.name && dt.name.trim())
+                      .map((dt) => (
+                        <option key={dt.id} value={dt.name}>
+                          {dt.name}
+                        </option>
+                      ))}
+                  </select>
+                  <small className="form-help">
+                    Optional: Device type can be left empty
+                  </small>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                  <label className="form-label">Protocol *</label>
+                  <select
+                    className="form-select"
+                    value={bulkImportProtocol}
+                    onChange={(e) => setBulkImportProtocol(e.target.value)}
+                    required
+                  >
+                    <option value="">Select protocol...</option>
+                    {[...new Set(deviceTypes.map(dt => dt.protocol).filter(Boolean))].sort().map((protocol) => (
+                      <option key={protocol} value={protocol}>
+                        {protocol}
+                      </option>
+                    ))}
+                  </select>
+                  <small className="form-help">
+                    Select the communication protocol for these devices
+                  </small>
+                </div>
+
+                {/* Protocol-Specific Fields */}
+                {bulkImportProtocol && (
+                  <div style={{ marginBottom: "var(--space-4)" }}>
+                    <ProtocolFields
+                      protocol={bulkImportProtocol}
+                      metadata={bulkImportMetadata}
+                      onChange={(group, data) => {
+                        setBulkImportMetadata(prev => ({
+                          ...prev,
+                          [group]: data,
+                        }));
+                      }}
+                    />
+                  </div>
+                )}
+
+                <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                  <label className="form-label">Access Token *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={bulkImportMetadata.access_token || ""}
+                    onChange={(e) => setBulkImportMetadata(prev => ({ ...prev, access_token: e.target.value }))}
+                    placeholder="Enter access token for secure connection"
+                    required
+                  />
+                  <small className="form-help">
+                    Required: Token for device authentication. Devices must include this token when connecting.
+                  </small>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: "var(--space-4)" }}>
+                  <label className="form-label">Device IDs *</label>
+                  <textarea
+                    className="form-input"
+                    rows={8}
+                    placeholder="Enter device IDs, one per line or comma-separated:&#10;TEK-00001&#10;TEK-00002&#10;TEK-00003"
+                    value={bulkImportText}
+                    onChange={(e) => setBulkImportText(e.target.value)}
+                    required
+                  />
+                  <small className="form-help">
+                    Enter device IDs, one per line or comma-separated
+                  </small>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
+                  <div className="form-group">
+                    <label className="form-label">Prefix to Remove (Optional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g., TEK-"
+                      value={bulkImportPrefix}
+                      onChange={(e) => setBulkImportPrefix(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Suffix to Remove (Optional)</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="e.g., -DEV"
+                      value={bulkImportSuffix}
+                      onChange={(e) => setBulkImportSuffix(e.target.value)}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div style={{ display: "flex", gap: "var(--space-3)", justifyContent: "flex-end", marginTop: "var(--space-6)" }}>
+              <button
+                className="btn btn--secondary"
+                onClick={() => {
+                  setShowBulkImportModal(false);
+                  setBulkImportText("");
+                  setBulkImportDeviceType("");
+                  setBulkImportPrefix("");
+                  setBulkImportSuffix("");
+                  setCsvFile(null);
+                  setCsvData([]);
+                  setCsvHeaders([]);
+                  setColumnMapping({});
+                  setShowCsvPreview(false);
+                  setBulkImportMode("csv");
+                  setError(null);
+                  setSuccessMessage(null);
+                }}
+                disabled={bulkImporting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn--primary"
+                onClick={handleBulkImport}
+                disabled={
+                  bulkImporting || 
+                  (bulkImportMode === "csv" && (!csvData.length || !columnMapping['device_id'])) ||
+                  (bulkImportMode === "text" && (!bulkImportText.trim() || !bulkImportProtocol || !bulkImportMetadata.access_token || !bulkImportMetadata.access_token.trim()))
+                }
+              >
+                {bulkImporting 
+                  ? "Importing..." 
+                  : bulkImportMode === "csv"
+                    ? `Import ${csvData.length} Device(s)`
+                    : `Import ${bulkImportText.split(/\n|,/).filter(l => l.trim()).length} Device(s)`
+                }
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

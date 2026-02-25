@@ -134,7 +134,7 @@ export default function FOTAJobsPage() {
       if (response.data && Array.isArray(response.data)) {
         // The API returns a flat list of firmware versions directly
         allVersions.push(...response.data.map(version => ({
-          ...version,
+            ...version,
           firmware_name: version.name, // Use name as firmware_name for consistency
         })));
       }
@@ -216,25 +216,25 @@ export default function FOTAJobsPage() {
         setError(null);
       } else {
         // For other tenants, use backend API (firmware_version_id should be integer)
-        const payload = {
-          name: formData.name,
-          firmware_version_id: parseInt(formData.firmware_version_id),
+      const payload = {
+        name: formData.name,
+        firmware_version_id: parseInt(formData.firmware_version_id),
           device_ids: formData.device_ids.map(id => {
             // Try to parse as integer, but keep original if it fails
             const parsed = parseInt(id);
             return isNaN(parsed) ? id : parsed;
           }),
           tenant_id: user?.tenant_id,
-        };
-        if (formData.scheduled_at) {
-          payload.scheduled_at = formData.scheduled_at;
-        }
+      };
+      if (formData.scheduled_at) {
+        payload.scheduled_at = formData.scheduled_at;
+      }
         
-        await api.post("/fota/jobs", payload);
-        setShowCreateModal(false);
-        setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
+      await api.post("/fota/jobs", payload);
+      setShowCreateModal(false);
+      setFormData({ name: "", firmware_version_id: "", device_ids: [], scheduled_at: "" });
         setDeviceSearchQuery("");
-        await loadJobs();
+      await loadJobs();
       }
     } catch (err) {
       const errorMsg = err.response?.data?.detail || err.message || "Failed to create FOTA job";

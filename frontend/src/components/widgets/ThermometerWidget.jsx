@@ -2,7 +2,7 @@ import PropTypes from "prop-types";
 import Icon from "../Icon.jsx";
 import "./widgets.css";
 
-export default function ThermometerWidget({ title, value, unit = "°C", min = -20, max = 50 }) {
+export default function ThermometerWidget({ title, value, unit = "°C", min = -20, max = 50, decimals = 1 }) {
   const numericValue = typeof value === "number" ? value : min;
   const clamped = Math.min(max, Math.max(min, numericValue));
   const percentage = max === min ? 0 : ((clamped - min) / (max - min)) * 100;
@@ -80,7 +80,7 @@ export default function ThermometerWidget({ title, value, unit = "°C", min = -2
           />
         </svg>
         <div className="thermometer-value">
-          {typeof value === "number" ? value.toFixed(1) : "—"}
+          {typeof value === "number" ? value.toFixed(decimals) : "—"}
           <span className="thermometer-unit">{unit}</span>
         </div>
       </div>
@@ -98,5 +98,6 @@ ThermometerWidget.propTypes = {
   unit: PropTypes.string,
   min: PropTypes.number,
   max: PropTypes.number,
+  decimals: PropTypes.number,
 };
 
