@@ -315,45 +315,22 @@ export default function AlertRulesPage() {
         </div>
         <div className="page-header__actions" style={{ display: "flex", gap: "var(--space-2)" }}>
           {isSmartLPGTenant(user?.tenant_id) && (
-            <>
-              <button
-                className="btn btn--secondary"
-                onClick={async () => {
-                  try {
-                    setError(null);
-                    setSuccessMessage(null);
-                    setLoading(true);
-                    const { seedAlertRules } = await import("../scripts/seedSmartLPGData.js");
-                    const result = await seedAlertRules();
-                    setSuccessMessage(`Successfully seeded ${result.count} alert rules to Firebase`);
-                    await loadRules();
-                    setLoading(false);
-                  } catch (err) {
-                    console.error("Error seeding alert rules:", err);
-                    setError(err.message || "Failed to seed alert rules");
-                    setLoading(false);
-                  }
-                }}
-              >
-                Seed Sample Rules
-              </button>
-              <button
-                className="btn btn--secondary"
-                onClick={async () => {
-                  try {
-                    setError(null);
-                    setSuccessMessage(null);
-                    const { evaluateAlertRulesAndCreateAlerts } = await import("../services/smartLPGFirebaseService.js");
-                    const result = await evaluateAlertRulesAndCreateAlerts(user?.tenant_id);
-                    setSuccessMessage(`Evaluated ${result.evaluated} conditions, created ${result.created} alerts`);
-                  } catch (err) {
-                    setError(err.message || "Failed to evaluate alert rules");
-                  }
-                }}
-              >
-                Evaluate Rules & Create Alerts
-              </button>
-            </>
+            <button
+              className="btn btn--secondary"
+              onClick={async () => {
+                try {
+                  setError(null);
+                  setSuccessMessage(null);
+                  const { evaluateAlertRulesAndCreateAlerts } = await import("../services/smartLPGFirebaseService.js");
+                  const result = await evaluateAlertRulesAndCreateAlerts(user?.tenant_id);
+                  setSuccessMessage(`Evaluated ${result.evaluated} conditions, created ${result.created} alerts`);
+                } catch (err) {
+                  setError(err.message || "Failed to evaluate alert rules");
+                }
+              }}
+            >
+              Evaluate Rules & Create Alerts
+            </button>
           )}
           <button
             className="btn btn--primary"
