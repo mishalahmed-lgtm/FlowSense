@@ -33,6 +33,7 @@ from fota_service import fota_service
 from health_monitoring_service import health_monitoring_service
 from analytics_engine import analytics_engine
 from rule_scheduler import rule_scheduler
+from smartlpg_billing_scheduler import smartlpg_billing_scheduler
 from cep_engine import cep_engine
 from mqtt_command_service import mqtt_command_service
 from modbus_handler import modbus_handler
@@ -250,6 +251,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to start rule scheduler: {e}. Continuing without scheduled rules...")
     
+    try:
+        smartlpg_billing_scheduler.start()
+        logger.info("SmartLPG billing report scheduler started")
+    except Exception as e:
+        logger.warning(f"Failed to start SmartLPG billing scheduler: {e}. Continuing without it...")
+    
     # Start CEP engine (for complex event processing)
     try:
         cep_engine.start()
@@ -288,6 +295,11 @@ async def lifespan(app: FastAPI):
     logger.info("CEP engine stopped")
     rule_scheduler.stop()
     logger.info("Rule scheduler stopped")
+    try:
+        smartlpg_billing_scheduler.stop()
+        logger.info("SmartLPG billing report scheduler stopped")
+    except Exception as e:
+        logger.warning(f"Error stopping SmartLPG billing scheduler: {e}")
     analytics_engine.stop()
     logger.info("Analytics engine stopped")
     health_monitoring_service.stop()

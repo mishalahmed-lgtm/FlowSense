@@ -21,6 +21,7 @@ email-validator==2.1.0
 croniter==2.0.1
 slowapi>=0.1.9
 aiohttp==3.9.1
+firebase-admin>=6.5.0
 
 # Optional heavy packages (uncomment if needed):
 # reportlab==4.0.7  # For PDF export

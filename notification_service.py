@@ -5,7 +5,7 @@ import smtplib
 import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime, timezone
 
 from database import SessionLocal
@@ -70,6 +70,38 @@ class NotificationService:
             logger.error(f"Failed to send email: {e}", exc_info=True)
             notification.status = "failed"
             notification.error_message = str(e)
+            return False
+    
+    def send_html_email(
+        self,
+        recipients: List[str],
+        subject: str,
+        html_body: str,
+        text_body: Optional[str] = None,
+    ) -> bool:
+        """Send a multipart/alternative HTML email (no DB notification row)."""
+        if not self.smtp_host:
+            logger.warning("SMTP not configured, skipping HTML email")
+            return False
+        if not recipients:
+            return False
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["From"] = self.smtp_from
+            msg["To"] = ", ".join(recipients)
+            msg["Subject"] = subject
+            plain = text_body or "View this email in an HTML-capable client."
+            msg.attach(MIMEText(plain, "plain"))
+            msg.attach(MIMEText(html_body, "html"))
+            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
+                if self.smtp_user and self.smtp_password:
+                    server.starttls()
+                    server.login(self.smtp_user, self.smtp_password)
+                server.send_message(msg)
+            logger.info("HTML email sent to %s", recipients)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send HTML email: {e}", exc_info=True)
             return False
     
     def send_sms(self, notification: Notification) -> bool:

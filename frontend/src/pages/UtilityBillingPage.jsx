@@ -5,6 +5,7 @@ import Tabs from "../components/Tabs.jsx";
 import Icon from "../components/Icon.jsx";
 import BackButton from "../components/BackButton.jsx";
 import CompanyDetailsModal from "../components/CompanyDetailsModal.jsx";
+import UtilityBillingScheduleSection from "../components/UtilityBillingScheduleSection.jsx";
 import { generateBillingReport, preparePerDeviceReportData, prepareConsolidatedReportData } from "../utils/pdfReportGenerator.js";
 
 const UTILITY_KINDS = [
@@ -35,6 +36,7 @@ export default function UtilityBillingPage() {
   const [hasRun, setHasRun] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [showCompanyModal, setShowCompanyModal] = useState(false);
+  const [showScheduleSection, setShowScheduleSection] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(50);
@@ -250,6 +252,13 @@ export default function UtilityBillingPage() {
           <div className="page-header__actions">
             <button 
               className="btn btn--secondary"
+              onClick={() => setShowScheduleSection(!showScheduleSection)}
+            >
+              <Icon name="send" size={18} />
+              Email Schedule
+            </button>
+            <button 
+              className="btn btn--secondary"
               onClick={() => setShowCompanyModal(true)}
             >
               <Icon name="edit" size={18} />
@@ -258,6 +267,10 @@ export default function UtilityBillingPage() {
           </div>
         )}
       </div>
+
+      {showScheduleSection && (
+        <UtilityBillingScheduleSection onSave={() => setShowScheduleSection(false)} />
+      )}
 
       <Tabs
         tabs={[

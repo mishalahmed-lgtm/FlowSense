@@ -26,4 +26,5 @@ strawberry-graphql[fastapi]>=0.212.0
 slowapi>=0.1.9
 influxdb-client>=1.39.0
 aiohttp==3.9.1
+firebase-admin>=6.5.0
 

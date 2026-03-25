@@ -4,7 +4,7 @@
  */
 
 import { db } from "../utils/firebase";
-import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, where, orderBy, limit as firestoreLimit, Timestamp } from "firebase/firestore";
+import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, deleteField, query, where, orderBy, limit as firestoreLimit, Timestamp } from "firebase/firestore";
 
 /**
  * Remove undefined values from an object recursively and convert to JSON-safe format
@@ -1493,5 +1493,97 @@ export async function getDisplaySettingsFromFirebase(tenantId) {
   } catch (error) {
     console.error("❌ Error getting display settings from Firebase:", error);
     return null;
+  }
+}
+
+const UTILITY_BILLING_SCHEDULE_DOC = "config";
+
+/**
+ * Default SmartLPG automatic utility billing email schedule (Firestore-backed).
+ */
+export function getDefaultUtilityBillingSchedule() {
+  return {
+    enabled: false,
+    frequency: "monthly",
+    report_kind: "consolidated",
+    recipient_emails: ["billing@smartlpg.com"],
+    send_hour_utc: 6,
+    send_minute_utc: 0,
+    day_of_week: 0,
+    day_of_month: 1,
+    next_send_at: null,
+    last_sent_at: null,
+  };
+}
+
+function firestoreTimeToIso(value) {
+  if (value == null) return null;
+  if (typeof value.toDate === "function") return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return value;
+  return null;
+}
+
+/**
+ * Load automatic utility billing schedule for SmartLPG (single shared config doc).
+ */
+export async function getUtilityBillingScheduleFromFirebase() {
+  try {
+    const ref = doc(db, "smartLPG_utility_billing_schedule", UTILITY_BILLING_SCHEDULE_DOC);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) {
+      return { ...getDefaultUtilityBillingSchedule(), id: UTILITY_BILLING_SCHEDULE_DOC };
+    }
+    const data = snap.data();
+    return {
+      id: snap.id,
+      enabled: Boolean(data.enabled),
+      frequency: data.frequency || "monthly",
+      report_kind: data.report_kind || "consolidated",
+      recipient_emails: (() => {
+        const raw = Array.isArray(data.recipient_emails)
+          ? data.recipient_emails
+          : typeof data.recipient_emails === "string"
+            ? data.recipient_emails.split(/[,;\s]+/).filter(Boolean)
+            : [];
+        return raw.length ? raw : ["billing@smartlpg.com"];
+      })(),
+      send_hour_utc: data.send_hour_utc ?? 6,
+      send_minute_utc: data.send_minute_utc ?? 0,
+      day_of_week: data.day_of_week ?? 0,
+      day_of_month: data.day_of_month ?? 1,
+      next_send_at: firestoreTimeToIso(data.next_send_at),
+      last_sent_at: firestoreTimeToIso(data.last_sent_at),
+    };
+  } catch (error) {
+    console.error("❌ Error loading utility billing schedule:", error);
+    return { ...getDefaultUtilityBillingSchedule(), id: UTILITY_BILLING_SCHEDULE_DOC };
+  }
+}
+
+/**
+ * Save automatic utility billing schedule (backend worker reads this doc and sends SMTP emails).
+ */
+export async function saveUtilityBillingScheduleToFirebase(schedule) {
+  try {
+    const ref = doc(db, "smartLPG_utility_billing_schedule", UTILITY_BILLING_SCHEDULE_DOC);
+    const payload = {
+      enabled: Boolean(schedule.enabled),
+      frequency: schedule.frequency || "monthly",
+      report_kind: schedule.report_kind || "consolidated",
+      recipient_emails: ["billing@smartlpg.com"],
+      send_hour_utc: schedule.send_hour_utc ?? 6,
+      send_minute_utc: schedule.send_minute_utc ?? 0,
+      day_of_week: schedule.day_of_week ?? 0,
+      day_of_month: schedule.day_of_month ?? 1,
+      updated_at: Timestamp.now(),
+      next_send_at: deleteField(),
+    };
+    await setDoc(ref, payload, { merge: true });
+    console.log("✅ Saved utility billing schedule to Firebase");
+    return { success: true };
+  } catch (error) {
+    console.error("❌ Error saving utility billing schedule:", error);
+    throw error;
   }
 }
